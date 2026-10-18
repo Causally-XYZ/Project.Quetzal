@@ -54,3 +54,15 @@ export function parseDuration(s: string): number | undefined {
   for (const m of t.matchAll(re)) { ms += +m[1] * { w: 604_800_000, d: 86_400_000, h: 3_600_000, m: 60_000, s: 1000 }[m[2] as "w"]; n++; rest = rest.replace(m[0], ""); }
   return n && !rest.trim() && ms > 0 ? ms : undefined;
 }
+
+/** 相对时间（#40：模型本身没有「时间」这个维度，只给绝对时间戳时它很难感到「过了多久」）：刚才、N 分钟前、N 小时前、N 天前、N 周前、N 个月前、N 年前。 */
+export function ago(ts: number, now = Date.now()): string {
+  const s = Math.max(0, Math.floor((now - ts) / 1000));
+  if (s < 60) return "刚才";
+  const m = Math.floor(s / 60); if (m < 60) return `${m} 分钟前`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h} 小时前`;
+  const d = Math.floor(h / 24); if (d < 14) return `${d} 天前`;
+  if (d < 60) return `${Math.floor(d / 7)} 周前`;
+  if (d < 365) return `${Math.floor(d / 30)} 个月前`;
+  return `${Math.floor(d / 365)} 年前`;
+}

@@ -2,12 +2,17 @@
 //   - 存在 kv「taskStates」（一个会话一条，最多 200 条，按修改时刻保留最近的）；之前版本存在 kv「context.state.<会话>」，读不到新记录时照旧读它。
 //   - 多具身体时经 mesh/shared.ts 的 taskStates 分区按会话合并：修改较新的为准（后写胜；相同时刻按内容比较，各身体收敛到同一份），
 //     所以对话换到另一具身体上继续（move_to、续做、对方从另一具身体的控制台说话）时，约束与未决问题跟着过去。
+//   - 时间线（#40）：每次修改与上一份比较，记下定下 / 改了目标、加了哪条约束、新的与解决了的未决问题、阶段变化（最多 30 条，按时刻）；
+//     每一步交给模型时带上相对时间，长对话里早先定下的事不会只剩一个没有时间感的列表。
 //   - 别处来的逐字段检查：会话编号、字符串数组的条数与长度、阶段只收认得的值、修改时刻不晚于「现在 + 5 分钟」。
 import { kv } from "../store.ts";
 import { bus } from "../bus.ts";
 import { config } from "../config.ts";
+import { ago } from "../time/zone.ts";
 
-export interface TaskStateRecord { conv: string; goal: string; constraints: string[]; openQuestions: string[]; phase: string; tags: string[]; updatedAt: number; body: string }
+export interface TimelineEntry { ts: number; note: string }
+export interface TaskStateRecord { conv: string; goal: string; constraints: string[]; openQuestions: string[]; phase: string; tags: string[]; updatedAt: number; body: string; timeline?: TimelineEntry[] }
+const TIMELINE = 30;
 
 const KEY = "taskStates", MAX = 200, FUTURE_MS = 5 * 60_000;
 const PHASES = new Set(["unknown", "exploration", "verification", "completion", "any"]);
@@ -30,8 +35,30 @@ function store(records: TaskStateRecord[], o: { remote?: boolean } = {}) {
 export function save(conv: string, s: { goal?: unknown; constraints?: unknown; openQuestions?: unknown; phase?: unknown; tags?: unknown }, now = Date.now()): TaskStateRecord {
   const r: TaskStateRecord = { conv: clean(conv, 200), goal: clean(s.goal, 4000), constraints: list(s.constraints), openQuestions: list(s.openQuestions),
     phase: typeof s.phase === "string" && PHASES.has(s.phase) ? s.phase : "unknown", tags: list(s.tags), updatedAt: now, body: config.body };
+  const prev = all().find((x) => x.conv === r.conv);
+  r.timeline = [...(prev?.timeline ?? []), ...changes(prev, r).map((note) => ({ ts: now, note }))].slice(-TIMELINE);
   store([...all().filter((x) => x.conv !== r.conv), r]);
   return r;
+}
+
+const short = (t: string) => (t.length > 80 ? t.slice(0, 80) + "…" : t);
+const PHASE_NAME: Record<string, string> = { unknown: "未定", exploration: "探索", verification: "核实", completion: "收尾", any: "不限" };
+/** 这次修改相对上一份记下了什么（时间线的条目）。 */
+export function changes(prev: Pick<TaskStateRecord, "goal" | "constraints" | "openQuestions" | "phase"> | undefined, next: Pick<TaskStateRecord, "goal" | "constraints" | "openQuestions" | "phase">): string[] {
+  const out: string[] = [];
+  if (next.goal && next.goal !== prev?.goal) out.push(`${prev?.goal ? "目标改为" : "定下目标"}：${short(next.goal)}`);
+  for (const c of next.constraints) if (!prev?.constraints.includes(c)) out.push(`加了约束：${short(c)}`);
+  for (const c of prev?.constraints ?? []) if (!next.constraints.includes(c)) out.push(`去掉约束：${short(c)}`);
+  for (const q of next.openQuestions) if (!prev?.openQuestions.includes(q)) out.push(`新的未决问题：${short(q)}`);
+  for (const q of prev?.openQuestions ?? []) if (!next.openQuestions.includes(q)) out.push(`解决了 / 放下了问题：${short(q)}`);
+  if (prev && prev.phase !== next.phase && next.phase !== "unknown") out.push(`阶段：${PHASE_NAME[prev.phase] ?? prev.phase} → ${PHASE_NAME[next.phase] ?? next.phase}`);
+  return out;
+}
+
+/** 给模型看的时间线：每条带相对时间与当地时刻。 */
+export function timelineText(conv: string, now = Date.now()): string[] {
+  const r = get(conv);
+  return (r?.timeline ?? []).map((e) => `${ago(e.ts, now)}（${new Date(e.ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}）${e.note}`);
 }
 
 /** 别处来的一条：不合格返回 undefined。 */
@@ -41,7 +68,9 @@ export function sanitize(x: any, now = Date.now()): TaskStateRecord | undefined 
   if (!conv || conv !== x.conv || !updatedAt || updatedAt > now + FUTURE_MS) return undefined;
   const body = clean(x.body, 40);
   return { conv, goal: clean(x.goal, 4000), constraints: list(x.constraints), openQuestions: list(x.openQuestions), phase: typeof x.phase === "string" && PHASES.has(x.phase) ? x.phase : "unknown",
-    tags: list(x.tags), updatedAt, body: /^[a-z0-9][a-z0-9-]{0,39}$/.test(body) ? body : "" };
+    tags: list(x.tags), updatedAt, body: /^[a-z0-9][a-z0-9-]{0,39}$/.test(body) ? body : "",
+    timeline: (Array.isArray(x.timeline) ? x.timeline : []).filter((e: any) => e && typeof e.ts === "number" && Number.isFinite(e.ts) && e.ts > 0 && e.ts <= now + FUTURE_MS && typeof e.note === "string")
+      .slice(-TIMELINE).map((e: any) => ({ ts: e.ts, note: clean(e.note, 200) })) };
 }
 
 /** 按会话合并别处的记录：修改较新的为准。返回是否有变化。 */

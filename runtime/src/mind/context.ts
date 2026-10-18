@@ -57,6 +57,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
       request.signal?.throwIfAborted();
       const latest = request.messages.findLast((m) => m.role === 'user' && !m.content.startsWith('（基座提醒'));
       context.query = `${context.state.goal}\n${latest?.content ?? ''}`;
+      if (context.shared) { const tl = taskStates.timelineText(context.conv); if (tl.length) context.state.timeline = tl; else delete context.state.timeline; } // 这项工作的时间线，带相对时间（#40）
       // 工具观测是本机执行证据，不能由卡片成功推断整个任务完成。
       context.state.evidence = request.messages.filter((m) => m.role === 'tool').slice(-8).map((m) => {
         if (m.role !== 'tool') throw new Error('工具消息类型不一致');

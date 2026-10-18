@@ -3,6 +3,7 @@
 //   做梦（dream）：整理最近的经历（包括其他身体的），更新常驻记忆与笔记，调和人格冲突
 //   对话（converse）：有人说话时立即回应，可以使用工具
 // 每次醒来 / 对话都是一个会话（mind/activity.ts）：进展实时广播，并受「无进展」会话时间墙约束。
+import { ago } from "../time/zone.ts";
 import { resolveBody } from "./body-files.ts";
 import crypto from "node:crypto";
 import { chat } from "../providers/router.ts";
@@ -271,7 +272,8 @@ export function stripStamp(text: string): string {
 export function entryBody(via: string | null | undefined): string | undefined {
   return via && (via !== config.body || multiBody()) ? via : undefined; // 不止一具身体时总是标明（别的身体暂时离线也标：只有一具在线时她照样需要知道对方从哪里来）
 }
-const stamp = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+// 一小时以前的消息另写相对时间（#40）：只有绝对时刻时，她不容易感到这句话已经是几天前的了
+const stamp = (ts: number) => { const abs = new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }); return Date.now() - ts >= 3_600_000 ? `${abs}，${ago(ts)}` : abs; };
 
 /**
  * 某一轮回复的过程记录（保存在 messages.process 里的工具卡片与中途叙述），供之后的轮次看到自己做过什么。

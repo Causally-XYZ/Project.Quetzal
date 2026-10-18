@@ -6,6 +6,7 @@ export interface TaskWorkingState {
   constraints: string[];
   openQuestions: string[];
   evidence: { id: string; claim: string; source: string }[];
+  timeline?: string[]; // 这项工作的时间线（宿主按需提供：什么时候定下了目标、加了哪条约束、解决了哪个问题，带相对时间）
 }
 export interface MemoryContext { id: string; text: string; priority?: number; reference?: string }
 export interface ContextEntry { id: string; message: Msg }
