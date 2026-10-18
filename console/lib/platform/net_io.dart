@@ -39,3 +39,16 @@ Future<HttpReply> upload(String url, Uint8List bytes, {Map<String, String> heade
     return HttpReply(res.statusCode, await res.transform(utf8.decoder).join());
   } finally { c.close(); }
 }
+
+/// 下载（附件、她生成的文件）：按「无进展」计时，60 秒没有收到任何字节才放弃。返回状态码与内容。
+Future<(int, Uint8List)> download(String url, {Map<String, String> headers = const {}}) async {
+  final c = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+  try {
+    final req = await c.getUrl(Uri.parse(url));
+    headers.forEach(req.headers.set);
+    final res = await req.close().timeout(const Duration(seconds: 60));
+    final out = BytesBuilder(copy: false);
+    await for (final part in res.timeout(const Duration(seconds: 60))) { out.add(part); }
+    return (res.statusCode, out.takeBytes());
+  } finally { c.close(); }
+}

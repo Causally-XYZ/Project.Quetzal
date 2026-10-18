@@ -1,4 +1,4 @@
-// 浏览器实现（网页版）：XMLHttpRequest，上传用 upload.onprogress 报告进度。
+// 浏览器实现（网页版）：XMLHttpRequest，上传用 upload.onprogress 报告进度；下载取 arraybuffer。
 import 'dart:async';
 import 'dart:js_interop';
 import 'dart:typed_data';
@@ -36,4 +36,20 @@ Future<HttpReply> upload(String url, Uint8List bytes, {Map<String, String> heade
   xhr.addEventListener('progress', ((web.Event _) => arm()).toJS);
   arm();
   return _send(xhr, bytes.toJS).whenComplete(() => t?.cancel());
+}
+
+/// 下载（附件、她生成的文件）：按「无进展」计时，60 秒没有任何进度才放弃。返回状态码与内容。
+Future<(int, Uint8List)> download(String url, {Map<String, String> headers = const {}}) {
+  final xhr = web.XMLHttpRequest()..open('GET', url)..responseType = 'arraybuffer';
+  headers.forEach((k, v) => xhr.setRequestHeader(k, v));
+  final c = Completer<(int, Uint8List)>();
+  Timer? t;
+  void arm() { t?.cancel(); t = Timer(const Duration(seconds: 60), () => xhr.abort()); }
+  xhr.addEventListener('progress', ((web.Event _) => arm()).toJS);
+  xhr.addEventListener('load', ((web.Event _) { if (!c.isCompleted) c.complete((xhr.status, (xhr.response as JSArrayBuffer?)?.toDart.asUint8List() ?? Uint8List(0))); }).toJS);
+  xhr.addEventListener('error', ((web.Event _) { if (!c.isCompleted) c.completeError(Exception('网络错误：连不上 ${xhr.responseURL}')); }).toJS);
+  xhr.addEventListener('abort', ((web.Event _) { if (!c.isCompleted) c.completeError(Exception('下载超时')); }).toJS);
+  arm();
+  xhr.send();
+  return c.future.whenComplete(() => t?.cancel());
 }
