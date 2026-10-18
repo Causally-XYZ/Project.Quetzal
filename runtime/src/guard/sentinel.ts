@@ -31,13 +31,13 @@ export const RISK_CLASSES: Record<string, { label: string; risk: "low" | "high" 
   sandbox_shell: { label: "沙箱里执行命令", risk: "low" },
   outbound: { label: "醒来时对外发消息", risk: "low" },
   mcp_write: { label: "MCP 工具里没有声明只读的", risk: "high" },
-  destructive: { label: "删除找不回的数据（自造工具、MCP 声明为破坏性的）", risk: "high" },
+  destructive: { label: "删除找不回的数据（自造工具、MCP 声明为破坏性的、生成文件时覆盖已有文件）", risk: "high" },
   credentials: { label: "账号与凭据（pass_secret 之外）", risk: "high" },
   tool_write: { label: "造工具（写会被执行的代码）", risk: "high" },
   hands: { label: "操作屏幕：点击、拖拽、滚动、输入、按键、打开应用、切换窗口", risk: "high" },
 };
 /** 档位为「交给审核模型」的能力类别审核失败时的风险（没列出的按 high）。 */
-const PERMISSION_RISK: Record<string, "low" | "high"> = { camera: "low", microphone: "low", location: "low", device: "low", network: "low", memory: "low", message: "low", session: "low" };
+const PERMISSION_RISK: Record<string, "low" | "high"> = { deliverable: "low", camera: "low", microphone: "low", location: "low", device: "low", network: "low", memory: "low", message: "low", session: "low" };
 
 /**
  * 内置工具的语义：删除数据、账号与凭据。按工具与它的动作参数判断，不看命令文字。
@@ -57,7 +57,7 @@ export function classify(o: Classified): string | undefined {
   if (o.tool === "body_call") return REMOTE_EXEC.has(String(a.tool ?? "")) ? "remote_exec" : undefined; // 别的工具在那具身体上按它自己的类别再查一次
   if (o.tool === "send_message") return o.origin === "chat" ? undefined : "outbound"; // 对话中只出现在当前对话里
   if (o.tool === "tool_write") return "tool_write";
-  if (DESTRUCTIVE.has(o.tool)) return "destructive";
+  if (DESTRUCTIVE.has(o.tool) || (o.tool === "deliverable_create" && a.overwrite === true)) return "destructive"; // 生成文件要覆盖同名的已有文件
   if (o.tool === "secret_sync" || (o.tool === "voice_config" && a.action === "set" && typeof a.key === "string" && a.key)) return "credentials";
   if (o.mcp) return o.mcp.destructive ? "destructive" : o.mcp.readOnly === true ? undefined : "mcp_write";
   if (o.permission === "hands") return HANDS_READ.has(o.tool) ? undefined : "hands";
