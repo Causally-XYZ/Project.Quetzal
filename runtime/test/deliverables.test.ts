@@ -193,8 +193,8 @@ test("文件名：只写进根目录里，扩展名与格式对得上，不覆�
 
   const root = fs.mkdtempSync(path.join(tmp, "root-"));
   const f1 = dt.place(root, "sub/a.txt", false); fs.writeFileSync(f1, "1");
-  assert.equal(f1, path.join(fs.realpathSync(root), "sub", "a.txt"));
-  assert.equal(dt.place(root, "sub/a.txt", false), path.join(fs.realpathSync(root), "sub", "a-2.txt"), "同名不覆盖");
+  assert.equal(f1, path.join(fs.realpathSync.native(root), "sub", "a.txt"));
+  assert.equal(dt.place(root, "sub/a.txt", false), path.join(fs.realpathSync.native(root), "sub", "a-2.txt"), "同名不覆盖");
   assert.equal(dt.place(root, "sub/a.txt", true), f1, "overwrite 覆盖");
   const outside = fs.mkdtempSync(path.join(tmp, "outside-"));
   fs.symlinkSync(outside, path.join(root, "link"));
@@ -214,7 +214,7 @@ test("工具：没有工作区写进交付目录、作为附件放进这一轮�
   const r = await callTool("deliverable_create", { name: "周报.docx", markdown: "# 周报\n\n本周完成了**三件事**。" }, "测试", { session: s });
   assert.equal(r.status, "ok", r.text);
   const file = r.text.match(/（文件：(.+)）/)![1];
-  assert.ok(file.startsWith(path.join(process.env.QUETZAL_DELIVERABLES_DIR!, "")), file);
+  assert.ok(file.startsWith(path.join(fs.realpathSync.native(process.env.QUETZAL_DELIVERABLES_DIR!), "")), file); // native：Windows 运行器的临时目录是 8.3 短名，实现给出的是展开后的路径
   assert.match(path.dirname(file), /\d{4}-\d{2}-\d{2}$/, "按日期分子目录");
   assert.match(r.text, /会作为附件随你这一轮的回复交给对方/);
   assert.equal(s.outbox.length, 1);
@@ -235,7 +235,7 @@ test("工具：没有工作区写进交付目录、作为附件放进这一轮�
   const s2 = chatTurn("d2");
   const r3 = await callTool("deliverable_create", { name: "out/汇报.pptx", slides: [{ title: "封面" }, { title: "图", image: "logo.png" }], send: false }, "测试", { session: s2 });
   assert.equal(r3.status, "ok", r3.text);
-  assert.ok(fs.existsSync(path.join(fs.realpathSync(dir), "out", "汇报.pptx")));
+  assert.ok(fs.existsSync(path.join(fs.realpathSync.native(dir), "out", "汇报.pptx")));
   assert.doesNotMatch(r3.text, /注意/, "图片从工作区找到了");
   assert.equal(s2.outbox.length, 0, "send=false 不交付");
   s.close(); s2.close();
@@ -284,7 +284,7 @@ test("跨身体：deliverable_create 在可被别的身体调用的清单里，�
   const dir = fs.mkdtempSync(path.join(tmp, "remote-ws-"));
   const r = await callTool("deliverable_create", { name: "远.md", markdown: "# 远" }, "来自 别的身体", { signal: new AbortController().signal, cwd: dir });
   assert.equal(r.status, "ok", r.text);
-  assert.ok(fs.existsSync(path.join(fs.realpathSync(dir), "远.md")));
+  assert.ok(fs.existsSync(path.join(fs.realpathSync.native(dir), "远.md")));
   assert.match(r.text, /另一具身体调过来的，文件留在这里/);
 });
 
