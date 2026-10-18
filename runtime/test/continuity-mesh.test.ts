@@ -69,7 +69,8 @@ test("两具身体：目标、工作状态与子 agent 记录同步；离线身�
   // 手机上的子 agent：先做一步（note_list），第二次模型调用一直不回（做到一半）；记录与检查点同步到电脑
   await phone.call("llmScript", { messages: [{ content: "先看看", tool_calls: [{ id: "t1", type: "function", function: { name: "note_list", arguments: "{}" } }] }, { delay: 600_000, message: { content: "不会到这里" } }] });
   const aid = await phone.call<string>("spawnAgent", { name: "整理员", goal: "整理笔记", conv: "c-agent" });
-  await until(async () => (await pc.call<any[]>("agents")).find((a) => a.id === aid)?.checkpoint?.steps === 1).catch(async (e) => {
+  // 等到这一步的结果也同步过来：步数先记下，工具结果后到（Windows 上见过步数为 1 而摘要还是「note_list() …」）
+  await until(async () => { const c = (await pc.call<any[]>("agents")).find((a) => a.id === aid)?.checkpoint; return c?.steps === 1 && /note_list\(\) ✓/.test(c.summary ?? ""); }).catch(async (e) => {
     // 偶发：负载高的 CI 上这里等不到。失败时带上两边的子 agent 记录与手机上脚本回复被哪一次请求取走，便于定位
     throw new Error(`${e.message}：phone ${JSON.stringify((await phone.call<any[]>("agents")).find((a) => a.id === aid))}；pc ${JSON.stringify((await pc.call<any[]>("agents")).find((a) => a.id === aid))}；llmTook ${JSON.stringify(await phone.call("llmTook"))}`);
   });
