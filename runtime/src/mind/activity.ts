@@ -128,6 +128,8 @@ export class Session {
   moveResult?: Promise<string>;
   /** 醒来时 send_message 发到的会话：这次醒来之后再发、没有另外指定时接着发到这里（一次醒来的话放在一起）。 */
   sayTo?: string;
+  /** 她这一轮生成、要交给对方的文件（deliverable_create）：对话随这一轮的回复作为附件发出；醒来时随下一条 send_message 发出。 */
+  readonly outbox: import("../store.ts").Attachment[] = [];
 
   readonly conv: string;
 

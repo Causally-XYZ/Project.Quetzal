@@ -15,6 +15,7 @@ import http from "node:http";
 import https from "node:https";
 import fs from "node:fs";
 import { saveUpload, fromUpload, resolveUpload, MAX_FILES, MAX_FILE_BYTES } from "./mind/attachments.ts";
+import { extractText } from "./mind/documents.ts";
 const str64 = (v: unknown) => (typeof v === "string" && v ? v.slice(0, 64) : undefined);
 import crypto from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -94,6 +95,14 @@ export function startGateway(safeMode: boolean): GatewayHandle {
     "feishu.setHolder": (p) => { const b = String(p.body ?? "").trim(); if (b && !/^[a-z0-9][a-z0-9-]{0,39}$/.test(b)) throw new Error("身体名不对"); saveConfig({ channels: { feishuHolder: b } }); return feishuStatus(); },
     "feishu.register": () => { registerFeishu((url) => broadcast("feishu.qr", { url })).then((s) => broadcast("feishu.registered", s), (e) => broadcast("feishu.error", { message: e.description ?? e.message })); return true; },
     "safeMode": () => safeMode,
+    // 附件的轻量预览（她生成的 docx / xlsx / pptx / pdf 与其他文档）：只按 uploads 里的相对路径解析，抽出开头的文字（xlsx 为制表符分隔的各工作表）。只读，不记审计
+    "uploads.preview": async (p) => {
+      const rel = String(p?.rel ?? "").slice(0, 1000), f = resolveUpload(rel);
+      if (!f) throw new Error("这个附件不在这具身体上");
+      const { kind, text } = await extractText(f);
+      const max = Math.min(20_000, Math.max(500, Number(p?.max) || 6000));
+      return { name: fromUpload(rel)?.name ?? path.basename(f), kind, text: text.slice(0, max), total: text.length };
+    },
     // Mermaid 图的兜底渲染：桌面控制台没有网页引擎时画成静态 SVG（mermaid.ts）。只读，不记审计
     "mermaid.render": async (p) => ({ svg: await (await mermaid()).renderMermaidSvg(String(p.code ?? ""), p.dark === true) }),
     // 换一个新的网关令牌：保存、断开其他所有连接（它们手里的旧令牌作废），把新令牌返回给发起的这个控制台
@@ -234,7 +243,8 @@ export function startGateway(safeMode: boolean): GatewayHandle {
       const f = resolveUpload(decodeURIComponent(new URL(req.url, "http://x").pathname.slice("/uploads/".length)));
       if (!f) return json(res, 404, { ok: false, message: "没有这个文件" });
       const a = fromUpload(decodeURIComponent(new URL(req.url, "http://x").pathname.slice("/uploads/".length)))!;
-      res.writeHead(200, { "content-type": a.kind === "image" ? a.mime : a.kind === "text" ? "text/plain; charset=utf-8" : "application/octet-stream", "content-length": a.size });
+      res.writeHead(200, { "content-type": a.kind === "image" ? a.mime : a.kind === "text" ? "text/plain; charset=utf-8" : "application/octet-stream", "content-length": a.size,
+        ...(a.kind === "file" ? { "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(a.name)}`, "x-content-type-options": "nosniff" } : {}) }); // 文档按下载处理（浏览器直接打开链接时存成文件，不当网页渲染）
       return void fs.createReadStream(f).pipe(res);
     }
     // 远程 MCP 的 OAuth 回调（redirect_uri 是本机回环地址）：凭 state 认出是哪一次登录，不需要网关令牌；只在明文回环监听上

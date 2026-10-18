@@ -203,7 +203,7 @@ export function localCwd(ctx: { session?: Turn; cwd?: string }): { cwd?: string;
   return cwd ? { cwd, note: "" } : { note: `（工作区目录 ${want} 在 ${config.body} 上不存在或不能用，命令在 ${workDir()} 里执行）\n` };
 }
 
-export const ROUTED = new Set(["shell", "shell_jobs"]);
+export const ROUTED = new Set(["shell", "shell_jobs", "deliverable_create"]); // deliverable_create：生成的文件写进工作区（mind/deliverable-tools.ts）
 /**
  * shell / shell_jobs：这一轮的工作区在另一具身体上时，放到那具身体上、在工作区目录里执行（经 body_call 同样的通道：那边按自己的闸门、两边都记审计）。
  * 返回 undefined 表示照常在这里执行；note 是要加在结果前面的说明（工作区所在的身体不在线）。

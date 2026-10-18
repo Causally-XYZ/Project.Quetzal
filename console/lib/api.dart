@@ -192,6 +192,14 @@ class Api extends ChangeNotifier {
     return Map<String, dynamic>.from(j['file'] as Map);
   }
 
+  /// 下载一个附件（她生成的文件、对方发的文档）的内容，令牌放请求头。404：这个文件不在这具身体上（那一轮在别的身体上做的）。
+  Future<Uint8List> download(String rel) async {
+    final (status, bytes) = await net.download(Uri.parse('$base/uploads/${rel.split('/').map(Uri.encodeComponent).join('/')}').toString(), headers: authHeaders);
+    if (status == 404) throw RpcError('NOT_HERE', '这个文件不在这具身体上');
+    if (status >= 400) throw RpcError('HTTP_$status', '下载失败（$status）');
+    return bytes;
+  }
+
   /// 附件的下载地址（图片预览）。Image.network 在网页版由浏览器按网址加载、带不了自定义请求头，所以这里仍用 ?token=（只发给同一个网关）。
   String fileUrl(String rel) => Uri.parse('$base/uploads/${rel.split('/').map(Uri.encodeComponent).join('/')}').replace(queryParameters: {'token': token}).toString();
 

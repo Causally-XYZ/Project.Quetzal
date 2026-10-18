@@ -17,7 +17,8 @@ import { log } from "../log.ts";
 import { invoke } from "../ops.ts";
 import { converse, isRunning } from "../mind/brain.ts";
 import { kv, ensureSession, type Attachment } from "../store.ts";
-import { saveUpload, MAX_FILES } from "../mind/attachments.ts";
+import fs from "node:fs";
+import { saveUpload, agentFiles, resolveUpload, MAX_FILES } from "../mind/attachments.ts";
 import { imageMime } from "../mind/images.ts";
 import { views, approvalCard, secretCard, md } from "./feishu-cards.ts";
 import { ProgressCards } from "./feishu-progress.ts";
@@ -119,6 +120,16 @@ async function fetchResources(msg: lark.NormalizedMessage): Promise<Attachment[]
   return out;
 }
 
+/** 她交给对方的文件（deliverable_create）：图片按图片发，其余按文件发（经飞书的上传接口；需要 im:resource 权限，一键创建的机器人已带）。 */
+async function sendFiles(to: string, files: Attachment[], replyTo?: string) {
+  for (const f of files.slice(0, MAX_FILES)) {
+    try {
+      const data = fs.readFileSync(f.path);
+      await channel?.send(to, f.kind === "image" ? { image: { source: data } } : { file: { source: data, fileName: f.name } }, replyTo ? { replyTo } : undefined);
+    } catch (e: any) { log("feishu", `发送文件 ${f.name} 失败：${e.message}`); }
+  }
+}
+
 async function handle(msg: lark.NormalizedMessage) {
   const text = msg.content.trim();
   try {
@@ -149,13 +160,14 @@ async function handle(msg: lark.NormalizedMessage) {
     }
     let reaction = "";
     try { reaction = await channel!.addReaction(msg.messageId, "OnIt"); } catch {}
-    const sid = crypto.randomUUID();
+    const sid = crypto.randomUUID(), t0 = Date.now();
     const prog = progress(msg.chatId, msg.messageId, sid, conv);
     const reply = await converse("你", msg.content, "飞书", { conv, turn: sid, attachments });
     const last = prog.replyTo ?? msg.messageId; // 插话过就接在最后那条插话下面
     await prog.close();
     if (reaction) channel?.removeReaction(msg.messageId, reaction).catch(() => {});
     await channel?.send(msg.chatId, { markdown: reply }, { replyTo: last });
+    await sendFiles(msg.chatId, agentFiles([conv, currentConv()], t0), last); // 这一轮生成的文件（回复可能落进 session_new 切到的新会话）
   } catch (e: any) {
     log("feishu", `处理消息失败：${e.message}`);
   }
@@ -167,8 +179,10 @@ export const holdsFeishu = () => !config.channels.feishuHolder || config.channel
 let forwardSay: ((text: string, title?: string) => boolean) | undefined;
 export const setFeishuForwarder = (f: typeof forwardSay) => { forwardSay = f; };
 /** 发出主动消息（本机的，或其他身体转来的）。title：放进的会话（「主动消息」会话不标）；在飞书里回复仍进飞书当前的会话。 */
-export const sayToOwner = (text: string, title?: string) =>
-  void toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的${title && title !== "主动消息" ? `，在会话「${title}」里` : ""}）\n\n${text}` });
+export const sayToOwner = (text: string, title?: string, files: Attachment[] = []) => {
+  void Promise.resolve(toOwner({ markdown: `💭 **主动消息**（她自己醒来时想跟你说的${title && title !== "主动消息" ? `，在会话「${title}」里` : ""}）\n\n${text}` }))
+    .then(async () => { if (config.feishu.ownerOpenId && files.length) await sendFiles(config.feishu.ownerOpenId, files.filter((f) => f.rel && resolveUpload(f.rel))); });
+};
 
 export async function startFeishu() {
   await channel?.disconnect().catch(() => {});
@@ -222,7 +236,7 @@ export async function startFeishu() {
 }
 
 export function wireFeishu() {
-  bus.on("say", (text, to) => { if (holdsFeishu()) sayToOwner(text, to?.title); else if (!forwardSay?.(text, to?.title)) log("feishu", `主动消息没能转给飞书的持有者 ${config.channels.feishuHolder}（不在线），只留在会话「${to?.title || "主动消息"}」里`); });
+  bus.on("say", (text, to) => { if (holdsFeishu()) sayToOwner(text, to?.title, to?.files); else if (!forwardSay?.(to?.files?.length ? `${text}\n\n（附件 ${to.files.map((f) => f.name).join("、")} 在 ${config.body} 上，在控制台里下载）` : text, to?.title)) log("feishu", `主动消息没能转给飞书的持有者 ${config.channels.feishuHolder}（不在线），只留在会话「${to?.title || "主动消息"}」里`); });
   const onChannels = (sections: string[]) => { if (sections.includes("channels")) void startFeishu(); }; // 持有者变了：该连的连，不该连的断
   bus.on("shared", onChannels);
   bus.on("shared.applied", onChannels);

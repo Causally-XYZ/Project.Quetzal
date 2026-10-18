@@ -334,9 +334,10 @@ export function history(conv: string, self: number, budget = Infinity): Msg[] {
       const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
       const where = entryBody(m.body); // 多具身体时：这一轮在哪具身体上做的（那一轮拍的照片、写的文件在那具身体上）
       const on = where ? `在 ${where} 上` : "";
+      const sent = m.attachments?.length ? `；随这条消息交给对方的文件：${m.attachments.map((f) => `${f.name}（${f.source ?? f.path}）`).join("、")}` : ""; // deliverable_create 生成的
       const note = m.channel === "主动" // 醒来时主动发来的（或基座替她发的提醒），不是对上一句的回复
-        ? `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}自己醒来时主动发了下一条消息]`
-        : `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}]`;
+        ? `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}自己醒来时主动发了下一条消息${sent}]`
+        : `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}${sent}]`;
       if (used + note.length + m.text.length > budget) break;
       used += note.length + m.text.length;
       out.unshift(registerHistorySource({ role: "user", content: note }, m.id, conv), registerHistorySource({ role: "assistant", content: m.text }, m.id, conv));
@@ -473,7 +474,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
       // 提醒过仍没有一句话：说明这一轮没有回复，而不是留一个看不懂的空回复
       const reply = r.text.trim() || (r.steps.length ? `（我做了 ${r.steps.length} 步，但最后没能把结果说出来。你可以问我一句「结果呢」。）` : "（模型连着几次什么也没输出，我没能回复。你可以再说一次。）");
       const home = s.switchTo ?? conv; // session_new：回复放进新会话
-      const replyId = addMessage("agent", channel, reply, { session: home, process });
+      const replyId = addMessage("agent", channel, reply, { session: home, process, attachments: s.outbox.splice(0) }); // 这一轮生成的文件（deliverable_create）随回复交给对方
       saveContextSource(`message-tools:${replyId}`, home, JSON.stringify((learnedTurns.get(s)?.records ?? []).map((record) => ({ call: record.call, turn: s.id }))));
       s.emit({ kind: "done", reply });
       if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });
@@ -491,7 +492,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
       }
       if (s.signal.reason instanceof Stopped) { // 对方停止了：这一轮就此结束，留一句说明（下一轮她看得到自己被停在了哪里）
         const reply = "（这一轮被对方停止了）", process = s.process();
-        addMessage("agent", channel, reply, { session: conv, process });
+        addMessage("agent", channel, reply, { session: conv, process, attachments: s.outbox.splice(0) }); // 停下之前已经生成的文件照样交出
         s.emit({ kind: "done", reply });
         addTimeline("chat", `和${from}说话，被对方停止`, { channel, conv, text, reply, process });
         return reply;
@@ -499,7 +500,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
       const timeout = e instanceof SessionTimeout || s.signal.aborted;
       log("brain", `对话失败：${e.message}`);
       const reply = timeout ? `（我卡住了：${e.message.split("\n")[0]}。你可以再说一次。）` : `（我现在没法好好思考：${e.message.split("\n")[0]}）`;
-      addMessage("agent", channel, reply, { session: conv, process: s.process() });
+      addMessage("agent", channel, reply, { session: conv, process: s.process(), attachments: s.outbox.splice(0) });
       s.emit({ kind: "error", message: e.message.split("\n")[0], reply });
       return reply;
     } finally { if (running.get(conv) === s) running.delete(conv); leave(); }

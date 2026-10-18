@@ -164,7 +164,7 @@ export interface SessionInfo {
   id: string; title: string; channel: string; created: number; updated: number; archived: boolean; changed?: number; count?: number; last?: string;
   pinned: number; project: string | null; pin_changed?: number; project_changed?: number; // pinned：置顶的时刻（0 = 没置顶）；project：所属项目（mind/projects.ts）
 }
-export interface Attachment { id: string; name: string; path: string; rel: string; mime: string; size: number; kind: "image" | "text" | "file" } // rel：相对 uploads 目录
+export interface Attachment { id: string; name: string; path: string; rel: string; mime: string; size: number; kind: "image" | "text" | "file"; by?: "agent"; source?: string } // rel：相对 uploads 目录；by：她发出的（deliverable_create 生成的文件）；source：她写下它的位置（工作区里的路径，path 是 uploads 里的副本）
 export type Role = "user" | "agent" | "ambient"; // ambient：环境的声音（麦克风听到并识别的话），不是对方发来的消息
 export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null; body?: string | null; via?: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）；body：在哪具身体上；via：对方的话从哪具身体进来（旧行为空，按 body）
 

@@ -2,6 +2,7 @@
 //   后端是唯一的事实来源：打开页面、断线重连、从后台切回、每一轮结束时，都从后端取回对话记录与「进行中的轮次」快照重建界面，
 //   期间的实时进展（流式文字、工具卡片）由 activity 推送增量更新。所以切到后台再回来，进行中的卡片会完整恢复并继续更新。
 //   附件：一次最多 20 个文件，先上传到基座，再随消息发送（图片直接进消息，文本内联，文档给路径由她自己读）。
+//     记录里的文档附件（对方发的、她用 deliverable_create 生成并随回复交出的）显示为文件卡片（file_card.dart）：预览、下载，桌面版可用系统应用打开。
 //     来源：附件按钮；输入框里 Ctrl+V（剪贴板里是文件管理器复制的文件或图片时加入附件，是文字照常粘贴）；把文件拖进对话页；手机输入法插入的图片。
 //   她工作时发消息：默认「插话」（这次模型调用结束后并入）；发送按钮右侧的小三角可改为「排队」（下一轮）或「打断」（立即中止当前模型输出，不打断工具）。
 //   保密输入（她调用 pass_secret 时）：输入框上方出现提示，此后每条消息都是一项保密值——不显示在对话里，输入框默认遮挡；
@@ -30,6 +31,7 @@ import 'sessions.dart';
 import '../host_mode.dart';
 import '../attach_marks.dart';
 import 'canvas.dart';
+import '../file_card.dart';
 
 const maxFiles = 20;
 const modes = {'steer': ('插话', '这一步结束后并入，她会注意到', Icons.call_merge), 'queue': ('排队', '等这一轮结束后再处理', Icons.schedule_send), 'interrupt': ('打断', '立即打断她的输出，工具不受影响', Icons.pan_tool)};
@@ -610,7 +612,6 @@ class _ChatViewState extends State<ChatView> {
       );
 
   static IconData _icon(Map f) => switch (f['kind']) { 'image' => Icons.image, 'text' => Icons.description, _ => Icons.insert_drive_file };
-  static String _size(num n) => n >= 1048576 ? '${(n / 1048576).toStringAsFixed(1)} MB' : '${max(1, (n / 1024).round())} KB';
 
   /// 聆听状态的一行：在听（灰）→ 有人在说话 / 正在听清（主题色）。
   Widget _listening(ColorScheme cs) {
@@ -635,7 +636,7 @@ class _ChatViewState extends State<ChatView> {
     final atts = (m['attachments'] as List?)?.cast<Map>() ?? const [];
     return Column(crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start, children: [
       if (process.isNotEmpty) ProcessView(process),
-      if (atts.isNotEmpty) _attachments(context, atts, me, cs),
+      if (atts.isNotEmpty) _attachments(context, atts, me, cs, body: m['body'] == null ? null : '${m['body']}'),
       if ('${m['text']}'.isNotEmpty || atts.isEmpty) Bubble('${m['text']}', me: me, channel: m['channel'], pending: m['pending'] == true),
       if (!me && '${m['text']}'.trim().isNotEmpty) ReplyActions('${m['text']}', ts: (m['ts'] as num?)?.toInt()),
       if (me && modes[m['mode']] != null) Text('${modes[m['mode']]!.$1} · 在她工作时发送', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline)),
@@ -678,7 +679,8 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  Widget _attachments(BuildContext context, List<Map> atts, bool me, ColorScheme cs) {
+  /// 图片显示缩略图（点开全屏）；其余是文件卡片（file_card.dart：名称、类型、大小、预览、下载）。她发出的（deliverable_create 生成的）放在她的回复上面。
+  Widget _attachments(BuildContext context, List<Map> atts, bool me, ColorScheme cs, {String? body}) {
     final images = atts.where((a) => a['kind'] == 'image' && a['rel'] != null).toList();
     final others = atts.where((a) => !images.contains(a)).toList();
     return Container(
@@ -701,7 +703,7 @@ class _ChatViewState extends State<ChatView> {
         for (final a in others)
           Padding(
             padding: const EdgeInsets.only(top: 4),
-            child: Chip(avatar: Icon(_icon(a), size: 18), label: Text('${a['name']} · ${_size(a['size'] as num? ?? 0)}', maxLines: 1, overflow: TextOverflow.ellipsis)),
+            child: FileCard(a, body: body),
           ),
       ]),
     );

@@ -100,6 +100,7 @@ export const defaults: Config = {
   permissions: {
     network: "allow", shell: "allow", device: "allow", camera: "review", microphone: "review",
     location: "review", message: "allow", self_modify: "allow", memory: "allow", hands: "review", secret: "allow", session: "allow", body: "allow",
+    deliverable: "allow", // 生成文件：只写进工作区或交付目录（mind/deliverable-tools.ts）；覆盖已有文件另按「删除找不回的数据」送审
     tool_write: "review", // 造工具：写的是之后会被执行的代码（mind/tools.ts）
     mcp: "ask", mcp_start: "ask", // 外部工具调用与启动来源分别授权
   },

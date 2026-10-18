@@ -68,7 +68,7 @@ async function main() {
   bus.on("say", (text, to) => { // 主动消息：醒来时的 send_message 带着会话（她选的或新开的）；基座自己发的（提醒、安全模式）进「主动消息」会话
     const conv = to?.conv || "inbox";
     ensureSession(conv, to?.title || "主动消息", "主动");
-    addMessage("agent", "主动", text, { session: conv });
+    addMessage("agent", "主动", text, { session: conv, attachments: to?.files });
     void adapter.notify?.(displayName(), text).catch(() => {});
   });
   // 提醒：答应了对方的事必须准点——不经模型，到点直接把她写好的话发出去（主动消息：控制台、飞书、系统通知），再轻轻告诉她。

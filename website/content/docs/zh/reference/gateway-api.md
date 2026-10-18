@@ -22,7 +22,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | POST | `/pair/start` | 生成 8 位配对码（字母数字，5 分钟有效；有效期内重复申请不换码，输错多次会锁定），连同证书短指纹通过适配器通知与飞书下发 |
 | POST | `/pair/finish` | `{proof}`（或本机明文连接上的 `{code}`）→ `{ok, token, fingerprint}`；`proof` = hex(PBKDF2-HMAC-SHA256(配对码（大写、去掉空格与连字符）, `"quetzal-pair-v2\|" + 客户端握手时看到的证书指纹`, 100000 次, 32 字节))。HTTPS 上只收 `proof`（带 `code` 回 400），中间人换了证书就对不上；客户端再核对返回的 `fingerprint`。400 缺少证明、403 不正确、410 失效或尝试超过 5 次、429 锁定 |
 | POST | `/upload?name=&token=` | 上传一个附件（≤ 50 MiB）→ `{ok, file: {id, name, path, rel, mime, size, kind}}` |
-| GET | `/uploads/<rel>?token=` | 下载附件（只能访问 uploads 目录） |
+| GET | `/uploads/<rel>?token=` | 下载附件（只能访问 uploads 目录；文档按下载处理，带文件名） |
 
 ## WebSocket `/rpc?token=<令牌>`
 
@@ -68,7 +68,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `sessions` / `sessions.create` / `sessions.rename` / `sessions.archive` | … | 会话管理；`sessions` 可按通道、进行中、置顶、项目、时间筛选，按最近更新、创建时间、标题排序（置顶的总在最前） |
 | `sessions.pin` / `sessions.move` | `{id, pinned?}` / `{id, project}` | 置顶与取消；把会话归到项目或移出 |
 | `sessions.search` | `{query, limit?}` | 按标题与内容搜索会话，每个会话一条最好的命中（片段与高亮位置、消息 id） |
-| `sessions.messages` | `{id, limit?, before?, from?}` | 某会话的对话（含过程记录）；`from` 为消息 id 时从那条消息附近取起（定位搜索结果） |
+| `sessions.messages` | `{id, limit?, before?, from?}` | 某会话的对话（含过程记录）；`from` 为消息 id 时从那条消息附近取起（定位搜索结果）；`attachments` 里 ta 生成、随回复发出的文件带 `by: "agent"` |
 | `projects` / `projects.create` / `projects.update` / `projects.delete` | … | 项目：名字、简介、项目说明（注入这个项目下会话的系统提示）、颜色与图标、归档；删除不删会话，只解除归属 |
 | `sessions.live` | — | 进行中轮次的快照 |
 | `poke` | `{note?}` | 戳一下 |
@@ -81,6 +81,7 @@ description: 本地网关的 HTTP 接口、WebSocket RPC 与推送事件、方�
 | `canvas.create` / `canvas.edit` / `canvas.update` / `canvas.delete` / `canvas.restore` | … | 新建；保存为新版本（带 `base`：她刚改过时照样保存，返回 `conflict`）；改标题或语言；删除；恢复到某一版 |
 | `canvas.run` / `canvas.runImage` | `{id, version?, timeout?}` / `{run, name}` | 在沙箱里运行代码（按「执行命令」权限过闸门）；取运行生成的图片 |
 | `canvas.comment` / `canvas.reply` / `canvas.resolve` / `canvas.apply` | … | 选中一段加评论（缺省发给 ta）、回复、解决、采纳 ta 的编辑建议 |
+| `uploads.preview` | `{rel, max?}` | 附件的轻量预览：抽出开头的文字（xlsx 为各工作表的前几行），控制台文件卡片的「预览」用它 |
 
 **保密库**：`secrets`、`secrets.delete`、`secrets.pending`、`secrets.end`。
 

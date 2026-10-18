@@ -12,7 +12,7 @@ secrets/                 0700: master.key (key-encryption master), gateway.token
 vault/                   0700: the vault, one 0600 file per item; index.json holds hints only
 data/quetzal.db          SQLite: kv / timeline / messages / audit / usage
 data/catalog.json        cached public model catalog (models.dev)
-data/uploads/<date>/     chat attachments
+data/uploads/<date>/     chat attachments: files you sent, and copies of the files the agent generated and attached to its replies (see Generating files)
 data/media/              photos and recordings it made (Android adapter)
 data/mesh-pins.json      with several bodies: the public key and kind of each body, recorded the first time it was seen (not secret)
 data/mesh-lan.json       with several bodies: remembered LAN addresses of the other bodies, used to connect over the LAN when the sync service is unreachable (stays on this device)
@@ -21,6 +21,7 @@ data/runtime.log         with the Android app: log of the runtime and the app se
 soul/                    soul directory (a git repository)
 state/starts.json        start records (circuit breaker)
 state/body-uuid          this body's uuid (JSON: uuid and its source device / random / manual; only the derived value, never the raw identifier; see Multiple bodies)
+fonts/                   optional: .ttf / .otf / .ttc fonts you put here are used first when generating PDFs (add one when the device has no Chinese font)
 STOP                     emergency stop flag: if present, everything freezes
 ```
 

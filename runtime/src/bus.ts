@@ -20,7 +20,7 @@ export interface Events {
   timeline: [entry: TimelineEntry];
   state: [];
   approval: [a: Approval];
-  say: [text: string, to?: { conv: string; title: string }]; // agent 主动说话，由各通道投递；to：放进哪个会话（醒来时的 send_message 选的或新开的），缺省为「主动消息」会话（提醒、安全模式等基座发的）
+  say: [text: string, to?: { conv: string; title: string; files?: import("./store.ts").Attachment[] }]; // agent 主动说话，由各通道投递；to：放进哪个会话（醒来时的 send_message 选的或新开的），缺省为「主动消息」会话（提醒、安全模式等基座发的）；files：随这条消息交给对方的文件（醒来时生成的交付物）
   notice: [text: string]; // 系统通知（非 agent 本人说话），如配对码
   activity: [a: Activity]; // 会话进展：步骤、流式文字、工具执行、心跳、结束
   secret: [e: SecretEvent]; // 保密输入（pass_secret）的开始、进展与结束，由各通道提醒对方

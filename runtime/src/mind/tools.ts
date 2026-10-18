@@ -51,6 +51,7 @@ import * as ws from "./workspace.ts";
 import { goalTool } from "./goals.ts";
 import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 import { canvasTools } from "./canvas-tools.ts";
+import { deliverableTools } from "./deliverable-tools.ts";
 
 /** 这一轮所在的、处在真实环境里的会话（只认对话；醒来、做梦、子 agent、其他身体的调用都没有）。 */
 const hostConv = (ctx: ToolContext): string | undefined => ctx.session?.origin === "chat" && ctx.session.conv && hostActive(ctx.session.conv) ? ctx.session.conv : undefined;
@@ -412,8 +413,9 @@ const core: Tool[] = [
         ensureSession(to.conv, to.title, "主动");
       } else to = { conv: s.sayTo, title: getSession(s.sayTo)!.title };
       if (s) s.sayTo = to.conv;
-      bus.emit("say", text, to);
-      return `已作为主动消息发到会话「${to.title}」（${to.conv}）`;
+      const files = s?.outbox.splice(0) ?? []; // 醒来时生成的文件（deliverable_create）随这条消息发出
+      bus.emit("say", text, files.length ? { ...to, files } : to);
+      return `已作为主动消息发到会话「${to.title}」（${to.conv}）${files.length ? `，附上了 ${files.map((f) => f.name).join("、")}` : ""}`;
     },
   },
   {
@@ -682,7 +684,7 @@ const core: Tool[] = [
 
 /** 内置工具名（核心 + 适配器 + hands），自造工具不得与之重名。 */
 export function builtinNames(): string[] {
-  return [...core.map((t) => t.name), ...canvasTools().map((t) => t.name), ...(adapter.tools ?? []).map((t) => t.name), ...handsTools().map((t) => t.name), "finish"];
+  return [...core.map((t) => t.name), ...canvasTools().map((t) => t.name), ...deliverableTools().map((t) => t.name), ...(adapter.tools ?? []).map((t) => t.name), ...handsTools().map((t) => t.name), "finish"];
 }
 
 /** 自造工具（本机有实现、已启用、依赖齐全的）挂进工具表。 */
@@ -750,7 +752,7 @@ function bodyTools(): Tool[] {
 const bodyOwn = (): Tool[] => [...(adapter.tools ?? []), ...handsTools(), ...customTools()].map((t) => ({ ...t, onBody: true }));
 export function allTools(): Tool[] {
   const multi = remoteBodies().length > 0;
-  const existing = [...(multi ? core.map((t) => (t.bodyFiles ? withBodyParam(t) : t)) : core), ...canvasTools(), ...bodyOwn(), ...bodyTools(), ...pluginTools()];
+  const existing = [...(multi ? core.map((t) => (t.bodyFiles ? withBodyParam(t) : t)) : core), ...canvasTools(), ...deliverableTools(), ...bodyOwn(), ...bodyTools(), ...pluginTools()];
   return [...existing, ...mcpBindings().filter((t) => !existing.some((e) => e.name === t.name)).map((t): Tool => ({
     name: t.name, description: t.description, parameters: t.parameters,
     permission: `mcp.${t.source}.${t.name}`, handler: async (args, ctx) => {
@@ -762,7 +764,7 @@ export function allTools(): Tool[] {
 }
 /** 可以被其他身体经 body_call 调用的工具：适配器的设备工具、hands、自造工具，以及属于这具身体的几个内置工具（见 bodies.ts）。 */
 export function limbTools(allowedCore: Set<string>): Tool[] {
-  return [...core.filter((t) => allowedCore.has(t.name)), ...bodyOwn()];
+  return [...core, ...deliverableTools()].filter((t) => allowedCore.has(t.name)).concat(bodyOwn());
 }
 export { listCustomTools };
 
@@ -775,7 +777,7 @@ export function strictest(perms: string[]): string {
 }
 
 export async function callTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext = {}): Promise<{ text: string; status: ToolStatus }> {
-  if (mcpBindings().some((b) => b.name === name) && [...core, ...canvasTools(), ...bodyOwn(), ...bodyTools()].some((t) => t.name === name)) return { text: "MCP 工具名与本机工具冲突，未执行", status: "error" };
+  if (mcpBindings().some((b) => b.name === name) && [...core, ...canvasTools(), ...deliverableTools(), ...bodyOwn(), ...bodyTools()].some((t) => t.name === name)) return { text: "MCP 工具名与本机工具冲突，未执行", status: "error" };
   const t = allTools().find((x) => x.name === name);
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };
   const real = name === "shell" && !!hostConv(ctx);

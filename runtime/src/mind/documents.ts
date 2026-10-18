@@ -1,6 +1,6 @@
 // 文档读取：把常见文档抽成纯文本，供 read_document 工具分页读取。不引入依赖：
 //   OOXML（docx / pptx / xlsx）与 ODF（odt / ods / odp）、EPUB 都是 zip + XML，用内置的 zlib 解压后抽取文字；
-//   HTML、RTF、各类文本直接处理；PDF 优先用 pdftotext（poppler），没有时退回简易解析（只能取出未压缩或 Flate 压缩的简单文字）；
+//   HTML、RTF、各类文本直接处理；PDF 优先用 pdftotext（poppler），没有时退回简易解析（未压缩或 Flate 压缩的文字；字体带 ToUnicode 时按它还原中文）；
 //   旧版二进制 doc / xls / ppt 交给 antiword / catdoc / xls2csv / catppt 等命令（没有安装时给出提示）。
 import fs from "node:fs";
 import path from "node:path";
@@ -54,7 +54,9 @@ const num = (s: string) => Number(s.match(/(\d+)\.xml$/)?.[1] ?? 0);
 
 function docx(z: Map<string, () => Buffer>) {
   const parts = ["word/document.xml", ...[...z.keys()].filter((k) => /^word\/(footnotes|endnotes)\.xml$/.test(k))];
-  return parts.filter((k) => z.has(k)).map((k) => xmlText(z.get(k)!().toString("utf8"), [
+  // 单元格里的段落用空格连接（否则表格读出来每格一行，看不出哪格是哪格）
+  const cells = (x: string) => x.replace(/<w:tc\b[\s\S]*?<\/w:tc>/g, (c) => c.replace(/<\/w:p>(?![\s\S]*<\/w:p>)/, "").replace(/<\/w:p>/g, " "));
+  return parts.filter((k) => z.has(k)).map((k) => xmlText(cells(z.get(k)!().toString("utf8")), [
     [/<w:tab\/>/g, "\t"], [/<w:br[^>]*\/>/g, "\n"], [/<\/w:p>/g, "\n"], [/<\/w:tc>/g, " | "], [/<\/w:tr>/g, "\n"],
   ])).join("\n\n");
 }
@@ -71,7 +73,26 @@ function pptx(z: Map<string, () => Buffer>) {
 
 const colIndex = (ref: string) => [...(ref.match(/^[A-Z]+/)?.[0] ?? "A")].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
 
+/** styles.xml 里哪些单元格样式（cellXfs 的序号）是日期格式：内置的 14–22、45–47，或格式串里有年月日时（引号里的不算）。 */
+function dateStyles(z: Map<string, () => Buffer>): Set<number> {
+  const out = new Set<number>();
+  if (!z.has("xl/styles.xml")) return out;
+  const xml = z.get("xl/styles.xml")!().toString("utf8");
+  const custom = new Map([...xml.matchAll(/<numFmt\b[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)].map((m) => [Number(m[1]), decode(m[2])]));
+  const isDate = (id: number) => (id >= 14 && id <= 22) || (id >= 45 && id <= 47) || (custom.has(id) && /[ymdhs]/i.test(custom.get(id)!.replace(/"[^"]*"|\[[^\]]*\]|\\./g, "")));
+  const xfs = xml.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1] ?? "";
+  [...xfs.matchAll(/<xf\b([^>]*?)\/?>/g)].forEach((m, i) => { if (isDate(Number(m[1].match(/numFmtId="(\d+)"/)?.[1] ?? 0))) out.add(i); });
+  return out;
+}
+/** Excel 的日期序号（1900 日期系统）→ 当地墙上时间的 ISO 写法。 */
+function serialDate(n: number): string {
+  if (!Number.isFinite(n)) return String(n);
+  const ms = Math.round((n - 25569) * 86_400_000), d = new Date(ms).toISOString();
+  return n % 1 === 0 ? d.slice(0, 10) : d.slice(0, 16).replace("T", " ");
+}
+
 function xlsx(z: Map<string, () => Buffer>) {
+  const dates = dateStyles(z);
   const shared = z.has("xl/sharedStrings.xml")
     ? [...z.get("xl/sharedStrings.xml")!().toString("utf8").matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => decode(m[1].replace(/<rPh[\s\S]*?<\/rPh>/g, "").replace(/<[^>]+>/g, "")))
     : [];
@@ -84,8 +105,11 @@ function xlsx(z: Map<string, () => Buffer>) {
       for (const c of r[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
         const attrs = c[1], body = c[2] ?? "";
         const ref = attrs.match(/\br="([A-Z]+)\d+"/)?.[1] ?? "", type = attrs.match(/\bt="(\w+)"/)?.[1];
-        const v = body.match(/<v>([\s\S]*?)<\/v>/)?.[1];
-        const val = type === "s" ? shared[Number(v)] ?? "" : type === "inlineStr" ? decode((body.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? "")) : decode(v ?? "");
+        const v = body.match(/<v>([\s\S]*?)<\/v>/)?.[1], f = body.match(/<f\b[^>]*>([\s\S]*?)<\/f>/)?.[1];
+        const style = Number(attrs.match(/\bs="(\d+)"/)?.[1] ?? -1);
+        const val = type === "s" ? shared[Number(v)] ?? "" : type === "inlineStr" ? decode((body.match(/<t[^>]*>([\s\S]*?)<\/t>/)?.[1] ?? ""))
+          : v === undefined && f !== undefined ? `=${decode(f)}` // 只有公式、没有缓存结果（没在 Excel 里打开算过）：给出公式本身
+          : type !== "str" && type !== "b" && type !== "e" && v !== undefined && dates.has(style) ? serialDate(Number(v)) : decode(v ?? "");
         cells[ref ? colIndex(ref) : cells.length] = val;
       }
       return Array.from(cells, (x) => x ?? "").join("\t");
@@ -119,18 +143,83 @@ function rtf(s: string) {
     .replace(/\\u(-?\d+)\??/g, (_, n) => String.fromCharCode((Number(n) + 65536) % 65536)).replace(/\\[a-z]+-?\d* ?/gi, "").replace(/[{}]/g, ""));
 }
 
-/** 没有 pdftotext 时的简易解析：解压 Flate 流，取出 Tj / TJ 里的文字（复杂字体编码的中文可能取不到）。 */
-function pdfFallback(buf: Buffer) {
-  const out: string[] = [];
+/** ToUnicode CMap：字符码 → 文字（bfchar 与 bfrange 两种写法，bfrange 的目标可以是起点或数组）。bytes：字符码的字节数（取自 codespacerange）。 */
+export interface CMap { bytes: number; map: Map<number, string> }
+export function parseCMap(text: string): CMap {
+  const map = new Map<number, string>();
+  const utf16 = (h: string) => { const b = Buffer.from(h.replace(/\s+/g, "").padEnd(Math.ceil(h.replace(/\s+/g, "").length / 4) * 4, "0"), "hex"); let s = ""; for (let i = 0; i + 1 < b.length; i += 2) s += String.fromCharCode(b.readUInt16BE(i)); return s; };
+  const space = text.match(/begincodespacerange\s*<([0-9a-fA-F]+)>/);
+  const bytes = space ? Math.max(1, Math.ceil(space[1].length / 2)) : 2;
+  for (const blk of text.matchAll(/beginbfchar([\s\S]*?)endbfchar/g))
+    for (const m of blk[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]*)>/g)) map.set(parseInt(m[1], 16), utf16(m[2]));
+  for (const blk of text.matchAll(/beginbfrange([\s\S]*?)endbfrange/g))
+    for (const m of blk[1].matchAll(/<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*(?:<([0-9a-fA-F]+)>|\[([^\]]*)\])/g)) {
+      const lo = parseInt(m[1], 16), hi = Math.min(parseInt(m[2], 16), lo + 65535);
+      if (m[3] !== undefined) { const base = utf16(m[3]); if (!base) continue; for (let c = lo; c <= hi; c++) map.set(c, base.slice(0, -1) + String.fromCharCode(base.charCodeAt(base.length - 1) + (c - lo))); }
+      else [...(m[4] ?? "").matchAll(/<([0-9a-fA-F]*)>/g)].forEach((d, i) => { if (lo + i <= hi) map.set(lo + i, utf16(d[1])); });
+    }
+  return { bytes, map };
+}
+
+/**
+ * 没有 pdftotext 时的简易解析：解压 Flate 流，取出 Tj / TJ / ' / " 里的文字。字体带 ToUnicode（CMap）时按它把字符码换成文字——
+ * 嵌入了子集字体的中文 PDF 都是这样（deliverable_create 生成的也是），安卓上没有 pdftotext 也读得回来；没有 ToUnicode 的按单字节字面取，复杂编码的可能取不到。
+ */
+export function pdfFallback(buf: Buffer): string {
   const raw = buf.toString("latin1");
-  for (const m of raw.matchAll(/stream\r?\n([\s\S]*?)endstream/g)) {
-    let s = m[1];
-    try { s = zlib.inflateSync(Buffer.from(m[1], "latin1")).toString("latin1"); } catch { /* 未压缩 */ }
-    const parts = [...s.matchAll(/\((?:\\.|[^\\)])*\)\s*Tj|\[(?:[^\]]*)\]\s*TJ|T\*|ET/g)].map((t) => {
-      if (t[0] === "T*" || t[0] === "ET") return "\n";
-      return [...t[0].matchAll(/\(((?:\\.|[^\\)])*)\)/g)].map((x) => x[1].replace(/\\([nrt()\\])/g, (_, c) => ({ n: "\n", r: "", t: "\t" } as any)[c] ?? c)).join("");
-    });
-    if (parts.length) out.push(parts.join(""));
+  const objs = new Map<number, string>();
+  for (const m of raw.matchAll(/(\d+)\s+\d+\s+obj\b([\s\S]*?)endobj/g)) objs.set(Number(m[1]), m[2]);
+  const dictOf = (body: string) => { const i = body.indexOf("stream"); return i >= 0 ? body.slice(0, i) : body; };
+  const streamOf = (body: string): string | undefined => {
+    const m = body.match(/stream\r?\n([\s\S]*?)endstream/);
+    if (!m) return undefined;
+    if (!/\/FlateDecode/.test(dictOf(body))) return /\/Filter/.test(dictOf(body)) ? undefined : m[1];
+    try { return zlib.inflateSync(Buffer.from(m[1], "latin1")).toString("latin1"); } catch { try { return zlib.inflateSync(Buffer.from(m[1].replace(/\r?\n$/, ""), "latin1")).toString("latin1"); } catch { return undefined; } }
+  };
+  // 字体对象 → ToUnicode；资源里的字体名（/F1）→ 字体对象
+  const cmapOf = new Map<number, CMap>();
+  for (const [n, body] of objs) {
+    const t = dictOf(body).match(/\/ToUnicode\s+(\d+)\s+\d+\s+R/);
+    const s = t && objs.has(Number(t[1])) ? streamOf(objs.get(Number(t[1]))!) : undefined;
+    if (s) cmapOf.set(n, parseCMap(s));
+  }
+  const fonts = new Map<string, CMap>();
+  for (const body of objs.values()) for (const d of dictOf(body).matchAll(/\/Font\s*<<([\s\S]*?)>>/g))
+    for (const m of d[1].matchAll(/\/([^\s/<>[\]()]+)\s+(\d+)\s+\d+\s+R/g)) { const c = cmapOf.get(Number(m[2])); if (c && !fonts.has(m[1])) fonts.set(m[1], c); }
+  const literal = (x: string) => x.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_, c: string) => /^[0-7]/.test(c) ? String.fromCharCode(parseInt(c, 8)) : ({ n: "\n", r: "", t: "\t", b: "", f: "" } as Record<string, string>)[c] ?? c);
+  const text = (tok: string, cmap?: CMap) => {
+    const bytes = tok.startsWith("<") ? Buffer.from(tok.slice(1, -1).replace(/\s+/g, "").replace(/^(.(..)*)$/, "$10"), "hex") : Buffer.from(literal(tok.slice(1, -1)), "latin1");
+    if (!cmap) return bytes.toString("latin1");
+    let out = "";
+    for (let i = 0; i + cmap.bytes <= bytes.length; i += cmap.bytes) { let code = 0; for (let k = 0; k < cmap.bytes; k++) code = code * 256 + bytes[i + k]; out += cmap.map.get(code) ?? ""; }
+    return out;
+  };
+  // 换行：T*、' "、纵向移动的 Td / TD，或文字矩阵 Tm 换到了另一条基线；同一条基线上隔得远的两段（表格的两格）之间补一个空格
+  const OP = /\/([^\s/[\]()<>{}%]+)\s+(-?[\d.]+)\s+Tf|\((?:\\[\s\S]|[^\\)])*\)|<[0-9a-fA-F\s]*>|-?[\d.]+\s+(-?[\d.]+)\s+T[dD]\b|(?:-?[\d.]+\s+){4}(-?[\d.]+)\s+(-?[\d.]+)\s+Tm\b|T\*|\bTJ\b|\bTj\b|'|"/g;
+  const out: string[] = [];
+  for (const body of objs.values()) {
+    const d = dictOf(body);
+    if (/\/Subtype\s*\/(Image|CIDFontType0C|Type1C|OpenType|XML)|\/FontFile|\/Length1|\/Type\s*\/(XRef|ObjStm|Metadata)/.test(d)) continue; // 图片、字体、元数据不是正文
+    const s = streamOf(body);
+    if (!s || !/\b(Tj|TJ)\b|'|"/.test(s) || !/\bBT\b/.test(s)) continue;
+    let font: CMap | undefined, size = 12, line = "", pending = "", y: number | undefined, end = 0;
+    const lines: string[] = [];
+    const brk = () => { if (line) lines.push(line); line = ""; };
+    for (const m of s.matchAll(OP)) {
+      const t = m[0];
+      if (m[1] !== undefined) { font = fonts.get(m[1]); size = Math.abs(Number(m[2])) || size; }
+      else if (t[0] === "(" || t[0] === "<") pending += text(t, font);
+      else if (t === "Tj" || t === "TJ") { line += pending; end += [...pending].reduce((n, c) => n + (c.charCodeAt(0) > 0x2e80 ? 1 : 0.55), 0) * size; pending = ""; }
+      else if (t === "'" || t === '"') { brk(); line = pending; pending = ""; }
+      else if (m[4] !== undefined) { // Tm：x y
+        const nx = Number(m[4]), ny = Number(m[5]);
+        if (y === undefined || Math.abs(ny - y) > size * 0.6) brk(); else if (line && nx - end > size * 1.5) line += " "; // 同一行里换了字体（行内代码）基线会差一点
+        y = ny; end = nx;
+      }
+      else if (t === "T*" || (m[3] !== undefined && Number(m[3]) !== 0)) brk();
+    }
+    brk();
+    if (lines.length) out.push(lines.join("\n"));
   }
   return tidy(out.join("\n"));
 }

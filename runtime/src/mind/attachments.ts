@@ -7,7 +7,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { isUtf8 } from "node:buffer";
 import { paths } from "../config.ts";
-import type { Attachment } from "../store.ts";
+import { sessionMessages, type Attachment } from "../store.ts";
 import type { Msg, ImagePart } from "../providers/types.ts";
 import { loadImage } from "./images.ts";
 
@@ -102,4 +102,19 @@ export async function userMessage(header: string, files: Attachment[], instructi
   const placed = lines.length && PLACED.test(header) ? "正文里的「[附件 N：文件名]」是对方把第 N 个附件放在文字中的位置，按它们在文字里的位置理解对方的意思。\n" : "";
   const body = [header, ...(lines.length ? [`\n附件（${lines.length} 个）：\n${placed}${lines.join("\n")}`] : []), `\n${instruction}`].join("\n");
   return images.length ? { role: "user", content: body, images } : { role: "user", content: body };
+}
+
+/**
+ * 她在这些会话里、since 之后随回复交给对方的文件（deliverable_create 生成的附件），只取这具身体上有的（别的身体上做的那一轮，文件在那边）。
+ * 飞书在回复之后据此另发文件。
+ */
+export function agentFiles(convs: string[], since: number): Attachment[] {
+  const out: Attachment[] = [], seen = new Set<string>();
+  for (const conv of new Set(convs)) {
+    for (const m of sessionMessages(conv, 20)) {
+      if (m.role !== "agent" || m.ts < since || !m.attachments?.length) continue;
+      for (const a of m.attachments) { const f = a.rel ? resolveUpload(a.rel) : undefined; if (f && !seen.has(f)) { seen.add(f); out.push({ ...a, path: f }); } }
+    }
+  }
+  return out;
 }

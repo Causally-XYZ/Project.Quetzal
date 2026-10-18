@@ -8,7 +8,7 @@
 
 ```
 src/
-├── main.ts               装配各模块（打开数据库后做一次权限缺省档位的迁移，见 guard/sentinel.ts）；主动消息（say）入库到它带的会话，没带的进「主动消息」会话，并发系统通知；熔断（安全模式）；没人接住的同步异常记下后以非零退出（由守护者拉起）
+├── main.ts               装配各模块（打开数据库后做一次权限缺省档位的迁移，见 guard/sentinel.ts）；主动消息（say）入库到它带的会话（带着她醒来时生成的文件作附件），没带的进「主动消息」会话，并发系统通知；熔断（安全模式）；没人接住的同步异常记下后以非零退出（由守护者拉起）
 ├── config.ts             家目录布局（Windows 为 %LOCALAPPDATA%\Quetzal\home）、配置读写、密钥文件（改名遇到占用时重试）；密钥目录与保密库：POSIX 0700，Windows 用 ACL 只留本用户与 SYSTEM
 ├── platform.ts           平台差异（isWindows / isMac）：命令查找（Windows 按 PATHEXT）、结束整棵进程树（POSIX 进程组 / Windows taskkill /T）、只给本用户的目录权限（chmod / icacls）、遇到占用时重试的改名
 ├── ssh-key.ts            OpenSSH 格式的 ed25519 部署密钥（Node 内置 crypto 生成，不依赖 ssh-keygen）
@@ -30,7 +30,7 @@ src/
 ├── tls.ts                网关的自签名证书（ECDSA P-256，10 年，secrets/gateway-tls.key|crt；@peculiar/asn1-x509 编码、node:crypto 签名；损坏或过期重新生成）、指纹（SHA-256 DER）与短格式、配对证明（PBKDF2-HMAC-SHA256）
 ├── version.ts            版本号
 ├── ops.ts                统一操作层：网关与飞书共用，修改类操作全部审计
-├── gateway.ts            网关：明文 HTTP 只监听本机回环（127.0.0.1 与 ::1），对局域网开放时另开 HTTPS / WSS（lanPort，同一套处理）；/health、/pair/info（证书指纹）、配对（8 位码、冷却、失败锁定与退避、Host 检查、请求体 16 KB 上限；HTTPS 上只收与证书指纹绑定的配对证明）、本机登录、令牌（Bearer / X-Quetzal-Token / WebSocket 第一条消息 / 旧的 ?token=）、gateway.rotateToken、WebSocket RPC 与推送、静态文件
+├── gateway.ts            网关：明文 HTTP 只监听本机回环（127.0.0.1 与 ::1），对局域网开放时另开 HTTPS / WSS（lanPort，同一套处理）；/health、/pair/info（证书指纹）、配对（8 位码、冷却、失败锁定与退避、Host 检查、请求体 16 KB 上限；HTTPS 上只收与证书指纹绑定的配对证明）、本机登录、令牌（Bearer / X-Quetzal-Token / WebSocket 第一条消息 / 旧的 ?token=）、gateway.rotateToken、附件上传与下载（文档带 content-disposition）与 uploads.preview（附件的轻量预览）、WebSocket RPC 与推送、静态文件
 ├── web.ts                网页控制台：托管 current/web/（QUETZAL_WEB_DIR 可覆盖，单页回退、ETag）；判定「同一台机器上打开着网页控制台的浏览器」（回环地址 + 本机 Host + Origin 正好是网关自己的源 / QUETZAL_DEV_ORIGINS）与「发起连接的是不是运行基座的子孙进程」（Linux 读 /proc，Windows 用 netstat 与 Win32_Process 的父进程表，macOS 用 lsof 与 ps，查不出按拒绝）给 GET /auth/local；配对接口的 Host 检查
 ├── body/
 │   ├── adapter.ts        身体适配器接口（与设备仓库的唯一边界）+ 通用适配器
@@ -57,6 +57,9 @@ src/
 │   ├── repos.ts          身体的工作区概况（#37）：直接读 .git 列出工作目录下深度 2 以内的 git 仓库（路径、去掉凭据的远端、当前分支），上限 30 个、扫描时限、缓存；别处发来的概况的检查
 │   ├── canvas.ts         Canvas（ARCHITECTURE §5.5）：canvas_docs / canvas_versions / canvas_comments / canvas_runs（第一次用到时建表）；不可变的版本、按片段查找替换（找不到或有歧义不改）、恢复；评论的锚点（原文 + 前后文）与重新定位（exact / moved / stale）、回复、解决、编辑建议的采纳；运行代码（runCanvas：写进工作区的运行目录，经 sh.ts 的 shell 在沙箱里执行，不经沙箱的路径没有；无输出超时 + 15 分钟总时长、输出上限；解释器不存在时说明不执行；图片只收普通文件、核对文件头，复制到 data/canvas-runs/）；系统提示的 Canvas 一节（canvasBlock：小的全文、大的概要，对方改过的地方、未解决的评论、最近一次运行）；复制来的行的检查（applyCanvasRemote）、补齐摘要与按 id 取行
 │   ├── canvas-tools.ts   她的 Canvas 工具：canvas_create / canvas_read / canvas_edit / canvas_list / canvas_comment（会话类别）与 canvas_run（执行命令类别），挂进 tools.ts 的工具表与内置名单
+│   ├── deliverables.ts   交付物（ARCHITECTURE §5.8）：Markdown → 块（marked）、Word（docx）、Excel（exceljs：多工作表、公式、日期、列宽与格式、CSV）、PowerPoint（pptxgenjs：结构化幻灯片或按 --- 分页的 Markdown）、HTML / Markdown / CSV / JSON；本地图片的读取与核对
+│   ├── deliverable-pdf.ts PDF（pdfkit）：探测这具身体上的中文字体（QUETZAL_PDF_FONT、QUETZAL_HOME/fonts、各平台常见位置、fontconfig），读 ttc 的 PostScript 名挑简体中文；排版标题、列表、表格（跨页重画表头）、代码块、图片与页码
+│   ├── deliverable-tools.ts 她的 deliverable_create（生成文件类别）：文件名与放置（只写进工作区或交付目录、不覆盖、符号链接不跟出去）、工作区在别的身体上时放过去生成再取回、另存到 uploads 作为附件放进这一轮的 outbox
 │   ├── canvas-ops.ts     控制台的 Canvas 操作（网关 canvas.*，经 ops.ts）：编辑基于旧版本时返回冲突、运行按「执行命令」过闸门并写审计、运行图片（base64）、评论缺省作为对方的话经 converse 发给她
 │   ├── goals.ts          长期目标（#23）：goal 工具（add / update / step_done / close / list）、步骤与进度、最近推进的时刻、关联的会话；一变就按进行中的数目更新心脏的牵挂；旧 open_loop 与 kv openLoops 的迁移；按条目合并（关闭的留 30 天作墓碑）；系统提示的「进行中的目标」、控制台视图
 │   ├── task-states.ts    每个会话的工作状态（task_state 的目标、约束、未决问题、阶段、标签）：一个会话一条，按会话后写胜合并，旧的 context.state.<会话> 照旧读
@@ -65,10 +68,10 @@ src/
 │   ├── activity.ts       一轮的进展广播（activity 事件）与快照（liveTurns）、按标识找本机开着的会话（sessionById）、被别处接手的停止原因（HandedOver）、会话时间墙（120 秒无进展）、心跳、插话收件箱与打断、本轮已在上下文里的图片（seen）
 │   ├── images.ts         图片：识别类型、较大图片缩小（ffmpeg / ImageMagick / 内置 jpeg-js，长边可指定），供附件、view_image 与截图使用
 │   ├── hands.ts          手（计算机使用）：把适配器的 Hands 包装成 screen_read / screen_capture / screen_click / screen_drag / screen_scroll / screen_type / screen_key / app_open / window_list / window_focus；读屏结果过滤、编号、排版，视图坐标（截图缩到长边 1280）与屏幕像素换算，按编号取元素中心与 ref，键名规范；全部归 hands 类别（缺省交给审核模型；sentinel 的 hands 风险类别只算动作，读屏、截图、列窗口不算）
-│   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）
+│   ├── attachments.ts    附件：分类、保存（data/uploads）、组装带附件的消息（图片 / 文本内联 / 路径）；agentFiles：她随回复交出的文件（飞书据此另发）
 │   ├── processes.ts      进程列表：直接读 /proc（不依赖 ps，也不读 Android 上被拒的 /proc/stat），标出她自己、父进程与后台任务；Windows 读 Win32_Process，macOS 用系统自带的 /bin/ps
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，固定顺序、拿到结果即止（相不相关由她判断）；没有结果时照实说明，被转到别的网站就写出是哪里
-│   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx / ODF / EPUB / HTML / RTF，PDF 与旧版 Office 调用外部命令
+│   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx（日期格式、只有公式的单元格）/ ODF / EPUB / HTML / RTF，PDF 优先 pdftotext、没有时内置简易解析（按 ToUnicode 还原中文），旧版 Office 调用外部命令
 │   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault；每项多端同步或仅本机，exportVault / mergeVault 供 mesh/shared.ts 按条目同步）、工具输出与参数里的保密值替换（连同基座自己的密钥，见 secret-values.ts）
 │   └── brain.ts          注入宿主模型、工具、Session、脱敏与记录，调用独立 engine.runTurn；醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess；放在回复前一条单独的「基座附注」里，她的回复只留原文；主动消息的附注写明是她醒来时主动发的）；回复只取结束这一轮的那一步的文字，session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；对话中模型空回的一步不算结束（提醒后重试最多两次，仍空则说明没能回复）；工具失败时上下文里写明失败，同样的调用第二次失败起提醒她不要原样重试；对方停止这一轮（stopTurn，网关 chat.stop）时中止模型输出、不再等工具，以一句说明结束；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
 ├── memory/
@@ -107,7 +110,7 @@ src/
 │   └── runtime.ts        绑定到运行时：配置、绑定令牌（secrets/sync.json）、钉住记录（data/mesh-pins.json）、局域网地址表（data/mesh-lan.json）、原生组件的按需加载、身体登记的公钥、soul.pushed → 其他身体立即拉取、拉取灵魂仓库后核对连接；网关的 mesh.* 方法（含 acceptPin）
 ├── guard/
 │   ├── guard.ts          能力授权（allow / review / ask / deny）、审批队列（ask：不看档位、直接生成审批，真实环境配置为人工时用它）、急停、审计；review 档位交给登记的审核者（setReviewer）
-│   └── sentinel.ts       安全审核：独立的审核模型（固定的审核系统提示，只送这一次操作：工具、类别、脱敏参数、她这一步的说明、对方最近一两句话、身体与是否真实环境；结论 allow / revise / block + 风险 + 理由）；按能力类别与工具语义的风险分类（classify，不看命令文字；hands 类别里只读的 screen_read / screen_capture / window_list 不算风险类别）；工具调用的闸门 gate；超时 / 失败策略；进入真实环境的审核 approveHost；审计 sentinel.review；控制台配置 sentinelView / setSentinel；旧缺省「询问」的一次性迁移 migrateReviewDefaults
+│   └── sentinel.ts       安全审核：独立的审核模型（固定的审核系统提示，只送这一次操作：工具、类别、脱敏参数、她这一步的说明、对方最近一两句话、身体与是否真实环境；结论 allow / revise / block + 风险 + 理由）；按能力类别与工具语义的风险分类（classify，不看命令文字；hands 类别里只读的 screen_read / screen_capture / window_list 不算风险类别；deliverable_create 带 overwrite 归 destructive）；工具调用的闸门 gate；超时 / 失败策略；进入真实环境的审核 approveHost；审计 sentinel.review；控制台配置 sentinelView / setSentinel；旧缺省「询问」的一次性迁移 migrateReviewDefaults
 ├── mcp/                  MCP 宿主工具来源（配置、权限、隔离与同步见 docs/engine/MCP.md）
 │   ├── client.ts         官方 SDK：stdio / Streamable HTTP / 旧版 SSE 传输、协商、工具发现与稳定别名（带来源声明的只读 / 破坏性注解，供审核分类；资源与提示词工具标为只读）、资源与提示词（以基座加的工具交给她）、schema 校验、输出边界与调用取消
 │   ├── runtime.ts        config/mcp.json 的校验与读写、启动授权（mcp_start.<id>）、沙箱环境与凭据引用、即时启停（reconcile）、来源状态、控制台管理（增删改、登录）、多端同步的导出与按条目合并（exportMcp / mergeMcp）
@@ -128,7 +131,7 @@ src/
 │   ├── router.ts         全局顺序路由（quick 把快速模型排前，prefer 把指定模型排前，例如审核模型）、Key轮换、按实际候选context重准备；HTTP故障或窗口不足时换候选，窗口不足不重复换Key、连通性测试；能否看图只认手动设置与公共目录，查不到就当不能
 │   └── compat/           供应商兼容层（仅对匹配的供应商自动生效）：index.ts 登记，opencode-go.ts
 └── channels/
-    ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、主动消息（注明所在会话）、菜单与单聊事件、卡片回调、一键接入
+    ├── feishu.ts         飞书长连接、消息（处理函数立即返回以支持插话；/new 开启新会话；保密输入期间只回不含内容的回执）、她生成的文件（回复与主动消息之后另发，经消息资源的上传接口）、主动消息（注明所在会话）、菜单与单聊事件、卡片回调、一键接入
     ├── feishu-progress.ts 执行过程卡片：按插话分段——插话那一刻上面的卡片定格，新的一段回复插话消息在下面重新开出；发送 / 更新经注入的 sender，可测试
     └── feishu-cards.ts   卡片 JSON 2.0：此刻 / 心流 / 记忆 / 控制 / 模型 / 权限（审核 / 允许 / 询问 / 禁止） / 预算 / 审批 / 保密输入
 ```

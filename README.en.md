@@ -80,9 +80,10 @@ What it does often, it turns into its own tool, done in one step next time.
 - Plugins use the formats everyone already uses: MCP tool sources (a local command or a remote address, with OAuth sign-in), Claude Code plugins and plugin marketplaces. Common ones such as filling in web forms, email and calendars install in one tap from the built-in catalog; when a plugin would help during a conversation, it recommends one to you, and you decide.
 - For longer jobs it sends a sub-agent to work in the background and hand back the result.
 - Long documents and code go into a Canvas next to the conversation, and you edit them together: every change is a version you can go back to; code runs in one click (in the same sandbox as its commands, with Python plots shown); select a passage to comment, and it replies or rewrites it, and offers edit suggestions of its own.
+- Handing things over: reports, spreadsheets and slide decks come as real Word / Excel / PowerPoint / PDF files (or Markdown, HTML, CSV, JSON), saved in the task's workspace and attached to the reply; preview them in the chat, download them or open them in a desktop app, and get them in Feishu too.
 - For every day: reminders (on time, or when you next pick up the phone), finding old conversations, reading Word / PowerPoint / Excel / PDF, web search, running commands, looking at images, chatting in Feishu.
 
-[Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools) · [Canvas](https://quetzal.plutokeating.beer/en/docs/guide/canvas) · [Plugins](https://quetzal.plutokeating.beer/en/docs/guide/plugins) · [How MCP and plugins work](docs/engine/MCP.md)
+[Its own tools and skills](https://quetzal.plutokeating.beer/en/docs/guide/tools) · [Canvas](https://quetzal.plutokeating.beer/en/docs/guide/canvas) · [Generating files](https://quetzal.plutokeating.beer/en/docs/guide/deliverables) · [Plugins](https://quetzal.plutokeating.beer/en/docs/guide/plugins) · [How MCP and plugins work](docs/engine/MCP.md)
 
 <br/>
 
