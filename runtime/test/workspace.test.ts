@@ -7,10 +7,11 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-// Windows：放在用户目录下一层（与缺省的工作区 %USERPROFILE%\Quetzal 一样）——沙箱用户读不了用户目录里 AppData 的属性，临时目录里的工作区进不去
-const root = fs.mkdtempSync(path.join(process.platform === "win32" ? os.homedir() : os.tmpdir(), "quetzal-workspace-"));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-workspace-"));
 process.env.QUETZAL_HOME = path.join(root, "qhome");
-process.env.HOME = path.join(root, "home"); // 工作目录（Linux 为用户主目录）放在临时目录里
+// 工作目录（Linux 为用户主目录）放在临时目录里。Windows 上它就是工作区，直接放在用户目录下一层（与缺省的 %USERPROFILE%\Quetzal 一样）：
+//   沙箱用户只能进被授权的工作区本身，读不了用户目录里其他目录（AppData、上一层临时目录）的属性，node / PowerShell 展开真实路径时被拒
+process.env.HOME = process.platform === "win32" ? fs.mkdtempSync(path.join(os.homedir(), "quetzal-workspace-")) : path.join(root, "home");
 fs.mkdirSync(process.env.HOME, { recursive: true });
 // Windows：主目录来自 USERPROFILE，工作目录就是工作区（不是主目录）；都指到同一个临时目录，沙箱用户也只能在工作区里执行
 if (process.platform === "win32") { process.env.USERPROFILE = process.env.HOME; process.env.QUETZAL_WORKSPACE = process.env.HOME; }
@@ -31,7 +32,7 @@ const { systemPrompt } = await import("../src/mind/prompt.ts");
 const { workDir } = await import("../src/sandbox.ts");
 const home = process.env.HOME!;
 const PC = uuid.deviceUuid("pc-machine-id-0001");
-after(() => { setBodies(undefined); ws.setWorkspaceMesh(undefined); store.db.close(); fs.rmSync(root, { recursive: true, force: true }); }); // Windows 上它在用户目录里：用完删掉
+after(() => { setBodies(undefined); ws.setWorkspaceMesh(undefined); store.db.close(); for (const d of [root, home]) fs.rmSync(d, { recursive: true, force: true }); }); // Windows 上工作区在用户目录里：用完删掉
 
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { stdio: "ignore" });
 const mkrepo = (dir: string, remote?: string, branch = "main") => {
