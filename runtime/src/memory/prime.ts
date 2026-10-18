@@ -112,12 +112,14 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 
 function modelSession(options: LearningOptions, external?: AbortSignal) {
   const controller = new AbortController();
-  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(options.timeoutMs ?? 8000), ...(options.signal ? [options.signal] : []), ...(external ? [external] : [])]);
+  // 硬超时用普通计时器而不是 AbortSignal.timeout：后者不占住事件循环，等待中的模型调用会被当成「已经没事可做」直接退出（测试里见过）
+  const timer = setTimeout(() => controller.abort(new DOMException("学习超时", "TimeoutError")), options.timeoutMs ?? 8000);
+  const signal = AbortSignal.any([controller.signal, ...(options.signal ? [options.signal] : []), ...(external ? [external] : [])]);
   const stop = () => { if (fs.existsSync(paths.stop)) controller.abort(new Error("急停中，学习停止")); };
   bus.on("state", stop); stop();
   let consumed = 0;
   return {
-    signal, close: () => bus.off("state", stop),
+    signal, close: () => { clearTimeout(timer); bus.off("state", stop); },
     async ask(instruction: string, payload: unknown): Promise<unknown> {
       signal.throwIfAborted();
       const content = redactSecrets(JSON.stringify(payload));
