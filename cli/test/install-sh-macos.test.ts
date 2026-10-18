@@ -26,6 +26,8 @@ function fakeMac(o: { version?: string; arch?: string; gui?: boolean; git?: bool
   cmd("launchctl", `case "$1" in print) case "$2" in gui/*/*) exit 0;; gui/*) exit ${o.gui === false ? 113 : 0};; *) exit 0;; esac;; *) exit 0;; esac`);
   cmd("xcode-select", `case "$1" in -p) exit ${o.clt ? 0 : 2};; *) exit 0;; esac`);
   cmd("git", `exit ${o.git === false ? 1 : 0}`);
+  // 提权一律失败：脚本里 as_root 动的是固定的系统路径（/usr/local/lib/quetzal、/etc/apparmor.d），测试机上真的 sudo 会改到这台机器本身
+  cmd("sudo", "exit 1"); cmd("doas", "exit 1");
   return { root, bin, home, calls };
 }
 function sh(m: ReturnType<typeof fakeMac>, code: string) {
@@ -110,4 +112,5 @@ test("卸载：卸下 launchd 用户代理（两个域都试）并删掉 plist�
   assert.equal(existsSync(join(m.home, ".quetzal", "npm")), false);
   assert.equal(existsSync(join(m.home, ".quetzal")), true);
   assert.match(r.out, /launchd 用户代理已移除/);
+  assert.doesNotMatch(r.calls, /^(sudo|doas) /m, "Mac 上没有专用 bwrap，卸载不该提权");
 });

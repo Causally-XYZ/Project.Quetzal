@@ -1034,7 +1034,7 @@ uninstall() {
     [[ -e $f ]] && { rm -f "$f"; did=1; }
   done
   if [[ -e "$HOME_DIR/console/current" ]]; then ok "$(t '原生控制台已移除' 'Native console removed')"; did=1; fi
-  if [[ -e $QZ_AA || -e $QZ_BWRAP ]] && need_root_runner; then # Quetzal 专用的 bwrap 副本与它的 AppArmor 配置（固定路径）
+  if [[ $IS_MAC != 1 ]] && [[ -e $QZ_AA || -e $QZ_BWRAP ]] && need_root_runner; then # Quetzal 专用的 bwrap 副本与它的 AppArmor 配置（固定的系统路径，只在 Linux 上有）
     local parser; parser=$(command -v apparmor_parser || echo /sbin/apparmor_parser)
     [[ -f $QZ_AA && -x $parser ]] && as_root "$parser" -R "$QZ_AA" >/dev/null 2>&1
     as_root unlink "$QZ_AA" >/dev/null 2>&1; as_root unlink "$QZ_BWRAP" >/dev/null 2>&1; as_root rmdir /usr/local/lib/quetzal >/dev/null 2>&1
