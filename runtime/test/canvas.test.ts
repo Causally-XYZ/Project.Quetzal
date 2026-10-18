@@ -7,7 +7,10 @@ import os from "node:os";
 import path from "node:path";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-canvas-"));
-process.env.QUETZAL_CANVAS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-canvas-runs-"));
+// 运行目录放在工作区里（与实际部署一致）：Windows 的沙箱用户只能写工作区，工作区外的临时目录进不去
+process.env.QUETZAL_WORKSPACE = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-canvas-ws-"));
+process.env.QUETZAL_CANVAS_DIR = path.join(process.env.QUETZAL_WORKSPACE, "canvas");
+fs.mkdirSync(process.env.QUETZAL_CANVAS_DIR);
 const { loadConfig, paths } = await import("../src/config.ts");
 loadConfig();
 const store = await import("../src/store.ts");
@@ -23,7 +26,7 @@ const { bus } = await import("../src/bus.ts");
 const { wanted } = await import("../src/mesh/canvas.ts");
 const { which } = await import("../src/platform.ts");
 
-after(() => { store.db.close(); fs.rmSync(paths.home, { recursive: true, force: true }); fs.rmSync(process.env.QUETZAL_CANVAS_DIR!, { recursive: true, force: true }); });
+after(() => { store.db.close(); fs.rmSync(paths.home, { recursive: true, force: true }); fs.rmSync(process.env.QUETZAL_WORKSPACE!, { recursive: true, force: true }); });
 const chat = (conv: string) => { store.ensureSession(conv, "测试", "控制台"); const s = new Session("chat", "控制台", undefined, conv); s.close(); return s; };
 const WIN = process.platform === "win32";
 // 在登记任何用例之前准备好沙箱：用例中间的顶层 await 会让前面的用例先跑完、after 提前关库删目录（Windows 上准备沙箱要一会儿）
