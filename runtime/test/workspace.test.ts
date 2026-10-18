@@ -11,6 +11,8 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-workspace-"));
 process.env.QUETZAL_HOME = path.join(root, "qhome");
 process.env.HOME = path.join(root, "home"); // 工作目录（Linux 为用户主目录）放在临时目录里
 fs.mkdirSync(process.env.HOME, { recursive: true });
+// Windows：主目录来自 USERPROFILE，工作目录就是工作区（不是主目录）；都指到同一个临时目录，沙箱用户也只能在工作区里执行
+if (process.platform === "win32") { process.env.USERPROFILE = process.env.HOME; process.env.QUETZAL_WORKSPACE = process.env.HOME; }
 const cfg = await import("../src/config.ts"); // 用命名空间读 config：它是会被整体替换的活绑定
 const { loadConfig, saveConfig, paths } = cfg;
 loadConfig();
