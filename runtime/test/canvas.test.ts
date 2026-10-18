@@ -26,6 +26,10 @@ const { which } = await import("../src/platform.ts");
 after(() => { store.db.close(); fs.rmSync(paths.home, { recursive: true, force: true }); fs.rmSync(process.env.QUETZAL_CANVAS_DIR!, { recursive: true, force: true }); });
 const chat = (conv: string) => { store.ensureSession(conv, "测试", "控制台"); const s = new Session("chat", "控制台", undefined, conv); s.close(); return s; };
 const WIN = process.platform === "win32";
+// 在登记任何用例之前准备好沙箱：用例中间的顶层 await 会让前面的用例先跑完、after 提前关库删目录（Windows 上准备沙箱要一会儿）
+await prepareSandbox().catch(() => {});
+const sandboxed = sandboxStatus().kind !== "none";
+const py = WIN ? which("python") : which("python3") ?? which("python");
 
 test("新建、按片段修改、整体替换、版本历史与恢复、改名与删除、按会话列出", () => {
   const v = cv.createCanvas({ conv: "c1", title: "  方案  ", content: "# 标题\n第一段\n第二段\n", author: "agent" });
@@ -175,10 +179,6 @@ test("运行：没有解释器时如实说明、不执行；文档不能运行",
   if (WIN) assert.ok("missing" in shellWin); else assert.ok(!("missing" in shellWin));
   assert.ok("missing" in cv.interpreter("rust", ""), "不能运行的语言说明原因");
 });
-
-await prepareSandbox().catch(() => {});
-const sandboxed = sandboxStatus().kind !== "none";
-const py = WIN ? which("python") : which("python3") ?? which("python");
 
 test("运行 JavaScript：在沙箱里执行（读不到密钥目录），输出与退出码、工具经闸门与审计", async () => {
   fs.writeFileSync(path.join(paths.secrets, "canvas-canary"), "SECRET-CANARY");
