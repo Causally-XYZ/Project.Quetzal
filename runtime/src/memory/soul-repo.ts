@@ -119,6 +119,40 @@ export const pushRejected = (out: string) => /^!\t/m.test(out);
 /** 冲突时落选版本的副本路径：x.md → x.incoming.md（规范 §3.3 的 .gitignore 忽略 *.incoming*.md，不会被提交）。非 .md 文件不另存。 */
 export const incomingPath = (file: string) => (file.endsWith(".md") ? `${file.slice(0, -3)}.incoming.md` : undefined);
 
+/** 灵魂目录里的目录链接（目录符号链接；Windows 上还有 junction，Node 的 lstat 同样认作链接），相对路径。不跟随链接，.git 跳过。 */
+export function dirLinks(root: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    let names: string[];
+    try { names = fs.readdirSync(path.join(root, rel)); } catch { return; }
+    for (const n of names) {
+      if (!rel && n === ".git") continue;
+      const r = rel ? `${rel}/${n}` : n, abs = path.join(root, r);
+      let st: fs.Stats;
+      try { st = fs.lstatSync(abs); } catch { continue; }
+      if (st.isSymbolicLink()) { try { if (fs.statSync(abs).isDirectory()) out.push(r); } catch { /* 断了的链接：git 当普通链接处理 */ } }
+      else if (st.isDirectory()) walk(r);
+    }
+  };
+  walk("");
+  return out.sort();
+}
+const LINKS_BEGIN = "# quetzal: 目录链接，不进入（基座自动维护）", LINKS_END = "# quetzal: 目录链接结束";
+/** .git/info/exclude 的新内容：去掉上一次基座写的目录链接一段，按 links 重写（没有链接就不写这一段）；别的行原样保留。 */
+export function excludeWithLinks(existing: string, links: string[]): string {
+  const lines = existing.split("\n"), kept: string[] = [];
+  for (let i = 0, inside = false; i < lines.length; i++) {
+    if (lines[i] === LINKS_BEGIN) { inside = true; continue; }
+    if (inside) { if (lines[i] === LINKS_END) inside = false; continue; }
+    kept.push(lines[i]);
+  }
+  while (kept.length && kept[kept.length - 1] === "") kept.pop();
+  const esc = (p: string) => p.replace(/[\\*?[\]!#]/g, "\\$&").replace(/ $/, "\\ ");
+  const block = links.length ? [LINKS_BEGIN, ...links.map((l) => `/${esc(l)}`), LINKS_END] : [];
+  const all = [...kept, ...block];
+  return all.length ? all.join("\n") + "\n" : "";
+}
+
 /** git 多久没有任何输出就结束（网络操作带 --progress，传输期间一直有输出）。 */
 const GIT_IDLE_MS = 120_000;
 
@@ -316,6 +350,7 @@ export class SoulRepo {
 
   /** 工作区里有变化的文件（相对路径，含新增与删除；重命名取新路径）。被 .gitignore 忽略的不算。 */
   async changes(): Promise<string[]> {
+    this.excludeDirLinks();
     const r = await this.git("status", "--porcelain=v1", "-z", "--untracked-files=all");
     if (r.code !== 0) return [];
     const parts = r.out.split("\0"), out: string[] = [];
@@ -346,9 +381,25 @@ export class SoulRepo {
     return links;
   }
 
+  /** Windows：灵魂目录里的目录链接写进 .git/info/exclude，git 不进入它们。这里的 git 以 core.symlinks=false 运行，Windows 上会把 junction 与
+   *  目录符号链接当成普通目录走进去：指回上层的链接成环，status / add 要走到闲置超时，灵魂同步的队列一直被占着。灵魂仓库本来就不收链接
+   *  （dropSymlinks）。其他平台 git 不跟随链接，交给 dropSymlinks 处理。 */
+  private excludeDirLinks() {
+    if (!WIN || !this.exists) return;
+    try {
+      const f = this.p(".git", "info", "exclude");
+      const cur = (() => { try { return fs.readFileSync(f, "utf8"); } catch { return ""; } })();
+      const links = dirLinks(this.o.dir), next = excludeWithLinks(cur, links);
+      if (next === cur) return;
+      fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, next);
+      if (links.length) this.o.log?.(`灵魂仓库不收目录链接，git 不进入：${links.slice(0, 5).join("、")}`);
+    } catch { /* 写不了 exclude：照常执行，最多慢一些 */ }
+  }
+
   /** 提交全部变更。灵魂仓库是私有的，内容不做任何检查（规范 v11 §6）：她写什么就提交什么。 */
   async commit(msg: string) {
     await this.sanitizeConfig();
+    this.excludeDirLinks();
     await this.git("add", "-A");
     await this.dropSymlinks();
     for (const w of await this.lint()) this.o.log?.(w);
