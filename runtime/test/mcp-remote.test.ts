@@ -188,7 +188,7 @@ test("OAuth 2.1：未登录时状态为需要登录；登录走发现、动态�
   assert.equal(view.loggedIn, true);
   assert.equal(view.tools, 1);
   const stored = path.join(paths.secrets, "mcp-oauth-oauthy.json");
-  assert.equal(fs.statSync(stored).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(fs.statSync(stored).mode & 0o777, 0o600); // Windows 上 chmod 只改只读位，权限靠 ACL（另有测试）
   assert.ok(baseSecrets().some(([v]) => v === TOKEN), "令牌进脱敏名单");
   assert.ok(!fs.readFileSync(path.join(paths.config, "mcp.json"), "utf8").includes(TOKEN), "令牌不进配置");
   assert.ok(!JSON.stringify(rt.exportMcp()).includes(TOKEN), "令牌不进同步");

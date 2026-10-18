@@ -16,7 +16,7 @@ const { history } = await import("../src/mind/brain.ts");
 const taskStates = await import("../src/mind/task-states.ts");
 const { createTurnContext, taskState } = await import("../src/mind/context.ts");
 
-test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+test.after(() => { store.db.close(); fs.rmSync(tmp, { recursive: true, force: true }); }); // 先关库：Windows 上打开着的数据库文件删不掉（EPERM）
 
 test("相对时间：刚才、分钟、小时、天、周、月、年", () => {
   const now = Date.UTC(2026, 9, 18, 12);
