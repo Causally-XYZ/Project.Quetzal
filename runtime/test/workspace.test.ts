@@ -7,7 +7,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-workspace-"))); // 长路径：Windows 运行器的临时目录是 8.3 短名，沙箱用户解析它时要列上层目录，被拒
+// Windows：放在用户目录下一层（与缺省的工作区 %USERPROFILE%\Quetzal 一样）——沙箱用户读不了用户目录里 AppData 的属性，临时目录里的工作区进不去
+const root = fs.mkdtempSync(path.join(process.platform === "win32" ? os.homedir() : os.tmpdir(), "quetzal-workspace-"));
 process.env.QUETZAL_HOME = path.join(root, "qhome");
 process.env.HOME = path.join(root, "home"); // 工作目录（Linux 为用户主目录）放在临时目录里
 fs.mkdirSync(process.env.HOME, { recursive: true });
@@ -30,7 +31,7 @@ const { systemPrompt } = await import("../src/mind/prompt.ts");
 const { workDir } = await import("../src/sandbox.ts");
 const home = process.env.HOME!;
 const PC = uuid.deviceUuid("pc-machine-id-0001");
-after(() => { setBodies(undefined); ws.setWorkspaceMesh(undefined); });
+after(() => { setBodies(undefined); ws.setWorkspaceMesh(undefined); store.db.close(); fs.rmSync(root, { recursive: true, force: true }); }); // Windows 上它在用户目录里：用完删掉
 
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { stdio: "ignore" });
 const mkrepo = (dir: string, remote?: string, branch = "main") => {
