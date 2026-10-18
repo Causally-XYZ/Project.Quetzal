@@ -2,6 +2,28 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。新增版本使用中文，历史英文段落保留。
 
+## 1.11.0
+
+- **生成文件**：她能把报告、表格和演示文稿做成 Word、Excel、PowerPoint、PDF，或 Markdown / HTML / CSV / JSON，作为回复的附件交给你；控制台里显示为文件卡片，可以预览、下载，桌面版用系统应用打开。读文档也更准：Word 表格、Excel 的日期与公式、没有 pdftotext 时的中文 PDF。
+- **Canvas**：会话旁边多了一块文档与代码编辑区（桌面在右侧分栏，手机全屏），有版本历史，代码能在沙箱里运行，可以选中一段加评论，内容在你的各台设备之间复制。
+- **插件**：工具来源补上远程 MCP（Streamable HTTP 与旧版 SSE）、按 MCP 授权规范的 OAuth 登录、resources 与 prompts；支持插件包与插件目录，她会在合适的时候推荐；控制台新增「插件」页，可以按来源、按单个工具设置权限。
+- **操作屏幕和应用**：在安卓、Linux（X11 / Wayland）、Windows 和 macOS 上，她能看屏幕、读界面元素、点击、输入、打开应用。新增 macOS 支持：一键安装、launchd 守护、Seatbelt 命令沙箱与网状层组件。
+- **多台设备是一个她**：进行中的工作、工作状态、子 agent 和长期目标在各台设备之间同步，重启或离线后接着做；会话记下工作区在哪台设备的哪个目录，之后的消息自动送到那台设备；消息和工作如实标明来自哪台设备；停止一轮时，正在别的设备上执行的调用也一起取消。
+- **保密库多端同步**：每一项可以选「多端同步」或「仅本机」，之后随时可改；多端同步的只经设备之间端到端加密的通道传。
+- **安全审核交给审核模型**：缺省不再要求人工审批，由独立的审核模型按风险判断；控制台权限页新增「审核」档位，操作记录可以只看审核结论。
+- **对话与会话**：她的每条回复下面可以一键复制、导出为 Markdown；附件可以插在正文的光标处，她知道每个附件在文字的哪里；会话可以置顶、搜索、筛选，并归到项目里；子 agent 的报告默认折叠，步数上限真正生效。
+- **时间感**：一小时以前的消息带上「3 天前」这样的相对时间；工作状态记一条带时间的时间线（目标、约束、问题和阶段的变化），长对话里早先定下的事不会被冲淡。
+
+- **Generated files**: she can turn reports, tables and slides into Word, Excel, PowerPoint or PDF files, or Markdown / HTML / CSV / JSON, and hand them to you as attachments to her reply. The console shows them as file cards you can preview and download; the desktop console opens them in the system app. Reading documents is also more accurate: Word tables, Excel dates and formulas, and Chinese PDFs when pdftotext is not installed.
+- **Canvas**: a document and code editor next to the conversation (a side pane on desktop, full screen on phones), with version history, running code in the sandbox and comments on a selected passage. Canvases are replicated across your devices.
+- **Plugins**: tool sources now include remote MCP (Streamable HTTP and legacy SSE), OAuth sign-in following the MCP authorization spec, and resources and prompts. Plugin bundles and a plugin catalog are supported, and she suggests plugins when they fit. A new Plugins page in the console sets permissions per source and per tool.
+- **Using the screen and apps**: on Android, Linux (X11 / Wayland), Windows and macOS she can look at the screen, read UI elements, click, type and open apps. macOS is newly supported: one-line install, a launchd agent, a Seatbelt command sandbox and the mesh component.
+- **Many devices, one her**: work in progress, working state, sub-agents and long-term goals sync across devices and resume after a restart or while a device is offline. A conversation remembers which device and directory its workspace is in, and later messages go to that device automatically. Messages and work say which device they came from, and stopping a turn also cancels calls running on other devices.
+- **Vault sync**: each item is either "sync to all devices" or "this device only", changeable at any time; synced items travel only over end-to-end encrypted links between your devices.
+- **Safety review by a review model**: manual approval is no longer the default. An independent review model judges each action by its risk. The console's permissions page has a new "Review" level, and the action log can show only review verdicts.
+- **Conversations**: copy any reply with one tap or export it as Markdown; attachments can be placed at the cursor and she knows where each one sits in the text; conversations can be pinned, searched, filtered and grouped into projects; sub-agent reports are collapsed by default and the step limit is enforced.
+- **Sense of time**: messages older than an hour carry a relative time such as "3 days ago", and the working state keeps a timestamped timeline of changes to goals, constraints, questions and phase, so things settled early in a long conversation are not lost.
+
 ## 1.10.0
 
 - **独立 Agent 内核**：根级 `engine/` 提取真实模型与工具循环、协议类型、动态上下文、结构化记忆与 PRIME 规则。App、飞书、自主活动与子 agent 继续通过同一 runtime 宿主执行，身体、权限、存储和灵魂同步保留原边界；增加独立环境的受限研究运行器与论文研究资料。
