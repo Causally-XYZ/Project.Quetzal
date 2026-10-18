@@ -82,6 +82,6 @@ jobs:
         timeout-minutes: 60
         env:
           QUETZAL_TEST_SRT: "1"
-        run: node --experimental-strip-types --test --test-concurrency=1 --test-timeout=300000 test/*.test.ts ../engine/test/*.test.ts
+        run: node --experimental-strip-types --test --test-reporter=tap --test-concurrency=1 --test-timeout=300000 test/*.test.ts ../engine/test/*.test.ts # tap：每条失败当场打印报错（spec 只在最后汇总，整步超时就看不到）
       - name: 构建
         run: npm run build
