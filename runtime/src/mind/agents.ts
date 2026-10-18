@@ -96,13 +96,13 @@ function launch(a: SubAgent, messages: Msg[], run: AgentRun, deliver: AgentDeliv
   sessions.set(a.id, s);
   s.emit({ kind: "start", text: `${a.name}：${a.goal}` });
   const base = a.steps, before = a.checkpoint?.summary ?? "";
-  let seen = -1;
+  let seen: string | undefined;
   const checkpoint = () => { // 每 15 秒记一次检查点：做了几步、最近的过程（续做时接在之前的过程后面）
     const items = s.process();
-    if (items.length === seen || lost(a)) return;
-    seen = items.length;
-    const tools = items.filter((x) => x.type === "tool").length;
     const recent = describeSteps(items, 15);
+    if (recent === seen || lost(a)) return; // 按过程的文字比：工具从「…」到「✓」时条数不变，只比条数会一直停在「…」
+    seen = recent;
+    const tools = items.filter((x) => x.type === "tool").length;
     a.steps = base + tools;
     a.checkpoint = { at: Date.now(), steps: a.steps, summary: clipStart(`${before ? `${before}\n（续做）` : ""}${recent}`, SUMMARY_MAX) };
     a.updated = Date.now();
