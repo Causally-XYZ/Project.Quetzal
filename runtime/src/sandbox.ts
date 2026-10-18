@@ -214,6 +214,12 @@ function probe(): Probe {
 
 function current(): Probe {
   if (srtPlatform && srtState === "idle") void prepareSandbox(); // 第一次用到时在后台准备；准备好之前按「没有沙箱」处理
+  // 探测结果会缓存；启动器在基座运行中被删掉（卸载、重装、包升级）就重新探测，不能一直去启动一个不存在的程序（spawn ENOENT）
+  if (probed && !srtPlatform && probed.bin && !exists(probed.bin)) {
+    log("sandbox", `沙箱启动器 ${probed.bin} 不见了，重新探测`);
+    try { addTimeline("sandbox", "沙箱启动器不见了，重新探测", { text: probed.bin }); } catch { /* 存储还没打开（测试） */ }
+    probed = undefined; warned = false;
+  }
   if (!probed || (srtPlatform && probed.kind === "none" && srtState === "ready")) {
     probed = probe();
     if (probed.kind === "none" && !warned && !(srtPlatform && srtState === "preparing")) {

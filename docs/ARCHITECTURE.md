@@ -612,7 +612,7 @@ flowchart LR
 | macOS（系统自带的 `/usr/bin/sandbox-exec`，不用安装） | 同一个 sandbox-runtime（锁定 0.0.78）的 macOS 后端（`kind = srt`）：每条命令生成一份 Seatbelt 配置（缺省拒绝，只放行少数系统服务，不能发 Apple 事件），经 `sandbox-exec` 运行；边界由 `sandbox-macos.ts` 算出，与 Linux 的 bwrap 等价 | `secrets/`、浏览器配置目录（Chrome / Edge / Brave / Firefox / Safari 等）、`~/Library/Cookies` 与钥匙串文件读不到；`QUETZAL_HOME` 整体只读；能写主目录（QUETZAL_HOME 除外）、临时目录与 `config.sandbox.share`；shell 启动文件、`~/.ssh`、git 配置、`~/.local/bin`、`~/Library/LaunchAgents`（launchd 用户代理）与登录项只读。QUETZAL_HOME 特殊地等于主目录时只开放独立工作区。网络与 Windows 一样只能经运行基座进程里的代理（`HTTP_PROXY` / `ALL_PROXY`；命令前去掉 sandbox-runtime 设的绕过局域网的 `NO_PROXY`，把 `TMPDIR` 改回这个用户的临时目录）：公网与局域网照常，连不到这台机器自己（本机网关在这里）；不认代理变量的程序（直接连 TCP，如 `ssh`）连不出去 |
 | 都没有 | **不执行**（fail-closed，参考 DeepSeek Harness） | 她的命令得到「没有可用的沙箱」的说明；`status.sandbox.kind` 为 `none`，时间线与日志各提醒一次。部署者可以在控制台「高级 · 运行」页明确选择不隔离也运行（`config.sandbox.allowUnsandboxed`，不安全）。安装器负责装上可用的沙箱 |
 
-每种沙箱第一次使用前都实际验证一次：在 `secrets/` 里放一个无害的探针文件，沙箱里读得到或列得出 `secrets/` 的内容就不用它（macOS 另外确认写不进 `QUETZAL_HOME/state/`）（防止 `--best-effort` 在不支持 Landlock 的内核上不加限制、或别的原因导致「看似成功其实没隔离」）。
+每种沙箱第一次使用前都实际验证一次：在 `secrets/` 里放一个无害的探针文件，沙箱里读得到或列得出 `secrets/` 的内容就不用它（macOS 另外确认写不进 `QUETZAL_HOME/state/`）（防止 `--best-effort` 在不支持 Landlock 的内核上不加限制、或别的原因导致「看似成功其实没隔离」）。探测结果会缓存；Linux 与 Termux 上选中的启动器（bwrap、landrun、proot）在基座运行中被删掉（卸载、重装、包升级）时，下一条命令前重新探测，不会一直去启动一个不存在的程序。
 
 - agent 命令不能直接改写灵魂或运行数据（包括 SQLite 用户 / 工具来源），文件注入、重命名父目录与 SQL 修改都属于禁止写入；普通笔记、记忆与技能通过宿主工具操作，命令输出放用户工作区。QUETZAL_HOME 特殊设为用户 HOME 或根目录时，整个该目录只读，仅独立工作区开放写入；proot 不支持只读绑定，因而遮蔽 data / soul 并通过宿主工具访问。明确授权的 host-mode / allowUnsandboxed 越过沙箱，不在此保证范围。
 - 保密库（`vault/`）在沙箱里可读：`pass_secret` 的用法就是在命令里引用它。
