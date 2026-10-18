@@ -76,10 +76,12 @@ jobs:
         if: runner.os == 'Linux'
         run: npm test
       # Windows：每条沙箱里的命令都要以沙箱用户登录一次（加载它的配置文件），几十个测试进程同时这样做会互相拖慢到超时，所以一个文件一个文件地跑
+      # 正常十分钟内跑完；单个用例 5 分钟没结束就判失败并报出名字，整步 60 分钟封顶，卡住时不再空耗到 6 小时
       - name: 测试（Windows，逐个文件）
         if: runner.os == 'Windows'
+        timeout-minutes: 60
         env:
           QUETZAL_TEST_SRT: "1"
-        run: node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts ../engine/test/*.test.ts
+        run: node --experimental-strip-types --test --test-concurrency=1 --test-timeout=300000 test/*.test.ts ../engine/test/*.test.ts
       - name: 构建
         run: npm run build
