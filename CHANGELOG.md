@@ -13,6 +13,7 @@
 - **安全审核交给审核模型**：缺省不再要求人工审批，由独立的审核模型按风险判断；控制台权限页新增「审核」档位，操作记录可以只看审核结论。
 - **对话与会话**：她的每条回复下面可以一键复制、导出为 Markdown；附件可以插在正文的光标处，她知道每个附件在文字的哪里；会话可以置顶、搜索、筛选，并归到项目里；子 agent 的报告默认折叠，步数上限真正生效。
 - **时间感**：一小时以前的消息带上「3 天前」这样的相对时间；工作状态记一条带时间的时间线（目标、约束、问题和阶段的变化），长对话里早先定下的事不会被冲淡。
+- **修复**：Linux 上命令沙箱的启动器在运行中被删掉（例如重新安装、卸载）后，基座重新探测，不再每条命令都报 `spawn … ENOENT`、直到重启；子 agent 的检查点记下工具的结果（此前停在「进行中」，换一台设备续做时看不到）；Windows 上灵魂目录里的目录链接不再让灵魂同步卡住；Windows 读窗口列表偶尔整体失败时改为逐个读。
 
 - **Generated files**: she can turn reports, tables and slides into Word, Excel, PowerPoint or PDF files, or Markdown / HTML / CSV / JSON, and hand them to you as attachments to her reply. The console shows them as file cards you can preview and download; the desktop console opens them in the system app. Reading documents is also more accurate: Word tables, Excel dates and formulas, and Chinese PDFs when pdftotext is not installed.
 - **Canvas**: a document and code editor next to the conversation (a side pane on desktop, full screen on phones), with version history, running code in the sandbox and comments on a selected passage. Canvases are replicated across your devices.
@@ -23,6 +24,7 @@
 - **Safety review by a review model**: manual approval is no longer the default. An independent review model judges each action by its risk. The console's permissions page has a new "Review" level, and the action log can show only review verdicts.
 - **Conversations**: copy any reply with one tap or export it as Markdown; attachments can be placed at the cursor and she knows where each one sits in the text; conversations can be pinned, searched, filtered and grouped into projects; sub-agent reports are collapsed by default and the step limit is enforced.
 - **Sense of time**: messages older than an hour carry a relative time such as "3 days ago", and the working state keeps a timestamped timeline of changes to goals, constraints, questions and phase, so things settled early in a long conversation are not lost.
+- **Fixes**: on Linux, if the command sandbox launcher disappears while the runtime is running (for example after a reinstall or uninstall), the runtime probes again instead of failing every command with `spawn … ENOENT` until a restart; sub-agent checkpoints record tool results (they used to stay "in progress", so another device resuming the work could not see them); directory links inside the soul folder no longer stall soul sync on Windows; when listing windows on Windows fails as a whole, windows are read one by one.
 
 ## 1.10.0
 
