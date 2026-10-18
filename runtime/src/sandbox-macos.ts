@@ -7,7 +7,7 @@
 //   - 改了会在沙箱外执行的东西只读：shell 启动文件、~/Library/LaunchAgents（launchd 用户代理）、~/.ssh、git 配置、~/.local/bin 等。
 //   sandbox-runtime 的 Seatbelt 配置本身缺省拒绝：只放行少数系统服务（没有 Apple 事件，osascript 控制不了别的应用），网络只能连它在
 //   运行基座进程里开的代理（经 HTTP_PROXY / ALL_PROXY 等环境变量），代理拒绝这台机器自己的地址（见 sandbox.ts 的 selfAddress）。
-import path from "node:path";
+import { posix as path } from "node:path"; // 只在 macOS 上用：路径一律按 POSIX 算（测试在 Windows 上也跑这些纯函数）
 
 export interface MacFsInput {
   home: string;            // QUETZAL_HOME（真实路径）

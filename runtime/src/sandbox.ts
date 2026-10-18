@@ -406,7 +406,7 @@ export function macPrelude(tmp: string): string {
 
 /** macOS 的探针：读得到密钥目录里的探针文件或列得出目录内容退出 3，写得进 QUETZAL_HOME（state/ 下的探针文件）退出 4，否则 0。 */
 export function macProbeScript(secrets: string, canary: string, writeProbe: string): string {
-  return `cat ${shq(path.join(secrets, canary))} >/dev/null 2>&1 && exit 3; ls -A ${shq(secrets)} 2>/dev/null | grep -q . && exit 3; ( : > ${shq(writeProbe)} ) 2>/dev/null && exit 4; exit 0`;
+  return `cat ${shq(path.posix.join(secrets, canary))} >/dev/null 2>&1 && exit 3; ls -A ${shq(secrets)} 2>/dev/null | grep -q . && exit 3; ( : > ${shq(writeProbe)} ) 2>/dev/null && exit 4; exit 0`;
 }
 
 async function srtWrap(script: string, cwd: string): Promise<{ cmd: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {

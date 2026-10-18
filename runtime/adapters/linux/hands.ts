@@ -9,7 +9,7 @@
 //   这些操作由运行基座进程直接执行，不经过 agent 的命令沙箱（闸门在核心：「操作屏幕与应用」缺省交给审核模型）。
 import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
+import { posix as path } from "node:path"; // 只在 Linux 上用：路径一律按 POSIX 算（测试在 Windows 上也跑这些纯函数）
 import type { Hands, HandsStatus, ScreenElement, ScreenPoint, ScreenSnapshot, ScreenWindow, ClickOptions } from "../../src/body/adapter.ts";
 import { run, have } from "./linux.ts";
 

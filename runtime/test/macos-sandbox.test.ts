@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
+import { posix as path } from "node:path"; // 配置是给 macOS 的：按 POSIX 拼路径
 import http from "node:http";
 import { spawnSync } from "node:child_process";
 import { macFilesystem, MAC_USER_READONLY, MAC_HIDDEN } from "../src/sandbox-macos.ts";
@@ -32,7 +32,7 @@ test("文件系统配置：只列存在的用户路径；QUETZAL_HOME 等于主�
   assert.ok(special.denyWrite.includes("/Users/u/data") && special.denyWrite.includes("/Users/u/soul"));
 });
 
-test("sandbox-runtime 据此生成的 Seatbelt 配置：缺省拒绝、密钥目录拒读、QUETZAL_HOME 拒写、网络只能连代理、不能发 Apple 事件", async () => {
+test("sandbox-runtime 据此生成的 Seatbelt 配置：缺省拒绝、密钥目录拒读、QUETZAL_HOME 拒写、网络只能连代理、不能发 Apple 事件", { skip: process.platform === "win32" && "sandbox-runtime 的 macOS 生成函数按本机的 path 规整路径，Windows 上得不出 POSIX 路径" }, async () => {
   // 直接调用 sandbox-runtime 的 macOS 生成函数（SandboxManager 只在 Mac 上初始化），输入与 SandboxManager 传给它的形状一致
   const m: any = await import("@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js");
   const f = macFilesystem({ ...base, exists: () => true });
@@ -58,16 +58,19 @@ test("探针与前置命令：引号安全；TMPDIR 改回自己的临时目录�
   const probe = macProbeScript("/a b/secrets", ".sandbox-canary", "/a b/state/.p");
   assert.match(probe, /cat '\/a b\/secrets\/\.sandbox-canary' .*exit 3/);
   assert.match(probe, /\( : > '\/a b\/state\/\.p' \) 2>\/dev\/null && exit 4; exit 0$/);
-  // 在本机 sh 里实际跑一遍探针：密钥可读时 3，可写时 4，都不行时 0
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-mac-probe-"));
-  fs.mkdirSync(path.join(d, "secrets")); fs.mkdirSync(path.join(d, "state"));
-  const runProbe = () => spawnSync("sh", ["-c", macProbeScript(path.join(d, "secrets"), ".c", path.join(d, "state", ".p"))]).status;
-  fs.writeFileSync(path.join(d, "secrets", ".c"), "x");
-  assert.equal(runProbe(), 3);
-  fs.rmSync(path.join(d, "secrets", ".c"));
-  assert.equal(runProbe(), 4, "写得进 state/");
+  // 在本机 sh 里实际跑一遍探针：密钥可读时 3，可写时 4，都不行时 0（Windows 上没有 POSIX 路径的 sh，只核对上面的文字）
+  if (process.platform !== "win32") {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-mac-probe-"));
+    fs.mkdirSync(path.join(d, "secrets")); fs.mkdirSync(path.join(d, "state"));
+    const runProbe = () => spawnSync("sh", ["-c", macProbeScript(path.join(d, "secrets"), ".c", path.join(d, "state", ".p"))]).status;
+    fs.writeFileSync(path.join(d, "secrets", ".c"), "x");
+    assert.equal(runProbe(), 3);
+    fs.rmSync(path.join(d, "secrets", ".c"));
+    assert.equal(runProbe(), 4, "写得进 state/");
+  }
   const pre = macPrelude("/private/var/folders/x/T");
   assert.equal(pre, "export TMPDIR='/private/var/folders/x/T'; unset NO_PROXY no_proxy; ");
+  if (process.platform === "win32") return;
   const env = spawnSync("sh", ["-c", `${pre}echo "$TMPDIR|\${NO_PROXY-unset}"`], { env: { ...process.env, NO_PROXY: "10.0.0.0/8" }, encoding: "utf8" }).stdout.trim();
   assert.equal(env, "/private/var/folders/x/T|unset");
 });
