@@ -54,7 +54,11 @@ const llm = http.createServer((req, res) => {
     for (const m of j.messages) llmSeen.push(typeof m.content === "string" ? m.content : (m.content ?? []).map((c: any) => c.text ?? "").join(""));
     llmSeen.splice(0, Math.max(0, llmSeen.length - 200)); const text = typeof last.content === "string" ? last.content : last.content?.find((c: any) => c.type === "text")?.text ?? "";
     const content = /先别急着做事/.test(text) && llmWhere ? JSON.stringify({ engage: true, intent: "测试的意图", where: llmWhere }) : `${process.env.BODY} 的回复`;
-    const item = !/先别急着做事/.test(text) && llmScript.length ? llmScript.shift() : { content };
+    // 脚本里的一条可以写 {match: "文字", ...}：只交给消息里含这段文字的请求（后台的其他模型调用不会先把它取走）
+    const all = llmSeen.slice(-j.messages.length).join("\n");
+    const at = /先别急着做事/.test(text) ? -1 : llmScript.findIndex((x) => !(x && typeof x === "object" && typeof x.match === "string") || all.includes(x.match));
+    const found = at >= 0 ? llmScript.splice(at, 1)[0] : undefined;
+    const item = found && typeof found === "object" && "match" in found ? (({ match: _m, ...rest }) => rest)(found) : found ?? { content };
     if (item !== undefined && item.content !== content) llmTook.push(`${text.slice(0, 120)}｜${JSON.stringify(item).slice(0, 80)}`); // 调试：脚本被哪一次请求取走
     const message = item && typeof item === "object" && "message" in item ? item.message : item; // 脚本里可以写 {delay, message}：这一条单独延迟（制造做到一半的一轮）
     setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ choices: [{ message }], usage: { prompt_tokens: 1, completion_tokens: 1 } })); }, item && typeof item === "object" && typeof item.delay === "number" ? item.delay : llmDelay);

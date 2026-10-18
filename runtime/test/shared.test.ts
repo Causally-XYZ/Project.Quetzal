@@ -33,7 +33,8 @@ function spawnBody(name: string) {
   return { ready, call };
 }
 let step = "";
-const until = async (f: () => Promise<boolean>, ms = 20_000) => { const t = Date.now(); while (!(await f())) { if (Date.now() - t > ms) throw new Error(`等待超时：${step}`); await new Promise((r) => setTimeout(r, 50)); } };
+// 负载高时（并行跑全部测试、Windows ARM）同步要更久
+const until = async (f: () => Promise<boolean>, ms = 60_000) => { const t = Date.now(); while (!(await f())) { if (Date.now() - t > ms) throw new Error(`等待超时：${step}`); await new Promise((r) => setTimeout(r, 50)); } };
 after(() => { for (const p of procs) p.kill(); sync.close(); });
 
 test("设置、Key、急停、审批、用量、想分享的一句话：一处改了，所有身体跟着改", { skip }, async () => {
