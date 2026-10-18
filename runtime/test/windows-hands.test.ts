@@ -96,9 +96,10 @@ test("不在桌面里：手的操作转交身体助手（带令牌）；助手�
 });
 
 test("Windows：读一次前台窗口与窗口列表", { skip: !WIN && "只在 Windows 上跑" }, async () => {
-  const snap = await handsOps["hands.snapshot"]({}) as { width: number; height: number };
-  assert.ok(snap.width > 0 && snap.height > 0);
-  assert.ok(Array.isArray(await handsOps["hands.windows"]({})));
   const { ps } = await import("../adapters/windows/desktop.ts");
-  ps.stop();
+  try {
+    const snap = await handsOps["hands.snapshot"]({}) as { width: number; height: number };
+    assert.ok(snap.width > 0 && snap.height > 0);
+    assert.ok(Array.isArray(await handsOps["hands.windows"]({})));
+  } finally { ps.stop(); } // 常驻的 PowerShell 不结束，这个测试文件就一直不退出
 });

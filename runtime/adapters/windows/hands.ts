@@ -225,9 +225,12 @@ $cr = New-Object System.Windows.Automation.CacheRequest
 foreach ($p in @($A::NameProperty, $A::NativeWindowHandleProperty, $A::ProcessIdProperty, $A::BoundingRectangleProperty, $A::IsOffscreenProperty)) { $cr.Add($p) }
 $cr.AutomationElementMode = [System.Windows.Automation.AutomationElementMode]::None
 $act = $cr.Activate()
-try { $list = $A::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Automation]::ControlViewCondition) } finally { $act.Dispose() }
+$cached = $true
+try { $list = $A::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Automation]::ControlViewCondition) } catch { $cached = $false } finally { $act.Dispose() }
+# 带缓存的 FindAll 偶尔整体失败（某个顶层窗口取不到句柄：SafeHandle cannot be null）：改为不带缓存逐个读，读不了的窗口跳过
+if (-not $cached) { $list = $A::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Automation]::ControlViewCondition) }
 foreach ($w in $list) {
-  $c = $w.Cached
+  try { if ($cached) { $c = $w.Cached } else { $c = $w.Current; $null = $c.NativeWindowHandle } } catch { continue }
   if ($c.NativeWindowHandle -eq 0) { continue }
   $proc = ''; try { $proc = (Get-Process -Id $c.ProcessId -ErrorAction Stop).ProcessName } catch {}
   $r = $c.BoundingRectangle
