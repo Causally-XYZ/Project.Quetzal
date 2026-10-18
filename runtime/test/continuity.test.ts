@@ -83,7 +83,8 @@ test("进行中的一轮从开始起就有检查点（起因、步数、最近�
   let n = 0;
   scripted = (j) => (/检查点测试/.test(allText(j)) ? (++n === 1 ? { content: "先看看笔记", tool_calls: [{ id: "t1", type: "function", function: { name: "note_list", arguments: "{}" } }] } : { delay: 400, message: { content: "看完了" } }) : undefined);
   const p = converse("你", "检查点测试", "控制台", { conv: "cp" });
-  await until(() => continuity.turns().some((x) => x.conv === "cp" && x.steps === 1));
+  // 等到工具结果也记进去：说的话先折叠一次（那时工具还在「…」），工具结束后再折叠一次（Windows ARM 上见过停在前一次）
+  await until(() => continuity.turns().some((x) => x.conv === "cp" && x.steps === 1 && /note_list\(\) ✓/.test(x.summary)));
   const mid = continuity.turns().find((x) => x.conv === "cp")!;
   assert.equal(mid.status, "running");
   assert.match(mid.summary, /- 说：「先看看笔记」\n- note_list\(\) ✓/);
