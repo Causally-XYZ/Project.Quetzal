@@ -18,7 +18,7 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | POST | `/pair/start` | Generates an 8-character pairing code (letters and digits, valid 5 minutes; repeated requests keep the same code while it is valid, and repeated wrong guesses lock pairing for a while), delivered with the certificate's short fingerprint via adapter notification and Feishu |
 | POST | `/pair/finish` | `{proof}` (or `{code}` on the local plain listener) → `{ok, token, fingerprint}`; `proof` = hex(PBKDF2-HMAC-SHA256(code (uppercased, spaces and dashes removed), `"quetzal-pair-v2\|" + the certificate fingerprint the client saw in the handshake`, 100000 iterations, 32 bytes)). Over HTTPS only `proof` is accepted (`code` gets 400), so a man in the middle with another certificate cannot pair; the client then checks the returned `fingerprint`. 400 missing proof, 403 wrong, 410 expired or more than 5 attempts, 429 locked |
 | POST | `/upload?name=&token=` | Upload one attachment (≤ 50 MiB) → `{ok, file: {id, name, path, rel, mime, size, kind}}` |
-| GET | `/uploads/<rel>?token=` | Download an attachment (uploads directory only) |
+| GET | `/uploads/<rel>?token=` | Download an attachment (uploads directory only; documents are served as downloads with their file name) |
 
 ## WebSocket `/rpc?token=<token>`
 
@@ -64,7 +64,7 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | `sessions` / `sessions.create` / `sessions.rename` / `sessions.archive` | … | Session management; `sessions` can filter by channel, in progress, pinned, project and time, and sort by last update, creation time or title (pinned sessions always come first) |
 | `sessions.pin` / `sessions.move` | `{id, pinned?}` / `{id, project}` | Pin and unpin; put a session in a project or take it out |
 | `sessions.search` | `{query, limit?}` | Search sessions by title and content, one best hit per session (snippet, highlight ranges, message id) |
-| `sessions.messages` | `{id, limit?, before?, from?}` | One session's conversation (with process records); with `from` (a message id) it starts near that message (to open a search hit) |
+| `sessions.messages` | `{id, limit?, before?, from?}` | One session's conversation (with process records); with `from` (a message id) it starts near that message (to open a search hit); in `attachments`, files the agent generated and attached to a reply carry `by: "agent"` |
 | `projects` / `projects.create` / `projects.update` / `projects.delete` | … | Projects: name, description, project instructions (added to the system prompt of every session in the project), color and icon, archiving; deleting a project keeps its sessions and only removes them from it |
 | `sessions.live` | — | Snapshots of turns in progress |
 | `poke` | `{note?}` | Poke |
@@ -77,6 +77,7 @@ The gateway's plain HTTP listens only on `127.0.0.1:<gateway.port>` (default 778
 | `canvas.create` / `canvas.edit` / `canvas.update` / `canvas.delete` / `canvas.restore` | … | Create; save as a new version (with `base`: if the agent just changed it, it is still saved and `conflict` is returned); rename or change language; delete; restore a version |
 | `canvas.run` / `canvas.runImage` | `{id, version?, timeout?}` / `{run, name}` | Run the code in the sandbox (gated by the *Run commands* permission); fetch an image the run produced |
 | `canvas.comment` / `canvas.reply` / `canvas.resolve` / `canvas.apply` | … | Comment on a selection (sent to the agent by default), reply, resolve, accept the agent's edit suggestion |
+| `uploads.preview` | `{rel, max?}` | A light preview of an attachment: the beginning of its text (for xlsx, the first rows of each sheet); used by the file card's *Preview* in the console |
 
 **Vault**: `secrets`, `secrets.delete`, `secrets.pending`, `secrets.end`.
 

@@ -12,7 +12,7 @@ secrets/                 0700：master.key（Key 加密主密钥）、gateway.to
 vault/                   0700：保密库，每项一个 0600 文件；index.json 只记说明
 data/quetzal.db          SQLite：kv / timeline / messages / audit / usage
 data/catalog.json        公共模型目录缓存（models.dev）
-data/uploads/<日期>/      对话附件
+data/uploads/<日期>/      对话附件：你发的文件，以及 ta 生成后随回复发给你的文件的副本（见生成文件）
 data/media/              ta 拍的照片、录音（安卓适配器）
 data/mesh-pins.json      多具身体时：第一次见到每具身体时记下的公钥与类型（不是秘密）
 data/mesh-lan.json       多具身体时：记得的其他身体的局域网地址，同步服务连不上时经局域网互连用（只在这台设备上）
@@ -22,6 +22,7 @@ soul/                    灵魂目录（git 仓库）
 state/starts.json        启动记录（熔断用）
 state/body-uuid          这具身体的 uuid（JSON：uuid 与来源 device / random / manual；只存哈希派生的值，不存原始标识；见多具身体）
 STOP                     急停标志：存在即冻结一切行动
+fonts/                   可选：放进来的 .ttf / .otf / .ttc 字体，生成 PDF 时优先用（这台设备上没有中文字体时放一个进来）
 ```
 
 > [!IMPORTANT]
