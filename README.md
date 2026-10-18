@@ -80,9 +80,10 @@ Codex 等你叫它，OpenClaw 每隔一阵被定时叫醒。ta 没有闹钟：�
 - 插件按业界通用的格式接：MCP 工具来源（本机命令或远程地址，支持 OAuth 登录）、Claude Code 插件与插件目录。浏览器填表、收发邮件、日历这些常用的在推荐目录里一键安装；聊着聊着发现某个插件用得上，ta 会推荐给你，装不装你定。
 - 费时的事，ta 派一个子 agent 在后台做，做完把结果交回来。
 - 长文档和代码放在对话旁边的 Canvas 里，你和 ta 一起改：每次修改留一个版本，随时恢复；代码一键运行（和 ta 的命令同一个沙箱，Python 画的图也显示出来）；选中一段加评论，ta 回复或直接改，也会主动给编辑建议。
+- 交东西给你：报告、表格、演示文稿，ta 直接生成 Word / Excel / PPT / PDF（也能写 Markdown、HTML、CSV、JSON），放进这件事的工作区，作为附件随回复发给你；在对话里点开预览，或下载、用电脑上的应用打开，在飞书里也能收到。
 - 日常用得上的：提醒（准点，或者等你拿起手机时再说）、翻旧话、读 Word / PPT / Excel / PDF、上网搜索、运行命令、看图、在飞书里聊。
 
-[自造工具与技能](https://quetzal.plutokeating.beer/zh/docs/guide/tools) · [Canvas](https://quetzal.plutokeating.beer/zh/docs/guide/canvas) · [插件](https://quetzal.plutokeating.beer/zh/docs/guide/plugins) · [MCP 与插件的实现](docs/engine/MCP.md)
+[自造工具与技能](https://quetzal.plutokeating.beer/zh/docs/guide/tools) · [Canvas](https://quetzal.plutokeating.beer/zh/docs/guide/canvas) · [生成文件](https://quetzal.plutokeating.beer/zh/docs/guide/deliverables) · [插件](https://quetzal.plutokeating.beer/zh/docs/guide/plugins) · [MCP 与插件的实现](docs/engine/MCP.md)
 
 <br/>
 

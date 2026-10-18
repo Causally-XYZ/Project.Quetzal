@@ -20,6 +20,7 @@
 |---|---|
 | 记忆 / 身份 | memory_records、memory_evolve、memory、note_save/read/list/move/delete、recall、open_loop、share_thought、rewrite_soul、edit_identity |
 | 资料与观察 | web_search、web_fetch、view_image、read_document、recent_actions |
+| 交付物 | deliverable_create（生成 docx / xlsx / pptx / pdf 与 md / html / csv / json，写进工作区并作为附件随回复交出；见 [ARCHITECTURE §5.8](../ARCHITECTURE.md)） |
 | 命令 / 进程 | shell、shell_jobs、processes、host_mode |
 | 消息 / 提醒 / 语音 | send_message、reminder、voice_speak、voice_config、hearing_config、pass_secret |
 | 自造工具 | tool_write、tool_read、tool_delete |
