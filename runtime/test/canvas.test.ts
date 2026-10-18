@@ -8,7 +8,7 @@ import path from "node:path";
 
 process.env.QUETZAL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-canvas-"));
 // 运行目录放在工作区里（与实际部署一致）：Windows 的沙箱用户只能写工作区，工作区外的临时目录进不去
-process.env.QUETZAL_WORKSPACE = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-canvas-ws-"));
+process.env.QUETZAL_WORKSPACE = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-canvas-ws-"))); // 长路径：Windows 运行器的临时目录是 8.3 短名，沙箱用户解析 RUNNER~1 时要列上层目录，被拒
 process.env.QUETZAL_CANVAS_DIR = path.join(process.env.QUETZAL_WORKSPACE, "canvas");
 fs.mkdirSync(process.env.QUETZAL_CANVAS_DIR);
 const { loadConfig, paths } = await import("../src/config.ts");

@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-workspace-"));
+const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-workspace-"))); // 长路径：Windows 运行器的临时目录是 8.3 短名，沙箱用户解析它时要列上层目录，被拒
 process.env.QUETZAL_HOME = path.join(root, "qhome");
 process.env.HOME = path.join(root, "home"); // 工作目录（Linux 为用户主目录）放在临时目录里
 fs.mkdirSync(process.env.HOME, { recursive: true });
