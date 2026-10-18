@@ -47,7 +47,7 @@ flowchart TB
 设计原则：
 
 - **单进程、模块化**：模块之间通过进程内事件总线（`bus.ts`）和少量函数调用耦合，便于单独测试。
-- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由适配器提供。仓库内自带几个平台级适配器：`runtime/adapters/android/`（任意安卓手机：身体能力由 Quetzal App 的原生代码经本机身体接口提供，传感器按类型探测）、`runtime/adapters/termux/`（旧的 Termux 安装：任意安卓手机 + Termux:API，传感器按名字探测）、`runtime/adapters/linux/`（任意 Linux 机器：电池与温度读 `/sys`，桌面工具按可用程序探测）、`runtime/adapters/macos/`（任意 Mac，macOS 12 起：电量读 pmset、电池温度与设备标识读 ioreg，通知、截图、剪贴板、打开、播放用系统自带的 osascript、screencapture、pbcopy、open、afplay，拍照录音按可用程序探测；看屏幕与操作应用用 JXA 经 System Events 与 CoreGraphics 的事件）与 `runtime/adapters/windows/`（任意 Windows 10 1809 起 / 11 电脑：电源读系统电源状态，通知、截图与操作屏幕、剪贴板、拍照、录音用系统自带的 PowerShell 5.1、.NET（含 UI Automation）与 WinRT），都不含任何具体机型的实现。安卓、Linux、macOS、Windows 适配器都实现了「手」（看屏幕、点击、输入、打开应用，见 §5.5）。
+- **设备无关**：核心只认识 `body/adapter.ts` 定义的接口；设备的一切（传感器、通知、相机、部署方式）由适配器提供。仓库内自带几个平台级适配器：`runtime/adapters/android/`（任意安卓手机：身体能力由 Quetzal App 的原生代码经本机身体接口提供，传感器按类型探测）、`runtime/adapters/termux/`（旧的 Termux 安装：任意安卓手机 + Termux:API，传感器按名字探测）、`runtime/adapters/linux/`（任意 Linux 机器：电池与温度读 `/sys`，桌面工具按可用程序探测）、`runtime/adapters/macos/`（任意 Mac，macOS 12 起：电量读 pmset、电池温度与设备标识读 ioreg，通知、截图、剪贴板、打开、播放用系统自带的 osascript、screencapture、pbcopy、open、afplay，拍照录音按可用程序探测；看屏幕与操作应用用 JXA 经 System Events 与 CoreGraphics 的事件）与 `runtime/adapters/windows/`（任意 Windows 10 1809 起 / 11 电脑：电源读系统电源状态，通知、截图与操作屏幕、剪贴板、拍照、录音用系统自带的 PowerShell 5.1、.NET（含 UI Automation）与 WinRT），都不含任何具体机型的实现。安卓、Linux、macOS、Windows 适配器都实现了「手」（看屏幕、点击、输入、打开应用，见 §5.9）。
 - **状态全部落盘**：心脏状态、时间线、审计、用量在 SQLite，人格与记忆在灵魂目录。进程重启只相当于"睡了一觉"。
 - **所有控制入口共用一个操作层**（`ops.ts`）：控制台和飞书的行为完全一致，都经过审计。
 
@@ -390,7 +390,7 @@ flowchart LR
 - **网关**：`uploads.preview`（附件的轻量预览，抽出开头的文字，xlsx 为各工作表的前几行）；`GET /uploads/<rel>` 下载文档时带 `content-disposition: attachment`（见 API §1）。
 - **体积**：这五个库让 `main.cjs` 从约 10.1 MB 增加到约 16.4 MB（gzip 后约 1.3 MB → 2.4 MB），只在第一次生成时加载（动态 `import`），不影响启动。
 
-### 5.5 手：看屏幕与操作应用（计算机使用）
+### 5.9 手：看屏幕与操作应用（计算机使用）
 
 身体适配器提供 `hands`（`body/adapter.ts` 的 `Hands`：`status`、`screenshot`、`snapshot`、`click`、`drag`、`scroll`、`type`、`key`、`openApp`，可选 `windows`、`focusWindow`）时，核心（`mind/hands.ts`）给她一组统一的工具：
 

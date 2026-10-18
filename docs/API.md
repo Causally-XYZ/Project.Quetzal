@@ -384,7 +384,7 @@ interface ScreenElement {
 
 键名：修饰键 `ctrl`、`alt`、`shift`、`meta`（Win / Super / Command）；`enter`、`esc`、`tab`、`space`、`backspace`、`delete`、`insert`、`home`、`end`、`pageup`、`pagedown`、方向键 `up` / `down` / `left` / `right`、`f1`–`f24`、单个字符；手机的全局动作 `back`、`home`、`recents`、`notifications`、`quick_settings`、`lock`、`power`。核心先把别名（`cmd`、`win`、`return`、`escape`、`pgup`……）规范好再交给适配器，适配器对按不出来的键抛错。
 
-核心据 `hands` 提供 `screen_read`、`screen_capture`、`screen_click`、`screen_drag`、`screen_scroll`、`screen_type`、`screen_key`、`app_open`（适配器有 `windows` / `focusWindow` 时再加 `window_list` / `window_focus`），全部归能力类别 `hands`（操作屏幕与应用），见 [架构 §5.5](ARCHITECTURE.md#55-手看屏幕与操作应用计算机使用)。她看到与给出的坐标是缩到长边 1280 像素的截图坐标，核心负责与屏幕像素换算；按编号操作时核心把元素中心点与 `ref` 一起交给适配器。
+核心据 `hands` 提供 `screen_read`、`screen_capture`、`screen_click`、`screen_drag`、`screen_scroll`、`screen_type`、`screen_key`、`app_open`（适配器有 `windows` / `focusWindow` 时再加 `window_list` / `window_focus`），全部归能力类别 `hands`（操作屏幕与应用），见 [架构 §5.9](ARCHITECTURE.md#59-手看屏幕与操作应用计算机使用)。她看到与给出的坐标是缩到长边 1280 像素的截图坐标，核心负责与屏幕像素换算；按编号操作时核心把元素中心点与 `ref` 一起交给适配器。
 
 约束：
 
