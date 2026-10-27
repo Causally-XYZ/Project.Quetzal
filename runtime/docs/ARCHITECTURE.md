@@ -186,3 +186,5 @@ adapters/
 
 
 `memory/adaptive-query-packet.ts` 处理语义信封形状、请求绑定、版本及来源引用核查；`adaptive-query.ts` 生成当前图的版本摘要并判断与本机状态兼容性。`mesh/adaptive-memory.ts` 为 memory.adaptive.semantic.query 注册默认非 readable 方法（只读桥拒绝），`ops.ts` 同名网关入口调用宿主查询。旧 M1 方法保持原格式。无依赖、配置、数据库迁移或独立服务变更，现有构建入口覆盖；详细协议和保守冲突策略见全局 API 与语义文档。
+
+`mesh/soul-sync.ts` 的 installSoulSync 由 startMesh 和多身体夹具共用，监听真实 mesh event 与本机 soul.pushed / sense；停止时清理监听和去抖计时器。替代 main.ts 启动时的全局 wireMesh 绑定。Git 排队、锁、身份守卫与错误重试仍由 memory/soul-sync.ts / soul-repo.ts 管理，协议与灵魂格式不变。

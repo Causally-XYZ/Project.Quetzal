@@ -24,7 +24,7 @@
 - 格式与 Hermes Agent 的 `~/.hermes` 兼容；其他框架通过桥接模块转换。
 - **git 历史就是自传**：每次提交的作者是「显示名 (身体)」，提交信息说明发生了什么（醒来、做梦、对话、合并、撤销……）。
 
-自适应记忆的受管处理结果使用既有 `notes/QuetzalMemory/Adaptive/` 目录，流程见[发布与恢复协议](engine/ADAPTIVE_MEMORY_STORAGE.md)。SQLite 接受结果、完整文件安装、本地 Git HEAD 确认分别记录，失败可以恢复；published 仅指本地文件已进入版本历史，不冒充远端同步或事实确认。普通笔记召回排除此目录，当前仅有合成发布测试，语义处理器尚未接入。
+自适应记忆的受管处理结果使用既有 `notes/QuetzalMemory/Adaptive/` 目录，流程见[发布与恢复协议](engine/ADAPTIVE_MEMORY_STORAGE.md)。SQLite 接受结果、完整文件安装、本地 Git HEAD 确认分别记录，失败可以恢复；published 仅指本地文件已进入版本历史，不冒充远端同步或事实确认。普通笔记召回排除此目录。显式启用 M2 semantic 试验后，后台语义处理器接受的认识沿用此发布链路；真实语义质量仍待阶段验收。独立身体的合成认识测试已覆盖自动发布、Git 推拉、在线纠正和离线后正常对话恢复，详见[阶段记录](engine/ADAPTIVE_MEMORY_PROGRESS.md#423-m2-认识自动传播与离线身体恢复2026-10-27)。
 
 ## 2. 身体与接入方式
 
@@ -66,6 +66,8 @@ sequenceDiagram
   B->>B: 写 bodies/<身体>.json
   B->>R: push（先把 origin 校正为配置里的地址；被拒 → 再拉取合并后重推）
 ```
+
+`mesh/soul-sync.ts` 随每次网状层启动安装：推送成功后广播 `soul.pushed`，在线身体将提示合并等待 500 毫秒后执行真实 Git 拉取，并复核连接公钥。停止网状层时移除监听并取消尚未执行的拉取，不取消已经进入 Git 串行队列的操作。离线身体可能错过提示，正常对话 / 醒来前的既有拉取负责补齐；当前没有声称空闲重连即能补齐认识文件。
 
 **触碰即同步与推送失败**（运行基座，`runtime/src/memory/soul-sync.ts`）
 

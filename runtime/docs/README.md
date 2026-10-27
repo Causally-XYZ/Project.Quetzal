@@ -60,3 +60,5 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 
 
 `adaptive-query-packet.ts` 校验独立语义信封，`mesh/adaptive-memory.ts` 注册仅正式身体可调用的 memory.adaptive.semantic.query；ops 提供同名管理查询。接收端核对本机权威记录版本和已复制来源，冲突 / 缺失时不使用旧结果。版本摘要各限1000项，信封512 KiB，网络与核查共用500毫秒截止。新增 adaptive-query-packet / adaptive-semantic-mesh 测试使用临时隔离身体和只读桥进程；认识为合成安装。没有新包、环境配置或部署服务，既有 TypeScript / 测试 glob / main 打包包含新模块；灵魂与网状认证格式不变。
+
+认识传播专项 `test/adaptive-semantic-sync.test.ts` 使用两个独立身体、临时裸 Git 远端和真实网状传输。仅提案为合成，后续由后台发件箱自动提交 / 推送、网状提示自动拉取；离线期间错过提示的身体通过正常 converse 拉取恢复，测试不手工安装或同步认识文件。`SOUL_ALLOW_LOCAL_REMOTE=1` 仅沿用既有测试例外，`TEST_SOUL_REMOTE` 仅测试夹具读取；生产仍要求 SSH。无新增依赖、生产配置或服务；既有测试 glob / 类型检查 / 构建入口覆盖。

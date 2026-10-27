@@ -19,7 +19,7 @@ import { log } from "./log.ts";
 import { VERSION } from "./version.ts";
 import { restore as restoreAgents } from "./mind/agents.ts";
 import { startContinuity } from "./mind/continuity.ts";
-import { startMesh, wireMesh, registerSoulLink, meshStatus } from "./mesh/runtime.ts";
+import { startMesh, registerSoulLink, meshStatus } from "./mesh/runtime.ts";
 import { soulLink } from "./ops.ts";
 import { startMcp, closeMcp } from "./mcp/runtime.ts";
 import { startAdaptiveMemory, stopAdaptiveMemory } from './memory/adaptive.ts';
@@ -100,7 +100,6 @@ async function main() {
     void Promise.allSettled([stoppedMemory, closeMcp()]).finally(() => { clearTimeout(deadline); process.exit(0); });
   });
   bus.on("body.uuid", () => void soulPush("身体 uuid 换成由设备标识派生的值").catch(() => {})); // 身体登记随之更新
-  wireMesh();
   registerSoulLink(soulLink); // 一个链接接入：绑定时带部署公钥，批准后采用链接好的灵魂仓库
   await startMesh().catch((e) => log("mesh", `网状层启动失败：${e.message}`)); // 没有绑定或缺组件时只是不启动，身体之间仍用 git 同步
   await sample().catch(() => {});

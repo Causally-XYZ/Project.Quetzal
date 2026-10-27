@@ -26,6 +26,7 @@ import { installWorkspace } from "./workspace.ts";
 import { installCanvasReplica } from "./canvas.ts";
 import { installContinuity } from "./continuity.ts";
 import { installAdaptiveMemory } from './adaptive-memory.ts';
+import { installSoulSync } from './soul-sync.ts';
 
 const BINDING = () => path.join(paths.secrets, "sync.json");
 const PINS = () => path.join(paths.data, "mesh-pins.json"); // 钉住的各身体公钥与类型（TOFU，见 mesh.ts；不是秘密）
@@ -88,7 +89,7 @@ export async function startMesh() {
   mesh.on("reader", changed);
   mesh.on("event", (e: { from: string; name: string; data: unknown }) => bus.emit("mesh.event", e));
   const socialNow = () => { const d = snapshot().drives; return d.social >= 0.6 || d.expression >= 0.6; };
-  const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh), installPlacement(mesh, VERSION, socialNow), installLimbs(mesh), installShared(mesh), installChannels(mesh), installWorkspace(mesh), installCanvasReplica(mesh), installContinuity(mesh), installAdaptiveMemory(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
+  const parts = [installReplica(mesh), installPresence(mesh), installCoordinator(mesh), installPlacement(mesh, VERSION, socialNow), installLimbs(mesh), installShared(mesh), installChannels(mesh), installWorkspace(mesh), installCanvasReplica(mesh), installContinuity(mesh), installAdaptiveMemory(mesh), installSoulSync(mesh)]; // 一个心智：对话、会话与时间线复制；进展与在场互通，发给别处进行中会话的话转过去
   uninstall = () => parts.forEach((u) => u());
   mesh.start();
   changed();
@@ -176,17 +177,4 @@ export async function unbindMesh() {
   addTimeline("mesh", "这具身体从同步服务解绑了", {});
   changed();
   return meshStatus();
-}
-
-/** 网状层上的基础协作：自己推送了灵魂仓库就告诉其他身体，收到的身体立即拉取（不必等到下次醒来）。 */
-export function wireMesh() {
-  bus.on("soul.pushed", (e) => mesh?.broadcast("soul.pushed", { files: e.files.slice(0, 50) }));
-  let pulling: NodeJS.Timeout | undefined;
-  bus.on("mesh.event", (e) => {
-    if (e.name !== "soul.pushed") return;
-    clearTimeout(pulling); // 多具身体连着推送时合并成一次拉取
-    pulling = setTimeout(() => { void import("../memory/soul-sync.ts").then((s) => s.pull()).then(() => mesh?.reverify()).catch(() => {}); }, 500);
-  });
-  // 灵魂仓库拉到了别处的变更（任何一次拉取）：按新的登记核对各条连接的公钥与类型
-  bus.on("sense", (kind) => { if (kind === "soul_synced") mesh?.reverify(); });
 }

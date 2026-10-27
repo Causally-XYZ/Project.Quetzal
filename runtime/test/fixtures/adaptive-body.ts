@@ -8,6 +8,12 @@ cfg.saveConfig({ body: process.env.BODY, gateway: { port: 0, host: '127.0.0.1', 
   brain: { memorySemantic: false, memoryLearning: false }, guard: { sentinel: { enabled: false } } }, { remote: true });
 const store = await import('../../src/store.ts'); store.openStore();
 await (await import('../../src/body/uuid.ts')).ensureBodyUuid();
+if (process.env.TEST_SOUL_REMOTE) {
+  cfg.saveConfig({ soul: { remote: process.env.TEST_SOUL_REMOTE, branch: 'main' },
+    adaptiveMemory: { enabled: true, hostBody: 'center', semantic: true } }, { remote: true });
+  await (await import('../../src/memory/soul-sync.ts')).ensureSoul();
+  (await import('../../src/heart/heart.ts')).markBusy(true);
+}
 const seen: string[] = [];
 const model = http.createServer((req, res) => {
   let body = ''; req.on('data', (c) => body += c); req.on('end', () => {
@@ -34,6 +40,7 @@ const mesh = new Mesh({ me: process.env.BODY!, key: loadNodeKey(path.join(cfg.pa
 (await import('../../src/mesh/replica.ts')).installReplica(mesh);
 (await import('../../src/mesh/shared.ts')).installShared(mesh);
 (await import('../../src/mesh/adaptive-memory.ts')).installAdaptiveMemory(mesh);
+(await import('../../src/mesh/soul-sync.ts')).installSoulSync(mesh);
 const adaptive = await import('../../src/memory/adaptive.ts');
 adaptive.startAdaptiveMemory(); mesh.start();
 const { startGateway } = await import('../../src/gateway.ts');
@@ -48,6 +55,13 @@ const { markBusy } = await import('../../src/heart/heart.ts');
 let loadTimer: NodeJS.Timeout | undefined;
 let arrivals: { id: number; at: number }[] = [];
 const commands: Record<string, (a: any) => unknown> = {
+  semanticSource: (a) => store.addMessage('user', '合成', a.text, { session: a.conv }),
+  semanticQuery: (a) => adaptive.queryAdaptiveSemantic(a.query),
+  semanticCurrent: () => exclusive(() => new AdaptiveArchive(queue(), cfg.paths.soul).current()),
+  semanticChat: async (a) => {
+    const result = await (await import('../../src/mind/brain.ts')).converse('合成', a.text, '合成', { conv: a.conv });
+    markBusy(true); return result;
+  },
   semanticHold: () => { markBusy(true); return true; },
   semanticSeed: (a) => exclusive(() => {
     markBusy(true);
