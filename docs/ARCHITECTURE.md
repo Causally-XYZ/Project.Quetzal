@@ -4,6 +4,8 @@
 
 核心是项目自建的 TypeScript / Node.js 运行时：`main.ts` 装配，`mind/brain.ts` 编排对话与醒来，调用独立的 `engine/src/loop.ts` 执行模型与工具循环（engine 路径相对于仓库根目录），`mind/prompt.ts` 提供政策与处境，`mind/context.ts` 每步选择记忆并调用独立上下文管理器，`memory/` 管理结构化记忆与 PRIME 学习，`providers/` 适配模型，`heart/` 调度自主活动。完整文件职责见 [runtime 模块地图](../runtime/docs/ARCHITECTURE.md)。`console/` 是交互客户端，`cli/` 是安装与运维入口；灵魂桥映射其他框架的记忆，不接管它们的执行循环。
 
+自适应记忆的真实宿主开发试验见 [runtime 运行说明](../runtime/docs/README.md)：合成资料经过实际后台、Google 适配器、灵魂发布和对话循环，ADC 仅由试验传输层在内存注入。它与生产模型配置、正式留出评分、多身体及浏览器验收分开记录，不能以单例回答正确放行 M2。
+
 内核开发的专项现状记录见 [engine 文档](engine/README.md)：模块地图、执行调度、上下文预算与压缩、记忆分层与检索、工具 / 交互接口，以及基线验证与已知边界。这里继续维护全局概览。
 
 ## 1. 总体结构

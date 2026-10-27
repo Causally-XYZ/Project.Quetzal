@@ -9,6 +9,7 @@
     "build": "npm run typecheck --prefix ../engine && tsc --noEmit && node tool/build-main.mjs && esbuild adapters/termux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/termux.mjs && esbuild adapters/linux/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/linux.mjs && esbuild adapters/macos/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/macos.mjs && esbuild adapters/android/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/android.mjs && esbuild adapters/windows/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows.mjs && esbuild adapters/windows/body.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows-body.mjs && esbuild adapters/windows/supervise-main.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/windows-supervise.mjs && esbuild src/mermaid.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/mermaid.mjs && node tool/build-srt.mjs",
     "test": "node --experimental-strip-types --test test/*.test.ts ../engine/test/*.test.ts",
     "bench:adaptive-read": "node --experimental-strip-types tool/adaptive-read-benchmark.ts",
+    "pilot:adaptive-live": "node --experimental-strip-types tool/adaptive-live-pilot.ts",
     "dev": "QUETZAL_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
