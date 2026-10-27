@@ -18,7 +18,7 @@
 | mention | anchor、candidates、unknown、resolved | 具体的一次提及；候选引用对象的具体版本，允许未知、多个候选和未解歧 |
 | claim | text、nature、participants、occurred、valid、supports、counters | 有来源的陈述 / 推论 / 假设；参与者经 mention 引用，支持与反证分别成组 |
 
-`realm={world,context}`：world 为 real / fiction / hypothetical / unknown；context 是宿主维护的语境标识，不用模型随意拼写的标签当世界身份。提案由模型识别语境、宿主分配标识；跨语境关系的表示边界仍待对齐。不同语境的对象不能直接互相代入；跨语境比较应另行明确表达，不能靠复用同名节点暗中连接。
+`realm={world,context}`：world 为 real / fiction / hypothetical / unknown；context 是宿主维护的语境标识，不用模型随意拼写的标签当世界身份。提案由模型识别语境、宿主分配标识。需求方已于 2026-10-27 确认允许有来源的明确跨语境谈论 / 创作 / 引用关系，身份与事实依据仍严格隔离（行为契约 C04）。当前格式 / 校验仍要求 present 记录引用同语境；关系指向与证明前提的分离尚待实现和验收，不能把需求确认当作现有功能已支持。不同语境的对象不能直接互相代入；跨语境比较应另行明确表达，不能靠复用同名节点暗中连接。
 
 出处为 `{kind:'source',source,hash,start,end,quote}`，位置按 JavaScript UTF-16 偏移，必须与当前来源 hash、原文切片完全一致，边界不得劈开代理对。模型端未来可提供原文引用，但最终位置应由宿主对齐；重复引文不能任意挑选。目前已有 `adaptive-proposal.ts` 规范化器，严格检查重复引文定位、宿主 ID / 版本和当前句柄，见[评测与提案接口](ADAPTIVE_MEMORY_EVAL.md)。
 
