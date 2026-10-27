@@ -4,7 +4,7 @@ import { validateSpan } from './adaptive-evidence.ts';
 import { semanticDigest, type SemanticBasis, type SemanticItem } from './adaptive-query.ts';
 import type { SemanticMemoryReading } from './adaptive.ts';
 
-export interface SemanticQueryPacket extends SemanticMemoryReading { version: 1 | 2; queryHash: string; generatedAt: number; basis: SemanticBasis }
+export interface SemanticQueryPacket extends SemanticMemoryReading { version: 1 | 2 | 3; queryHash: string; generatedAt: number; basis: SemanticBasis }
 const hash = (v: unknown) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const text = (v: unknown, n: number) => typeof v === 'string' && v.length > 0 && v.length <= n;
 const integer = (v: unknown, min = 0) => Number.isSafeInteger(v) && Number(v) >= min;
@@ -41,7 +41,7 @@ function validateItem(value: unknown): asserts value is SemanticItem {
     for (const c of v.candidates) { object(c, ['id', 'revision', 'name']); requireValue(typeof c.id === 'string' && ARTIFACT_ID.test(c.id) && integer(c.revision, 1) && text(c.name, 300) && !ids.has(c.id)); ids.add(c.id); }
     requireValue(v.unknown || v.candidates.length > 0);
   } else {
-    requireValue(v.kind === 'claim' && v.status === 'supported' && text(v.text, 8000) && ['reported', 'inferred', 'hypothesis'].includes(v.nature));
+    requireValue(v.kind === 'claim' && ['supported', 'conditional'].includes(v.status) && (v.status !== 'conditional' || v.nature !== 'reported') && text(v.text, 8000) && ['reported', 'inferred', 'hypothesis'].includes(v.nature));
     time(v.occurred); time(v.valid);
     requireValue(Array.isArray(v.participants) && v.participants.length <= 30 && Array.isArray(v.supports) && v.supports.length > 0 && v.supports.length <= 20);
     for (const p of v.participants) {
@@ -59,7 +59,7 @@ function validateItem(value: unknown): asserts value is SemanticItem {
     const ids = new Set<string>();
     for (const g of v.supports) {
       object(g, ['id', 'premises', 'assumptions']); requireValue(text(g.id, 100) && !ids.has(g.id)); ids.add(g.id);
-      requireValue(Array.isArray(g.assumptions) && g.assumptions.length === 0 && Array.isArray(g.premises) && g.premises.length > 0 && g.premises.length <= 50);
+      requireValue(Array.isArray(g.assumptions) && (v.status === 'conditional' ? g.assumptions.length > 0 && g.assumptions.length <= 20 && g.assumptions.every((a: unknown) => text(a, 500)) : g.assumptions.length === 0) && Array.isArray(g.premises) && g.premises.length > 0 && g.premises.length <= 50);
       for (const p of g.premises) { if (p?.kind === 'source') validateSpan(p); else { reference(p); requireValue(p.kind !== 'node'); } }
     }
   }
@@ -68,7 +68,7 @@ function validateItem(value: unknown): asserts value is SemanticItem {
 export function decodeSemanticPacket(value: unknown, agent: string, host: string, query: string): SemanticQueryPacket {
   requireValue(Buffer.byteLength(JSON.stringify(value) ?? '') <= 512 * 1024);
   const p = object(value, ['version', 'queryHash', 'generatedAt', 'agent', 'host', 'status', 'freshness', 'generation', 'items', 'matched', 'basis']);
-  requireValue([1, 2].includes(p.version) && p.agent === agent && p.host === host && p.queryHash === semanticDigest(query) && integer(p.generatedAt) &&
+  requireValue([1, 2, 3].includes(p.version) && p.agent === agent && p.host === host && p.queryHash === semanticDigest(query) && integer(p.generatedAt) &&
     p.generatedAt >= Date.now() - 60_000 && p.generatedAt <= Date.now() + 300_000 && ['ready', 'disabled', 'unavailable', 'stopped'].includes(p.status));
   requireValue(p.freshness === (p.status === 'ready' ? 'local-snapshot' : 'unknown') && integer(p.generation) && integer(p.matched) && p.matched <= 1000 && Array.isArray(p.items) && p.items.length <= 6 && p.items.length <= p.matched);
   object(p.basis, ['records', 'sources']);
@@ -78,7 +78,7 @@ export function decodeSemanticPacket(value: unknown, agent: string, host: string
   for (const s of p.basis.sources) { object(s, ['id', 'hash']); requireValue(integer(s.id, 1) && (s.hash === null || hash(s.hash)) && !sources.has(s.id)); sources.set(s.id, s.hash); }
   const seen = new Set<string>();
   for (const item of p.items) {
-    validateItem(item); requireValue(p.version === 2 || !Object.hasOwn(item, 'references')); requireValue(!seen.has(item.id) && records.get(item.id) === item.revision); seen.add(item.id);
+    validateItem(item); requireValue(p.version >= 2 || !Object.hasOwn(item, 'references')); requireValue(p.version >= 3 || item.status !== 'conditional'); requireValue(!seen.has(item.id) && records.get(item.id) === item.revision); seen.add(item.id);
     for (const r of item.roots) requireValue(sources.get(r.id) === r.hash);
     const refs = item.kind === 'mention' ? item.candidates : [...[...item.participants, ...(item.references ?? [])].flatMap((x) => [x.mention, x.object]), ...item.supports.flatMap((g) => g.premises.filter((x) => x.kind !== 'source'))];
     for (const r of refs) requireValue(records.get(r.id) === r.revision);

@@ -10,12 +10,13 @@ import type { ObservedCall } from './model-observer.ts';
 import { seedPublicRetrievalCache } from './retrieval-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
 export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number;
-  retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean; thinkingLevel?: 'LOW' }
+  retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean; thinkingLevel?: 'LOW'; research?: boolean; backgroundRetries?: boolean }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
   if (options.thinkingLevel !== undefined && (options.thinkingLevel !== 'LOW' || options.kind !== 'live'
     || options.model !== 'gemini-3.8-flash' || options.fullEvidence)) throw new Error('evaluation-thinking-experiment-invalid');
+  if ((options.research || options.backgroundRetries) && (options.fullEvidence || options.track.setup !== 'empty')) throw new Error('evaluation-research-development-only');
   const controlled = options.track.setup === 'and-or-graph';
   if (!['empty', 'and-or-graph'].includes(options.track.setup) || !options.track.steps.length || options.track.steps.length > (controlled ? 3 : 8)
     || options.track.steps.some((s, i) => !['accessible', 'denied', 'other-agent'].includes(s.scope) || Object.hasOwn(s, 'checks')
@@ -33,7 +34,7 @@ export async function runTrack(options: TrackOptions) {
     model: options.model, ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}), maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
     deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
-    fullEvidence: !!options.fullEvidence, retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
+    fullEvidence: !!options.fullEvidence, research: !!options.research, backgroundRetries: !!options.backgroundRetries, retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
     controlledPolicy: controlled ? 'pause-idle-host-before-input; archive-accept-seed-or-withdrawal; resume-normal-publication-and-model-review' : null,
     limits: '开发链路；不等于冻结正式计划或语义通过。denied 检验既有 ignored 来源门禁，不代表新增会话 ACL；受控图输入不计为模型构图能力。' });
   const clients: BodyClient[] = [], bodyNames: string[] = [], keys: Record<string, string> = {};
@@ -48,8 +49,8 @@ export async function runTrack(options: TrackOptions) {
   }
   const snapshot = (body: BodyClient) => body.call<any>('snapshot');
   const checkFailures = (state: any) => {
-    if (state.calls.some((c: ObservedCall) => c.state === 'failed' || c.result?.truncated)
-      || state.jobs.some((j: any) => j.error && j.error !== 'source_changed') || state.status.error)
+    if (state.calls.some((c: ObservedCall) => (c.state === 'failed' && (!options.backgroundRetries || c.purpose !== 'proposal')) || c.result?.truncated)
+      || state.jobs.some((j: any) => j.error && j.error !== 'source_changed' && !(options.backgroundRetries && j.error === 'processor_failed' && ['queued', 'running'].includes(j.state))) || state.status.error)
       throw new Error('evaluation-background-or-model-failed');
     if (options.kind === 'live' && state.calls.some((c: ObservedCall) => c.state === 'returned' && (!c.transport.length
       || c.transport.some((t) => t.versions.length !== 1 || t.versions[0] !== options.model || !t.finish.includes('STOP')))))
@@ -59,10 +60,12 @@ export async function runTrack(options: TrackOptions) {
     return until(async () => {
       const state = await snapshot(center); checkFailures(state);
       const observed = new Set(state.receipts.filter((r: any) => r.processor === 'semantic-v1').map((r: any) => r.source));
+      const researched = new Set(state.receipts.filter((r: any) => r.processor === 'research-v1').map((r: any) => r.source));
       // 宿主在来源队列空闲后进入 review 时仍可暂报 idle；必须另核对调用 / 租约，不能提前释放下一步。
       if (state.calls.some((c: ObservedCall) => c.state === 'running') || state.jobs.some((j: any) => j.state === 'running' || j.state === 'queued')
         || state.messages.some((m: any) => m.mode !== 'ignored' && !observed.has(m.id))
-        || state.publications.some((p: any) => p.state !== 'published') || state.status.semantic.state !== 'idle' || state.sync.unpushed) return;
+        || (options.research && state.messages.some((m: any) => m.mode !== 'ignored' && ['user', 'ambient'].includes(m.role) && !researched.has(m.id)))
+        || state.publications.some((p: any) => p.state !== 'published') || state.status.semantic.state !== (options.research ? 'research-idle' : 'idle') || state.sync.unpushed) return;
       if (options.retrievalCache) {
         const r = state.status.retrieval;
         if (r.error || r.failure || r.errors || r.blocked) throw new Error('evaluation-vector-failed');
@@ -90,7 +93,7 @@ export async function runTrack(options: TrackOptions) {
     for (const body of ['center', 'satellite']) {
       clients.push(await startBody(path.join(options.root, body), {
         body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
-        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence, thinkingLevel: options.thinkingLevel,
+        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence, thinkingLevel: options.thinkingLevel, research: options.research,
       })); bodyNames.push(body);
     }
     let foreign: BodyClient | undefined;

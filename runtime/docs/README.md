@@ -39,7 +39,11 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。内核专项开发与实现现状见 [../../docs/engine/README.md](../../docs/engine/README.md)，包含上下文、记忆、执行循环、工具接口和基线验证。
 
-自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行，M2 代表性原型验收通过且推送已核对，M3 已启动但主动研究尚未实现；全量质量移至 M5。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。 语义模式前台使用 `queryAdaptiveSemantic` 及来源 / 版本核查；旧原文观察接口此时返回 unavailable，不代表语义认识读取不可用。
+自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行，M2 代表性原型验收通过且推送已核对，M3 已接入默认关闭的主动研究，真实模型与完整价值尚在验证；全量质量移至 M5。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。 语义模式前台使用 `queryAdaptiveSemantic` 及来源 / 版本核查；旧原文观察接口此时返回 unavailable，不代表语义认识读取不可用。
+
+`adaptiveMemory.research` 默认 false，复用 `memory.adaptive.configure` 配置。中心在来源整合后、前台空闲时运行 `adaptive-research.ts`：由当前来源提出问题，结合当前认识混合检索与独立原文 FTS，最多做探索、桥接、反证三次检索规划，再决定是否保存最多三条新推测。只研究已整合的 user / ambient 来源，助手回答不作为独立证据；新认识保留精确版本依赖，原文、身份或认识纠正后仍受原失效机制约束。无关的不可重评旧分支不阻塞新的独立研究。研究既不改写已有对象，也不发送通知或新建会话；空结果正常完成，不制造联系。带未核实假设的推测可经 v3 语义查询作为 conditional 讨论线索返回，保留全部前提 / 身份根和假设，不作为下游证明；含反证分支的条件推测暂不主动呈现，旧查询协议保持拒绝新状态。
+
+每轮最多四次生成步骤（每步仍沿用供应商故障转移），150秒总截止，复用原任务租约、重试和私有存档发布；开关关闭取消在途调用。分步检索与输入版本记录在中心私有 KV，状态接口返回最近研究（包含私人研究问题和来源编号，仅按既有管理权限访问）；进程恢复从本轮重做，不宣称逐步续传。来源100、认识1000与上下文160 KiB为当前工作上限。新增配置自动清洗 / 共享，现有 TypeScript、测试 glob 和 main 打包覆盖模块，无新依赖、数据库表、环境变量或服务。开发 `runTrack({research:true})` 沿用双身体运行器，额外等待研究回执；不能与正式 `fullEvidence` 配置混用，不改写旧正式成绩。开发可显式设 `backgroundRetries:true` 等待产品原有后台重试，全部失败调用仍保存；重试耗尽、截断或前台调用失败仍停止。默认和正式运行仍首错即停，不把恢复后的完成计为首次成功。
 
 原 M2、现移交 M5 的留出数据已冻结50案例 / 60独立轨迹，三次重复计150案例序列；AM-02-H1 已首次向真实模型释放，其余案例未运行。`tool/adaptive-eval/` 保存输入、逐检查点断言、摘要及只读评分器，严格计划、实际独立轨迹证据导出和只增审核选择已接线，真实正式执行和逐项语义审核仍待完成。评分器拒绝缺失 / 错版本材料，替身和纯模型自评不记为通过；定位有效不等于语义真实，须核查原始执行证据。命令、审核信任边界见[工具说明](../tool/adaptive-eval/README.md)。package.json / tsconfig 已包含开发入口，测试由既有 glob 发现；无需新依赖、环境变量、迁移或部署服务，不打入 main.cjs。
 

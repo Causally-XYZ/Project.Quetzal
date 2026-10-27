@@ -10,7 +10,7 @@ if (!process.send || !process.env.QUETZAL_EVAL_BODY) throw new Error('评测身�
 const settings = JSON.parse(process.env.QUETZAL_EVAL_BODY);
 const cfg = await import('../../src/config.ts'); cfg.loadConfig();
 cfg.saveConfig({ body: settings.body, gateway: { port: 0, host: '127.0.0.1', lan: false },
-  soul: { remote: settings.remote, branch: 'main' }, adaptiveMemory: { enabled: !settings.storageOnly, hostBody: 'center', semantic: true },
+  soul: { remote: settings.remote, branch: 'main' }, adaptiveMemory: { enabled: !settings.storageOnly, hostBody: 'center', semantic: true, research: settings.research === true },
   brain: { memorySemantic: false, memoryLearning: false }, guard: { sentinel: { enabled: false } } }, { remote: true });
 const store = await import('../../src/store.ts'); store.openStore();
 await (await import('../../src/body/uuid.ts')).ensureBodyUuid();

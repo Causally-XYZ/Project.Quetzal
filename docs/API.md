@@ -288,10 +288,10 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
-| `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic 为默认关闭的后台语义试验开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
-| `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic}` | semantic 含 enabled / state，中心另含语义队列、lastModel `{model,input,output,reasoning?,total?}` 和重评预算；reasoning 已包含于 output，total 为供应商报告，可选字段未报告则省略，lastModel 不是完整调用历史；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
+| `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean, research?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic / research 为默认关闭的后台整合 / 研究开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
+| `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic}` | semantic 含 enabled / state，中心另含语义队列、lastModel `{model,input,output,reasoning?,total?}` 、重评预算及 research `{enabled,queue,last}`；last 含私人研究问题、步骤与来源版本，仅按既有管理权限访问；reasoning 已包含于 output，total 为供应商报告，可选字段未报告则省略，lastModel 不是完整调用历史；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
 | `memory.adaptive.query` | `{query: string}`（最多 8000 字符）→ `MemoryPacket` | 经正式身体的认证网状通道转给中心，网络读取 500ms 截止；故障降级为空材料，不触发学习或通知 |
-| `memory.adaptive.semantic.query` | 网关 `{query: string}` → `SemanticMemoryReading`；mesh 另带 agent | semantic 试验启用后读取指定主机；正式身体认证，只读灵魂桥不可调用。含认识与来源版本摘要，网络及本机核查共享500ms截止；不缓存上次 ready，来源冲突 / 缺失或协议不兼容则空降级 |
+| `memory.adaptive.semantic.query` | 网关 `{query: string}` → `SemanticMemoryReading`；mesh 另带 agent、使用 v3 信封 | semantic 试验启用后读取指定主机；正式身体认证，只读灵魂桥不可调用。含认识与来源版本摘要，网络及本机核查共享500ms截止；不缓存上次 ready，来源冲突 / 缺失或协议不兼容则空降级 |
 | `memory.adaptive.jobs` | — → 最近最多 20 条任务 | 当前仅中心本机可见；包含来源、修订、处理器、状态、尝试次数、租约和错误代码，不含正文 |
 | `memory.adaptive.cancel` | `{id: string}` → boolean | 只取消本机中心的 queued/running/failed 任务并审计；同一来源修订和处理器不被补扫自动复活 |
 
@@ -480,6 +480,7 @@ macOS 适配器提供：`sample()` 的电量 / 充电（`pmset -g batt`；「AC 
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
 | `adaptiveMemory.enabled` / `adaptiveMemory.hostBody` | false / "" | M1 实验性来源处理开关和固定记忆身体，全网共用。启用后随 runtime 自动运行，无新增独立进程或环境变量；仍有未完成验收，控制台配置界面尚未提供 |
 | `adaptiveMemory.semantic` | false | 实验性后台整合 / 重评，仅固定主机执行，使用控制台供应商配置。开启后旧原文观察查询返回 unavailable；前台经独立语义查询取得当前认识，核查来源与版本后注入。普通历史与回查也附本机已知修订；覆盖限制见自适应记忆文档。控制台配置界面与完整验收尚未完成 |
+| `adaptiveMemory.research` | false | 实验性后台主动研究；需同时开启 semantic，仅固定中心在整合后空闲运行。复用持久任务，最多三次检索规划和一次提案、150秒单轮截止；关闭会取消在途研究，不新建通知或会话。状态在 `memory.adaptive.status.semantic.research`，控制台开关与完整验收待 M4 |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
 | `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `review`，`mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权，四档：`allow` 允许、`review` 交给审核模型（ARCHITECTURE §8.0）、`ask` 每次询问（人工审批）、`deny` 禁止（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码；`deliverable`：生成文件，`deliverable_create` 只写进工作区或交付目录，覆盖已有文件另归 `destructive` 风险类别送审，ARCHITECTURE §5.8）。一个工具按它所属类别中最严的一个检查（`deny` > `ask` > `review` > `allow`）：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；`allow` 之下的风险类别（真实环境命令等）另由审核模型把关（`guard.sentinel.classes`）。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求按 `guard.sentinel.hostMode` 交给审核模型或对方。旧配置里前五类为 `ask` 的，升级后第一次启动改为 `review`，审计里对方明确设为 `ask` 的保留 |
 | `guard.sentinel.enabled` | true | 安全审核开关。关掉时 `review` 档位退回人工审批，`allow` 之下的风险类别不再审核 |

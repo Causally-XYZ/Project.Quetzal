@@ -21,7 +21,7 @@ test('合法语义信封保留性质、状态、来源与版本，返回独立�
 });
 test('拒绝其他请求、身份、版本、过时信封和额外字段', () => {
   const { packet } = fixture();
-  for (const delta of [{ agent: 'other' }, { host: 'other' }, { version: 3 }, { queryHash: semanticDigest('另一个查询') }, { generatedAt: Date.now() - 61_000 }, { verified: true }, { generation: -1 }])
+  for (const delta of [{ agent: 'other' }, { host: 'other' }, { version: 4 }, { queryHash: semanticDigest('另一个查询') }, { generatedAt: Date.now() - 61_000 }, { verified: true }, { generation: -1 }])
     assert.throws(() => decode({ ...packet, ...delta }), /信封/);
 });
 test('拒绝缺少依赖版本或来源、重复条目与伪造 supported 正文形状', () => {
@@ -41,4 +41,20 @@ test('本机更高版本、同版分叉、主机缺少本机记录及来源编�
   const fork = structuredClone(basis); fork.records[0].hash = 'b'.repeat(64); assert.equal(compatibleSemanticBasis(basis, fork), false);
   assert.equal(compatibleSemanticBasis({ records: [], sources: [] }, basis), false);
   const edited = structuredClone(basis); edited.sources[0].hash = null; assert.equal(compatibleSemanticBasis(basis, edited), false);
+});
+
+
+test('v3 条件性推测保留假设；旧协议和事实性质不得混入', () => {
+  const f = fixture(); f.record.nature = 'hypothesis'; f.record.supports[0].assumptions = ['活动仍按计划进行'];
+  const selection = selectSemantic([f.record], '采风', 1, f.read, f.read);
+  const packet = { ...f.packet, version: 3, ...selection, basis: semanticBasis([f.record], f.read) };
+  assert.equal(packet.items[0].status, 'conditional'); assert.deepEqual(decode(packet), packet);
+  for (const version of [1, 2]) assert.throws(() => decode({ ...packet, version }));
+  for (const change of ['reported', 'supported', 'empty']) {
+    const p: any = structuredClone(packet);
+    if (change === 'reported') p.items[0].nature = 'reported';
+    else if (change === 'supported') p.items[0].status = 'supported';
+    else p.items[0].supports[0].assumptions = [];
+    assert.throws(() => decode(p));
+  }
 });

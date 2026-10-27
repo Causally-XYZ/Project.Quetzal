@@ -127,7 +127,8 @@ test('可见与全局各自成立但没有共同证明时，不能返回当前�
   const d = f.claim('target dependent', publicSource); d.supports = [{ id: 'dependent', premises: [ref(c)], assumptions: [] }];
   const e = f.claim('target independent alternative', publicSource); e.supports.push({ id: 'bad', premises: [ref(d)], assumptions: [] });
   const local = (id: number) => [privateSource.source, counter.source].includes(id) ? undefined : f.read(id);
-  const selected = selectSemantic([a, b, c, d, e], 'target', 1, local, f.read);
+  const conditional = { ...c, id: crypto.randomUUID(), nature: 'hypothesis' as const, supports: c.supports.map((g) => ({ ...g, assumptions: ['待核实条件'] })) };
+  const selected = selectSemantic([a, b, c, d, e, conditional], 'target', 1, local, f.read);
   assert.deepEqual(selected.items.map((r) => r.id), [e.id]);
   const item = selected.items[0]; assert.ok(item.kind === 'claim'); assert.deepEqual(item.supports.map((g) => g.id), ['direct']);
   assert.deepEqual(item.roots, [{ id: publicSource.source, hash: publicSource.hash }]);
@@ -209,4 +210,23 @@ test('无效或超量近邻降级同门禁词面检索，语义次序不改变�
   const result = selectSemantic(records, query, 1, f.read, f.read, { queryHash: semanticDigest(query), keys: candidates.map((x) => x.key).reverse() });
   assert.equal(result.matched, 2);
   for (const item of result.items) assert.deepEqual(item, baseline.items.find((x) => x.id === item.id));
+});
+
+
+test('有共同有效前提的条件性推测可供讨论，但不证明下游；纠正或反证立即移除', () => {
+  const f = fixture(), a = f.source('周六活动'), b = f.source('线路维护');
+  const base = f.claim('线路维护', b), h = f.claim('活动交通可能受影响', a); h.nature = 'hypothesis';
+  h.supports = [{ id: 'conditional', premises: [a, ref(base)], assumptions: ['用户选择该线路'] }];
+  const downstream = f.claim('活动已经取消', a); downstream.supports = [{ id: 'invalid', premises: [ref(h)], assumptions: [] }];
+  let result = selectSemantic([base, h, downstream], '活动交通', 1, f.read, f.read);
+  const item = result.items.find((i) => i.id === h.id)!;
+  assert.equal(item.status, 'conditional'); assert.equal(item.kind, 'claim');
+  if (item.kind === 'claim') assert.deepEqual(item.supports, h.supports);
+  assert.deepEqual(new Set(item.roots.map((r) => r.id)), new Set([a.source, b.source]));
+  assert.ok(!result.items.some((i) => i.id === downstream.id));
+  const oldKey = semanticCandidates([base, h], f.read, f.read).find((i) => i.item.id === h.id)!.key;
+  assert.ok(!selectSemantic([{ ...base, revision: 2 }, h], '活动交通', 2, f.read, f.read, { queryHash: semanticDigest('活动交通'), keys: [oldKey] }).items.some((i) => i.id === h.id));
+  assert.ok(!selectSemantic([base, h], '活动交通', 1, (id) => id === b.source ? undefined : f.read(id), f.read).items.some((i) => i.id === h.id));
+  const counter = f.source('线路正常运行'); h.counters = [{ id: 'against', premises: [counter], assumptions: [] }];
+  assert.ok(!selectSemantic([base, h], '活动交通', 1, (id) => id === counter.source ? undefined : f.read(id), f.read).items.some((i) => i.id === h.id));
 });

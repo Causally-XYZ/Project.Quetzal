@@ -68,7 +68,7 @@ export interface Config {
   // 通道：feishuHolder 为持有飞书长连接的身体（多具身体时由部署者指定；空 = 这具身体自己连）。全网共用
   channels: { feishuHolder: string };
   // 自适应记忆：同一 agent 指定一具固定身体集中处理；默认关闭，不随心脏协调者迁移。
-  adaptiveMemory: { enabled: boolean; hostBody: string; semantic: boolean };
+  adaptiveMemory: { enabled: boolean; hostBody: string; semantic: boolean; research: boolean };
   // 语音（Azure 语音服务文本转语音）。密钥单独保存在 secrets/azure_speech_key
   speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
   // 听觉：控制台 App 当耳朵（采集、降噪、断句），基座识别（Azure，与语音合成同一把密钥）并交给她判断要不要回应
@@ -114,7 +114,7 @@ export const defaults: Config = {
   mesh: { server: OFFICIAL_SYNC, priority: 0, lan: !isWindows }, // Windows 上监听端口会弹防火墙询问，缺省不开局域网信令
   sharedRev: {},
   channels: { feishuHolder: "" },
-  adaptiveMemory: { enabled: false, hostBody: "", semantic: false },
+  adaptiveMemory: { enabled: false, hostBody: "", semantic: false, research: false },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
   hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "" },
   guard: { sentinel: { enabled: true, model: "", timeoutMs: 20_000, classes: ["host_shell", "remote_exec", "outbound", "mcp_write", "destructive", "credentials", "tool_write", "hands"], onFailure: "by_risk", hostMode: "review" } },
@@ -172,6 +172,7 @@ function sanitize() {
   config.adaptiveMemory = {
     enabled: adaptive?.enabled === true,
     semantic: adaptive?.semantic === true,
+    research: adaptive?.research === true,
     hostBody: typeof adaptive?.hostBody === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(adaptive.hostBody) ? adaptive.hostBody : '',
   };
   for (const [key, min, max] of [['contextWindow', 1024, 2_000_000], ['contextSummaryTokens', 128, 4096], ['contextSummaryTimeoutMs', 100, 60_000], ['contextSummaryModelTokens', 128, 4096], ['memoryLearningTokens', 128, 4096], ['memoryLearningTimeoutMs', 100, 60_000], ['memorySelectionTimeoutMs', 100, 60_000], ['memorySelectionTokens', 128, 2400]] as const) {

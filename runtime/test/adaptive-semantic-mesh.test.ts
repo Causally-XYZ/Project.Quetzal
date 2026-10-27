@@ -34,7 +34,7 @@ test('双身体语义查询：实际认证传输、主模型接线、本机较�
     await Promise.all(processes.map(async (p) => {
       if (p.exitCode === null && p.signalCode === null) { const done = once(p, 'exit'); p.kill('SIGKILL'); await done; }
     }));
-    sync.close(); fs.rmSync(tmp, { recursive: true, force: true });
+    sync.close(); fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   async function spawn(name: string) {
     const p = fork(path.join(import.meta.dirname, 'fixtures', 'adaptive-body.ts'), [], {

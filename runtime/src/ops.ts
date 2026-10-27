@@ -251,7 +251,7 @@ export const ops = {
   memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), loops: mem.openLoops() }),
   'memory.records': (a: { state?: string; kind?: string }) => readStructuredRecords().filter((r) => r.scope.agentId === identity().id && (!a.state || r.state === a.state) && (!a.kind || r.kind === a.kind)),
   'memory.adaptive.status': () => adaptiveStatus(),
-  'memory.adaptive.configure': (a: { enabled: boolean; hostBody: string; semantic?: boolean }, actor: string) => {
+  'memory.adaptive.configure': (a: { enabled: boolean; hostBody: string; semantic?: boolean; research?: boolean }, actor: string) => {
     const result = configureAdaptiveMemory(a);
     audit(actor, 'memory.adaptive.configure', '设置固定记忆主机', config.adaptiveMemory, 'ok'); return result;
   },

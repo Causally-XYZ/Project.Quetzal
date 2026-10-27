@@ -146,3 +146,20 @@ test('结果信封显式升版并能读取旧版；旧语义批次不能冒带�
   assert.equal(graph.generation(), 2); assert.deepEqual(graph.history(f.independent.id), [f.independent, revised]);
   graph.rebuild([legacy, next]); assert.deepEqual(graph.current(), [revised]);
 });
+
+
+test('v3 条件性跨语境讨论携带完整身份根；不能省略假设或借故事事实', (t) => {
+  const f = fixture(t), read = (id: number) => f.queue.source(id);
+  f.relation.nature = 'hypothesis'; f.relation.supports[0].assumptions = ['评价与本次写作意图有关'];
+  const selection = selectSemantic(f.records, '陆远', 1, read, read);
+  const item = selection.items.find((r) => r.id === f.relation.id)!;
+  assert.equal(item.status, 'conditional'); assert.equal(item.kind, 'claim');
+  if (item.kind !== 'claim') return;
+  assert.equal(item.references?.[0].realm.world, 'fiction');
+  assert.deepEqual(new Set(item.roots.map((r) => r.id)), new Set([1, 2, 3]));
+  const packet = { version: 3, queryHash: semanticDigest('陆远'), generatedAt: Date.now(), agent: 'synthetic', host: 'center', status: 'ready', freshness: 'local-snapshot', ...selection, basis: semanticBasis(f.records, read) };
+  assert.deepEqual(decodeSemanticPacket(packet, 'synthetic', 'center', '陆远'), packet);
+  for (const version of [1, 2]) assert.throws(() => decodeSemanticPacket({ ...packet, version }, 'synthetic', 'center', '陆远'));
+  f.relation.supports[0].premises = [ref(f.storyFact)];
+  assert.ok(!selectSemantic(f.records, '陆远', 1, read, read).items.some((r) => r.id === f.relation.id));
+});

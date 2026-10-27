@@ -2,10 +2,10 @@
 import { rank } from '../../../engine/src/retrieval.ts';
 import crypto from 'node:crypto';
 import { reciprocalRankFusion } from './adaptive-ranking.ts';
-import { directSpans, evaluateEvidence, spanCurrent, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
+import { directSpans, evaluateEvidence, spanCurrent, sameRealm, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
 
 interface BaseItem { id: string; revision: number; realm: Realm; roots: { id: number; hash: string }[] }
-export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported'; text: string;
+export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported' | 'conditional'; text: string;
   nature: ClaimRecord['nature']; occurred: ClaimRecord['occurred']; valid: ClaimRecord['valid']; supports: ClaimRecord['supports'];
   participants: { role: string; mention: ClaimRecord['participants'][number]['mention']; object: { id: string; revision: number; name: string } }[];
   references?: { role: string; mention: ClaimRecord['participants'][number]['mention']; realm: Realm; object: { id: string; revision: number; name: string } }[] }
@@ -40,7 +40,27 @@ export function semanticCandidates(records: SemanticRecord[], read: SourceReader
     .map((r) => r.kind === 'claim' ? { ...r, supports: r.supports.filter((g) => localStates.get(r.id)!.groups.includes(g.id) && globalStates.get(r.id)!.groups.includes(g.id)) } : r);
   const commonStates = evaluateEvidence(common, read);
   const supported = (id: string) => commonStates.get(id)?.status === 'supported';
-  const groups = (r: ClaimRecord) => r.supports.filter((g) => commonStates.get(r.id)?.groups.includes(g.id));
+  // 条件性推测只作供讨论的候选，不加入 supported 闭包，也不能支撑下游结论。
+  // 前提必须在两个视图的共同证明中成立；当前有反证分支的推测暂不主动呈现。
+  const conditional = new Map<string, { groups: ClaimRecord['supports']; roots: string[] }>();
+  for (const r of records) {
+    if (r.kind !== 'claim' || r.nature === 'reported' || r.counters.length ||
+        localStates.get(r.id)?.status !== 'conditional' || globalStates.get(r.id)?.status !== 'conditional') continue;
+    const premiseRoots = (p: ClaimRecord['supports'][number]['premises'][number], crossRealm = false): string[] | undefined => {
+      if (p.kind === 'source') return spanCurrent(p, read) && spanCurrent(p, global) &&
+        [read(p.source), global(p.source)].every((s) => s && ['user', 'ambient'].includes(s.role)) ? [`${p.source}:${p.hash}`] : undefined;
+      const target = byId.get(p.id);
+      return target?.kind === p.kind && target.revision === p.revision && (crossRealm || sameRealm(r.realm, target.realm)) && supported(p.id)
+        ? commonStates.get(p.id)!.roots : undefined;
+    };
+    const bindings = [...r.participants.map((p) => premiseRoots(p.mention)), ...(r.references ?? []).map((p) => premiseRoots(p.mention, true))];
+    if (bindings.some((roots) => !roots)) continue;
+    const groups = r.supports.filter((g) => g.assumptions.length && g.premises.every((p) => premiseRoots(p)));
+    if (groups.length) conditional.set(r.id, { groups, roots: [...new Set([
+      ...bindings.flatMap((roots) => roots!), ...groups.flatMap((g) => g.premises.flatMap((p) => premiseRoots(p)!)),
+    ])].sort() });
+  }
+  const groups = (r: ClaimRecord) => conditional.get(r.id)?.groups ?? r.supports.filter((g) => commonStates.get(r.id)?.groups.includes(g.id));
   let evidenceWork = 0, evidenceBytes = 0;
   // 原文与模型改写可以语言不同。只索引共同成立的支持链中的精确引文，不扩展整条消息或审计 reasons。
   // 每个候选独立去重，避免带环支持链递归；不把历史错误正文替换回返回材料。
@@ -59,7 +79,7 @@ export function semanticCandidates(records: SemanticRecord[], read: SourceReader
     };
     while (todo.length) {
       step(); const record = todo.pop()!;
-      if (seen.has(record.id) || !supported(record.id)) continue;
+      if (seen.has(record.id) || (!supported(record.id) && !(record.id === claim.id && conditional.has(claim.id)))) continue;
       seen.add(record.id);
       if (record.kind === 'mention') { add(record.anchor); continue; }
       if (record.kind !== 'claim') continue;
@@ -77,11 +97,11 @@ export function semanticCandidates(records: SemanticRecord[], read: SourceReader
   const candidates: { item: SemanticItem; title: string; text: string }[] = [];
   for (const r of records) {
     const state = commonStates.get(r.id) ?? localStates.get(r.id)!;
-    const roots = state.roots.map((key) => { const [id, hash] = key.split(':'); return { id: Number(id), hash }; });
+    const roots = (conditional.get(r.id)?.roots ?? state.roots).map((key) => { const [id, hash] = key.split(':'); return { id: Number(id), hash }; });
     if (roots.length > 100) throw new Error('认识查询来源超过工作上限');
     if (roots.some((s) => read(s.id)?.hash !== s.hash)) throw new Error('认识查询来源已变化');
     const base = { id: r.id, revision: r.revision, realm: r.realm, roots };
-    if (r.kind === 'claim' && supported(r.id)) {
+    if (r.kind === 'claim' && (supported(r.id) || conditional.has(r.id))) {
       const participants = r.participants.flatMap((p) => {
         const mention = byId.get(p.mention.id);
         if (mention?.kind !== 'mention' || !mention.resolved || !supported(mention.id)) return [];
@@ -96,7 +116,7 @@ export function semanticCandidates(records: SemanticRecord[], read: SourceReader
         return node?.kind === 'node' && node.revision === mention.resolved.revision && supported(node.id)
           ? [{ role: p.role, mention: p.mention, realm: mention.realm, object: { id: node.id, revision: node.revision, name: node.name } }] : [];
       });
-      candidates.push({ item: { ...base, kind: 'claim', status: 'supported', text: r.text, nature: r.nature, occurred: r.occurred, valid: r.valid,
+      candidates.push({ item: { ...base, kind: 'claim', status: conditional.has(r.id) ? 'conditional' : 'supported', text: r.text, nature: r.nature, occurred: r.occurred, valid: r.valid,
         participants, ...(r.references ? { references } : {}), supports: groups(r) }, title: [...participants, ...references].map((p) => p.object.name).join(' '), text: `${r.text}\n${evidenceText(r)}` });
     } else if (r.kind === 'mention' && state.status === 'ambiguous' && globalStates.get(r.id)?.status === 'ambiguous' && spanCurrent(r.anchor, read)) {
       const names = r.candidates.flatMap((ref) => {

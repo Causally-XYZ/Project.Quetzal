@@ -10,7 +10,7 @@ import crypto from 'node:crypto';
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-adaptive-production-'));
 process.env.QUETZAL_HOME = home;
 const cfg = await import('../src/config.ts'); cfg.loadConfig();
-cfg.saveConfig({ body: 'center', adaptiveMemory: { enabled: true, hostBody: 'center', semantic: false } });
+cfg.saveConfig({ body: 'center', adaptiveMemory: { enabled: true, hostBody: 'center', semantic: false, research: false } });
 const store = await import('../src/store.ts'); store.openStore();
 await (await import('../src/memory/soul-sync.ts')).ensureSoul();
 const registry = await import('../src/providers/registry.ts');
@@ -22,21 +22,26 @@ const { AdaptiveStore } = await import('../src/memory/adaptive-store.ts');
 const { AdaptiveArchive } = await import('../src/memory/adaptive-archive.ts');
 const { identity } = await import('../src/memory/identity.ts');
 const { processSemanticNext } = await import('../src/memory/adaptive-worker.ts');
+const { reviewPlans } = await import('../src/memory/adaptive-review.ts');
 const { exclusive } = await import('../src/memory/memory.ts');
 const queue = new AdaptiveStore(store.db, identity().id), archive = new AdaptiveArchive(queue, cfg.paths.soul);
 const seen: any[] = [];
 let mode = 'valid';
+let heldResearch: http.ServerResponse | undefined;
 const server = http.createServer((req, res) => {
   let body = ''; req.on('data', (chunk) => { body += chunk; }); req.on('end', () => {
     const request = JSON.parse(body); seen.push(request);
     if (mode === 'fallback' && request.model === 'main') { res.writeHead(404); res.end('{}'); return; }
     const input = JSON.parse(request.messages[1].content), source = input.sources.find((s: any) => s.key === input.current);
+    if (mode === 'research-hold' && input.research?.purpose) { heldResearch = res; return; }
     const quote = { kind: 'source', source: source.key, text: source.text, occurrence: null };
     const time = { text: '', earliest: null, latest: null };
     const patch = { contexts: [], records: [{ key: 'p1', replace: null, kind: 'claim', state: 'present', realm: 'real',
       reasons: [quote], text: source.text, nature: 'reported', participants: [], occurred: time, valid: time,
       supports: [{ id: 'direct', premises: [quote], assumptions: [] }], counters: [] }] };
-    const text = mode === 'fences' ? '```json\n{}\n```' : JSON.stringify(mode === 'empty' ? { contexts: [], records: [] } : patch);
+    const text = mode === 'fences' ? '```json\n{}\n```' : JSON.stringify(input.research?.purpose
+      ? { question: '这条新消息与过去资料有什么联系？', query: '' }
+      : mode === 'empty' || mode.startsWith('research') ? { contexts: [], records: [] } : patch);
     const tools = mode === 'tools' ? [{ id: 'forbidden', type: 'function', function: { name: 'run', arguments: '{}' } }] : undefined;
     res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{
       message: { content: text, tool_calls: tools }, finish_reason: mode === 'truncated' ? 'length' : 'stop',
@@ -135,4 +140,50 @@ test('真实后台五次重评后保留冷却，重启且冷却届满后无需�
   assert.equal(Object.keys((store.kv.get('adaptive.review.budget', null) as any).attempts).length, 6);
   assert.equal(archive.current().length, 6, '空提案不修复旧认识，仅完成检查');
   assert.equal(archive.supportedClaims().length, 0);
+});
+
+test('旧来源被忽略而无法重评时，真实宿主仍研究独立的新输入', async () => {
+  store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(first);
+  assert.ok(reviewPlans(archive, queue).deferred > 0, '确实留下不可重评的旧分支');
+  store.ensureSession('research', '合成研究');
+  const source = store.addMessage('user', '合成', '新会话准备观察候鸟迁徙。', { session: 'research' });
+  mode = 'research'; const start = seen.length;
+  host.configureAdaptiveMemory({ enabled: true, hostBody: 'center', semantic: true, research: true });
+  host.startAdaptiveMemory();
+  try {
+    await eventually(() => !!queue.processed(source, 'research-v1'), 20_000);
+    assert.ok(queue.processed(source, 'semantic-v1'), '研究先经过真实后台语义整合');
+    const plans = seen.slice(start).map((r) => JSON.parse(r.messages[1].content)).filter((input) =>
+      input.research?.purpose && input.sources.find((s: any) => s.key === input.current)?.text === '新会话准备观察候鸟迁徙。');
+    assert.deepEqual(plans.map((input) => input.research.purpose), ['explore', 'bridge', 'counter']);
+    assert.ok(plans.every((input) => !input.sources.some((s: any) => s.text.includes('图书馆'))), '被忽略的旧来源不进入研究');
+    assert.ok(reviewPlans(archive, queue).deferred > 0, '新研究没有靠修复或删除旧分支解锁');
+  } finally {
+    host.configureAdaptiveMemory({ enabled: true, hostBody: 'center', semantic: true, research: false });
+    await host.stopAdaptiveMemory();
+  }
+});
+
+test('共享配置单独关闭研究开关立即取消在途 HTTP 调用，保留语义整合开关且不完成研究回执', async () => {
+  const source = store.addMessage('user', '合成', '另一条新线索等待后台研究。', { session: 'research' });
+  mode = 'research-hold'; heldResearch = undefined;
+  const generation = archive.generation();
+  host.configureAdaptiveMemory({ enabled: true, hostBody: 'center', semantic: true, research: true });
+  host.startAdaptiveMemory();
+  try {
+    await eventually(() => !!heldResearch);
+    assert.equal((host.adaptiveStatus().semantic as any).state, 'researching');
+    const job = queue.jobs(100).find((j) => j.source === source && j.processor === 'research-v1');
+    assert.equal(job?.state, 'running');
+    cfg.saveConfig({ adaptiveMemory: { research: false } }, { remote: true }); // 同共享配置抵达中心的路径
+    host.processAdaptiveBatch();
+    await eventually(() => !!heldResearch?.destroyed && queue.jobs(100).find((j) => j.id === job!.id)?.state === 'queued', 2000);
+    assert.equal(cfg.config.adaptiveMemory.semantic, true);
+    assert.equal(queue.jobs(100).find((j) => j.id === job!.id)?.error, 'interrupted');
+    assert.equal(queue.processed(source, 'research-v1'), undefined);
+    assert.equal(archive.generation(), generation, '取消不安装认识');
+  } finally {
+    host.configureAdaptiveMemory({ enabled: true, hostBody: 'center', semantic: true, research: false });
+    await host.stopAdaptiveMemory();
+  }
 });
