@@ -4,7 +4,7 @@ import { config, paths, saveConfig } from '../config.ts';
 import { db, messageMode, kv } from '../store.ts';
 import { log } from '../log.ts';
 import { identity } from './identity.ts';
-import { retrieve } from './retrieval.ts';
+import { retrieve, documents } from './retrieval.ts';
 import { redactSecrets } from '../mind/secrets.ts';
 import { AdaptiveStore, SOURCE_PROCESSOR, sourceHash, type SourceSnapshot, type MemorySource } from './adaptive-store.ts';
 import { publishPending, commitPending, publicationRoot } from './adaptive-publication.ts';
@@ -18,6 +18,7 @@ import { generateAdaptiveProposal } from './adaptive-model.ts';
 import { routes } from '../providers/router.ts';
 import { isBusy } from '../heart/heart.ts';
 import { sourceReadingHeader, type SourceReading } from './adaptive-reading.ts';
+import { prepareNoteReading, MaterialAccessDenied, type NoteReading } from './adaptive-material.ts';
 
 export interface MemoryPacket {
   version: 1; agent: string; host: string; generatedAt: number;
@@ -227,23 +228,53 @@ export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceR
 }
 
 /** recall 的命中与邻句都核对；索引结果只是候选，等待锁期间变动的正文不能输出。 */
-export async function searchAdaptiveHistory(query: string, options: SearchOptions, signal?: AbortSignal): Promise<string> {
+export async function searchAdaptiveHistory(query: string, options: SearchOptions, signal?: AbortSignal, session?: string): Promise<string> {
   signal?.throwIfAborted();
   if (!adaptiveReadingRequired()) return search(query, options);
-  const entries = searchEntries(query, options);
-  const ids = [...new Set(entries.flatMap((e) => e.context.map((m) => m.id)))];
+  const limit = options.limit ?? 8;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error('召回数量需为1至200');
+  // 在原有有界候选中先做访问 / 来源过滤，再取用户请求的数量，避免前几项不可读就挤空结果。
+  const candidates = searchEntries(query, { ...options, limit: 200 });
+  const notes = new Map<string, NoteReading>();
+  const entries = candidates.filter((entry) => {
+    if (entry.hit.kind !== 'note') return true;
+    if (!entry.hit.source.startsWith('笔记/')) throw new Error('笔记召回来源格式未知');
+    try {
+      notes.set(entry.hit.source, prepareNoteReading(entry.hit.source.slice(3), (record) => record.scope.agentId === identity().id &&
+        (!record.scope.userId || record.scope.userId === 'owner') && (!record.scope.sessionId || record.scope.sessionId === session) && !record.scope.taskType, entry.hit.text));
+      return true;
+    } catch (error) { if (error instanceof MaterialAccessDenied) return false; throw error; }
+  });
+  const ids = [...new Set([...entries.flatMap((e) => e.context.map((m) => m.id)), ...[...notes.values()].flatMap((n) => n.sources)])];
   return withAdaptiveSources(ids, (view) => {
-    if (!view) return formatSearchEntries(entries);
+    if (!view) throw new Error('召回修订状态在读取期间已改变');
     const allowed = new Set(view.sources.filter((s) => s.hash).map((s) => s.id));
-    const filtered = entries.filter((e) => e.hit.kind !== 'chat' || allowed.has(Number(e.hit.ref))).map((entry) => ({
-      ...entry, context: entry.context.filter((m) => allowed.has(m.id)).map((m) => {
-        const current = db.prepare('SELECT text,ts,role,session FROM messages WHERE id=?').get(m.id);
-        if (!current || current.text !== m.text || current.ts !== m.ts || current.role !== m.role || current.session !== entry.hit.session)
-          throw new Error('召回来源已改变，请重新检索');
-        return m;
-      }),
-    }));
-    const result = formatSearchEntries(filtered, (id) => sourceReadingHeader(view, id));
+    const kinds = [...new Set(entries.flatMap((e) => e.hit.kind !== 'chat' && e.hit.kind !== 'note' ? [e.hit.kind] : []))];
+    const currentDocs = new Map(kinds.length ? documents(kinds).map((d) => [d.source, d]) : []);
+    const parts: string[] = [];
+    for (const entry of entries) {
+      const h = entry.hit;
+      if (h.kind === 'chat') {
+        if (!allowed.has(Number(h.ref))) continue;
+        const context = entry.context.filter((m) => allowed.has(m.id)).map((m) => {
+          const current = db.prepare('SELECT text,ts,role,session FROM messages WHERE id=?').get(m.id);
+          if (!current || current.text !== m.text || current.ts !== m.ts || current.role !== m.role || current.session !== h.session)
+            throw new Error('召回来源已改变，请重新检索');
+          return m;
+        });
+        parts.push(formatSearchEntries([{ hit: h, context }], (id) => sourceReadingHeader(view, id)));
+      } else if (h.kind === 'note') {
+        const body = notes.get(h.source)!.render(view, { excerpt: h.excerpt, omitUnavailable: true });
+        if (body === undefined) continue;
+        parts.push(`【${h.source}】\n${body}`);
+      } else {
+        const current = currentDocs.get(h.source);
+        if (!current || current.text !== h.text || current.title !== h.title) throw new Error('文档召回来源已改变，请重新检索');
+        parts.push(formatSearchEntries([entry], () => sourceReadingHeader(view)));
+      }
+      if (parts.length >= limit) break;
+    }
+    const result = parts.length ? parts.join('\n\n') : '没有找到相关记忆';
     if (Buffer.byteLength(result) > 512 * 1024) throw new Error('召回修订结果超过工作上限');
     return result;
   }, signal);

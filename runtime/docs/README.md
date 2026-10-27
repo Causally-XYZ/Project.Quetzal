@@ -44,7 +44,7 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 
 `adaptive-reading.ts` 提供按来源 / 精确历史版本的修订覆盖层，已接入实际 `context_read` / `recall`。两者在本机认识状态存在时核对权威存档和 SQLite 快照，关闭后台仍保留门禁；原文不修改，每页 / 每个命中与邻句附状态，不可访问来源不输出。默认历史也带本机已知修订，编辑 / 忽略来源不会沿用旧正文或图像；持久摘要只在全部压缩条目有来源版本且版本一致时继承，压缩期间变化最多重建一次。手动摘要仅存档，不截断可用原文。新测试在 `test/adaptive-reading.test.ts`、`test/adaptive-context-read.test.ts` 与 `test/adaptive-history.test.ts`；无新依赖 / 环境配置，现有测试和构建模式自动包含。
 
-`adaptive-material.ts` 核对旧结构化候选 / 缓存的消息出处和当前文件，主模型发送前附局部修订；memory_records 保留原审核记录并另给 reading 状态，来源不可访问时不返回正文与旧引语。note_read 对受管记录及实际文件别名执行同一门禁，处理存档先核对权威文件 / 输入；普通无出处 Markdown 不猜语义来源，保留原文并标明未核实。新测试为 `test/adaptive-material.test.ts`，现有测试 / 构建 glob 自动包含；没有新增依赖、环境变量、服务、数据库表或灵魂格式。
+`adaptive-material.ts` 核对旧结构化候选 / 缓存的消息出处和当前文件，主模型发送前附局部修订；memory_records 保留原审核记录并另给 reading 状态，来源不可访问时不返回正文与旧引语。note_read 对受管记录及实际文件别名执行同一门禁，处理存档先核对权威文件 / 输入；普通无出处 Markdown 不猜语义来源，保留原文并标明未核实。recall 的文档命中复用同一来源 / 范围核查，在有界200项候选内过滤后再取条数；返回前核对文件，不能使用变动前的搜索片段。旧语义选择模型输入另附完整 reading 字段，不发送不可访问正文；缓存覆盖全部参与选择的候选来源，模型返回后再核对，词面降级也过滤失效访问。新测试为 `test/adaptive-material.test.ts`、`test/adaptive-recall.test.ts` 和 `test/adaptive-selection.test.ts`，现有测试 / 构建 glob 自动包含；没有新增依赖、环境变量、服务、数据库表或灵魂格式。
 
 **semantic 生成与默认上下文仍处于受控试验**：前台语义读取 / 纠正覆盖尚未完成，开启时新增的 adaptive 来源查询返回 unavailable、不注入旧观察。关闭 semantic 恢复 M1 来源路径。旧记忆路径保持既有行为，这不是全局纠正一致性验收通过。多身体与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
 

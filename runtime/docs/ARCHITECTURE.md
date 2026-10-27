@@ -10,7 +10,7 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
 
-`memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照。默认历史由 `mind/context.ts` 在模型准备前重建；来源或认识版本变化会清摘要缓存，发送前复核，至多重建一次。无来源版本的持久摘要不继承；`adaptive-material.ts` 在发送前核对旧候选文件及消息来源，工具 memory_records / note_read 同样附当前读取状态；原审核不能充当新证据，不可访问来源的派生正文不输出。系统提示派生资料、文档召回映射和远端语义读取仍待接入。
+`memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照。默认历史由 `mind/context.ts` 在模型准备前重建；来源或认识版本变化会清摘要缓存，发送前复核，至多重建一次。无来源版本的持久摘要不继承；`adaptive-material.ts` 在发送前核对旧候选文件及消息来源，工具 memory_records / note_read 同样附当前读取状态；原审核不能充当新证据，不可访问来源的派生正文不输出。recall 文档命中与笔记读取共用准备 / 快照呈现逻辑，旧语义选择器在模型调用前、返回后和缓存命中时核查来源；系统提示派生资料和远端语义读取仍待接入。
 
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 

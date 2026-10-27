@@ -184,7 +184,7 @@ const core: Tool[] = [
       if (!String(a.query ?? "").trim() && range.from === undefined && range.to === undefined) return "给出要找的内容，或者用 from / to 给一个时间段";
       const kinds = a.scope === "chats" ? ["chat"] as const : a.scope === "memory" ? ["note", "journal", "memory", "user"] as const : undefined;
       const head = range.label ? `（时间段：${range.label}）\n` : "";
-      return head + await searchAdaptiveHistory(String(a.query ?? ""), { from: range.from, to: range.to, kinds: kinds ? [...kinds] : undefined, limit: String(a.query ?? "").trim() ? 8 : 20 }, stopOf(ctx));
+      return head + await searchAdaptiveHistory(String(a.query ?? ""), { from: range.from, to: range.to, kinds: kinds ? [...kinds] : undefined, limit: String(a.query ?? "").trim() ? 8 : 20 }, stopOf(ctx), ctx.session?.conv);
     },
   },
   {

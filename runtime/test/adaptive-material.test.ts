@@ -46,7 +46,7 @@ function configure(models: { id: string; context: number; maxTokens?: number }[]
     models: models.map((model, i) => ({ id: model.id, name: model.id, enabled: true, context: model.context, maxTokens: model.maxTokens ?? 256, sortOrder: i })) }], quickModelId: models[0]?.id }, registry.configVersion());
 }
 const joined = (request: any) => request.messages.map((message: any) => String(message.content ?? "")).join("\n");
-after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); store.db.close(); fs.rmSync(home, { recursive: true, force: true }); });
+after(async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); assert.equal(cfg.config.soul.remote, ""); await soul.idle(); await soul.push("合成测试收尾"); store.db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 
 const { AdaptiveStore } = await import('../src/memory/adaptive-store.ts');
 const { AdaptiveArchive } = await import('../src/memory/adaptive-archive.ts');
@@ -141,11 +141,12 @@ test('旧结构化语义选择缓存命中后，主模型入口仍重新核对�
   const messages: Msg[] = [{ role: 'user', content: '饭友编辑的资料' }], context = contextHost.createTurnContext('cache-turn', conv, messages);
   try {
     await router.chat(await context.prepare({ messages, maxTokens: 256 })); assert.match(joined(seen.at(-1)), /CACHED_DERIVED_TEXT/);
+    await router.chat(await context.prepare({ messages, maxTokens: 256 })); assert.equal(selections, 1, '来源不变时仍使用选择缓存');
     f.correct();
     await router.chat(await context.prepare({ messages, maxTokens: 256 })); assert.match(joined(seen.at(-1)), /饭友是弟弟/);
     store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source);
     await router.chat(await context.prepare({ messages, maxTokens: 256 })); assert.ok(!joined(seen.at(-1)).includes('CACHED_DERIVED_TEXT'));
-    assert.equal(selections, 1, '实际命中了既有选择缓存，当前来源门禁仍生效');
+    assert.equal(selections, 2, '纠正使选择缓存失效，忽略后不再把该候选发给选择模型');
   } finally { context.close(); cfg.saveConfig({ brain: { ...cfg.config.brain, memorySemantic: false } }); script = async () => ({ content: '完成' }); }
 });
 

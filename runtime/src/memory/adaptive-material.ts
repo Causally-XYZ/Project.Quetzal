@@ -66,11 +66,16 @@ export async function readMaterialViews(records: MemoryRecord[], signal?: AbortS
   }, signal);
 }
 
-/** 读到受管记录时走同一来源门禁；普通 Markdown 不靠正文关键词伪造出处。 */
-export async function readAdaptiveNote(name: string, allowed: (record: MemoryRecord) => boolean, signal?: AbortSignal): Promise<string> {
-  signal?.throwIfAborted();
+export class MaterialAccessDenied extends Error {}
+export interface NoteReading {
+  sources: number[];
+  render(view: SourceReading, options?: { excerpt?: string; omitUnavailable?: boolean }): string | undefined;
+}
+
+/** 锁前只准备候选；render 必须在 withAdaptiveSources 的快照 / 灵魂锁中调用。 */
+export function prepareNoteReading(name: string, allowed: (record: MemoryRecord) => boolean, expectedText?: string): NoteReading {
   const text = readNote(name);
-  if (!adaptiveReadingRequired() || !text) return text;
+  if (!text || expectedText !== undefined && text !== expectedText) throw new Error('笔记候选已改变或不存在，请重新读取');
   if (Buffer.byteLength(text) > 256 * 1024) throw new Error('笔记修订读取超过工作上限');
   const normalized = notePath(name), actual = fs.realpathSync.native(path.join(paths.soul, 'notes', `${normalized}.md`));
   const root = path.join(paths.soul, 'notes', 'QuetzalMemory');
@@ -82,26 +87,39 @@ export async function readAdaptiveNote(name: string, allowed: (record: MemoryRec
   try { if (json) parsed = JSON.parse(json[1]); } catch { if (managed) throw new Error('受管笔记格式不合法，不能作为普通资料读取'); }
   if (parsed?.format === 'quetzal-memory-v1' && (managed || readStructuredRecords().some((r) => JSON.stringify(r) === JSON.stringify(parsed.record)))) {
     validateMemoryRecord(parsed.record); record = parsed.record;
-    if (!allowed(record!)) throw new Error('记忆版本不属于当前Agent、用户或会话范围');
+    if (!allowed(record!)) throw new MaterialAccessDenied('记忆版本不属于当前Agent、用户或会话范围');
   } else if (parsed?.format === ARTIFACT_FORMAT && managed) artifact = parseArtifact(json![1], identity().id);
   else if (managed) throw new Error('受管笔记格式未知，不能作为普通资料读取');
   const ids = record ? materialSources(record) : artifact ? artifact.inputs.map((input) => input.id) : [];
-  return withAdaptiveSources(ids, (view) => {
+  return { sources: ids, render(view, options = {}) {
     if (readNote(name) !== text) throw new Error('笔记在读取期间已改变，请重新读取');
-    if (!view) throw new Error('笔记修订状态在读取期间已改变');
     let result: string;
     if (record) {
       checkMaterialVersions([record]);
-      result = JSON.stringify(materialView(record, view));
+      const projected = materialView(record, view);
+      if (options.omitUnavailable && projected.reading?.status === 'unavailable') return undefined;
+      result = JSON.stringify(projected);
     } else if (artifact) {
       if (JSON.stringify(readPublication(paths.soul, artifact.id, identity().id)) !== JSON.stringify(artifact))
         throw new Error('笔记与权威记忆存档不一致');
       // 批次没有逐句访问映射，任一输入不可访问时不输出整个历史 payload。
       if (ids.some((id) => !view.sources.find((s) => s.id === id)?.hash))
-        return `【历史处理存档 ${artifact.id} 的来源不可访问；不返回旧 payload。本机快照 generation=${view.generation}，不保证中心最新。】`;
+        return options.omitUnavailable ? undefined : `【历史处理存档 ${artifact.id} 的来源不可访问；不返回旧 payload。本机快照 generation=${view.generation}，不保证中心最新。】`;
       result = ids.map((id) => sourceReadingHeader(view, id)).join('') + text;
-    } else result = sourceReadingHeader(view) + text;
+    } else result = sourceReadingHeader(view) + (options.excerpt ?? text);
     if (Buffer.byteLength(result) > 512 * 1024) throw new Error('笔记修订结果超过工作上限');
     return result;
+  } };
+}
+
+/** 读到受管记录时走同一来源门禁；普通 Markdown 不靠正文关键词伪造出处。 */
+export async function readAdaptiveNote(name: string, allowed: (record: MemoryRecord) => boolean, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  if (!adaptiveReadingRequired()) return readNote(name);
+  if (!readNote(name)) return '';
+  const prepared = prepareNoteReading(name, allowed);
+  return withAdaptiveSources(prepared.sources, (view) => {
+    if (!view) throw new Error('笔记修订状态在读取期间已改变');
+    return prepared.render(view)!;
   }, signal);
 }

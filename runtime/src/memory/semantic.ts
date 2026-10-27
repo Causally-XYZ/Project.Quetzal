@@ -9,28 +9,52 @@ import { kv } from '../store.ts';
 import { chat as routedChat } from '../providers/router.ts';
 import type { ChatRequest, ChatResult } from '../providers/types.ts';
 import { redactSecrets } from '../mind/secrets.ts';
+import { adaptiveReadingRequired } from './adaptive.ts';
+import { readMaterialViews } from './adaptive-material.ts';
+import { memoryKey } from '../../../engine/src/memory.ts';
 
-const cache = new Map<string, { expires: number; records: MemoryRecord[] }>();
+interface SelectionBasis { records: MemoryRecord[]; fingerprint: string }
+const fingerprint = (value: unknown) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const cache = new Map<string, { expires: number; records: MemoryRecord[]; basis?: SelectionBasis }>();
 export async function selectContextMemory(query: MemoryQuery, signal?: AbortSignal,
   model: (request: ChatRequest) => Promise<ChatResult> = (request) => routedChat(request, { quick: true })): Promise<MemoryRecord[]> {
   signal?.throwIfAborted();
   if (fs.existsSync(paths.stop)) throw new Error('急停中，停止记忆选择');
-  const fallback = () => getMemoryCandidates(query.text, query.scope, query.stage, { tags: query.tags, tools: query.tools, limit: query.limit });
+  const fallback = async () => {
+    const records = getMemoryCandidates(query.text, query.scope, query.stage, { tags: query.tags, tools: query.tools, limit: query.limit });
+    if (!adaptiveReadingRequired()) return records;
+    const readable = new Set((await readMaterialViews(records, signal)).filter((r) => r.reading?.status !== 'unavailable').map((r) => r.key));
+    return records.filter((r) => readable.has(memoryKey(r)));
+  };
   if (!config.brain.memorySemantic) return fallback();
   const records = [...readStructuredRecords(), ...readLegacyRecords(query.scope)];
   if (!records.length) return [];
   const signature = records.map((r) => JSON.stringify([r, query.now >= r.validFrom, !r.validUntil || query.now < r.validUntil])).sort();
   const key = crypto.createHash('sha256').update(JSON.stringify({ query: { ...query, now: 0 }, signature })).digest('hex');
   const hit = cache.get(key);
-  if (hit && hit.expires > Date.now()) return structuredClone(hit.records.filter((r) => r.validFrom <= query.now && (!r.validUntil || query.now < r.validUntil)));
   const stopped = new AbortController();
   const stop = () => { if (fs.existsSync(paths.stop)) stopped.abort(new Error('急停中，停止记忆选择')); };
   bus.on('state', stop); stop();
   const timed = AbortSignal.any([stopped.signal, ...(signal ? [signal] : []), AbortSignal.timeout(config.brain.memorySelectionTimeoutMs)]);
   try {
+    const guarded = adaptiveReadingRequired();
+    if (hit && hit.expires > Date.now() && guarded === !!hit.basis &&
+        (!hit.basis || fingerprint(await readMaterialViews(hit.basis.records, timed)) === hit.basis.fingerprint))
+      return structuredClone(hit.records.filter((r) => r.validFrom <= query.now && (!r.validUntil || query.now < r.validUntil)));
+    let basis: SelectionBasis | undefined;
     const selected = await retrieveMemory(records, query, { select: async ({ candidates }) => {
       if (!candidates.length) return [];
-      const input = redactSecrets(JSON.stringify({ query: { text: query.text.slice(0, 2000), stage: query.stage, tags: query.tags, tools: query.tools }, candidates }));
+      let inputs: typeof candidates = candidates;
+      if (guarded) {
+        const raw = candidates.map((candidate) => records.find((record) => memoryKey(record) === candidate.key)!);
+        const views = await readMaterialViews(raw, timed);
+        basis = { records: raw, fingerprint: fingerprint(views) };
+        // 正文仍有界，修订独立成字段且不截成不完整的状态；不可访问的旧引语不发送给选择模型。
+        inputs = candidates.flatMap((candidate, i) => views[i].reading?.status === 'unavailable' ? [] : [{ ...candidate, reading: views[i].reading }]);
+      }
+      if (!inputs.length) return [];
+      const allowed = new Set(inputs.map((candidate) => candidate.key));
+      const input = redactSecrets(JSON.stringify({ query: { text: query.text.slice(0, 2000), stage: query.stage, tags: query.tags, tools: query.tools }, candidates: inputs }));
       const day = new Date().toISOString().slice(0, 10), previous = kv.get('memory.selection.budget', { day, tokens: 0 });
       const budget = previous.day === day ? previous : { day, tokens: 0 };
       const reserve = Buffer.byteLength(input) + config.brain.memorySelectionTokens + 768;
@@ -46,10 +70,11 @@ export async function selectContextMemory(query: MemoryQuery, signal?: AbortSign
       if (latest.day === day && Number.isFinite(actual) && actual >= 0) kv.set('memory.selection.budget', { day, tokens: Math.max(0, latest.tokens + actual - reserve) });
       const parsed = JSON.parse(result.text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, '')) as { keys?: unknown };
       if (!Array.isArray(parsed.keys) || parsed.keys.length > 6 || parsed.keys.some((k) => typeof k !== 'string')) throw new Error('记忆选择结果格式不合法');
-      return parsed.keys as string[];
+      return (parsed.keys as string[]).filter((key) => allowed.has(key));
     } }, { candidateLimit: 20, maxViewChars: 300 });
     timed.throwIfAborted();
-    cache.set(key, { expires: Date.now() + 60_000, records: structuredClone(selected) });
+    if (basis && fingerprint(await readMaterialViews(basis.records, timed)) !== basis.fingerprint) throw new Error('记忆来源在选择期间已改变');
+    cache.set(key, { expires: Date.now() + 60_000, records: structuredClone(selected), basis });
     if (cache.size > 64) cache.delete(cache.keys().next().value!);
     return selected;
   } catch (error) {
