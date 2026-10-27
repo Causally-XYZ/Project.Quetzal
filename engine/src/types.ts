@@ -1,5 +1,8 @@
 // 引擎的模型与工具协议；不依赖供应商配置或宿主。
-export interface ToolCall { id: string; name: string; args: Record<string, unknown> }
+export interface ToolCall {
+  id: string; name: string; args: Record<string, unknown>;
+  providerMetadata?: Record<string, unknown>; // 不透明协议续接数据；引擎原样保留，宿主适配器解释，不属于工具参数。
+}
 export interface ImagePart { mime: string; data: string } // data：base64
 export type Msg =
   | { role: "system" | "user"; content: string; images?: ImagePart[] } // images 只用于 user

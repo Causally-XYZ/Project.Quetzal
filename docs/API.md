@@ -507,3 +507,5 @@ macOS 适配器提供：`sample()` 的电量 / 充电（`pmset -g batt`；「AC 
 | `speech.region` / `endpoint`（只接受 Azure 的 HTTPS 域名） / `voice` / `style` / `rate` / `pitch` / `volume` / `format` | "" / "" / zh-CN-XiaoxiaoNeural / "" / 0% / 0% / 100 / audio-24khz-48kbitrate-mono-mp3 | Azure 语音（密钥在 `secrets/azure_speech_key`）；控制台「语音」页或她自己用 `voice_config` 修改 |
 
 生成交付文件（`deliverable_create`，ARCHITECTURE §5.8）另认两个环境变量（不在配置文件里）：`QUETZAL_PDF_FONT`——生成 PDF 用的字体文件（`.ttf` / `.otf` / `.ttc`，优先于 `QUETZAL_HOME/fonts/` 与系统字体）；`QUETZAL_DELIVERABLES_DIR`——没有工作区时文件写到哪里（缺省为命令工作目录下的 `deliverables/`，工作目录就是用户主目录时为 `~/Quetzal/deliverables/`，下面按当地日期分子目录）。
+
+内部 ToolCall 可携带 `providerMetadata?: Record<string, unknown>`，用于供应商协议续接，不是工具输入或新 RPC。Google 保存 `{ google: { model, thoughtSignature } }`，仅向同名 Google 模型的对应 functionCall 部件回传；其他协议不发送。运行期原样传递，不解析签名、不把它作为证据或用户可编辑配置。

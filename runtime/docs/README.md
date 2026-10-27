@@ -105,3 +105,5 @@ ADC 开发调用现在保留失败发生的安全阶段与计时，旧记录没�
 `npm run run:adaptive-eval -- --init/--run` 提供仓库外严格计划与单案例执行，绑定干净提交、代码 / 提示 / schema、固定路由 / 预算、检索与运行环境。各轨迹独立重置；只增原始执行和空 reviews 回执，流程完成不表示语义通过。body 的 fullEvidence 测试设置附带全部认识历史及当前支持状态，仅用于评测材料。新增入口纳入 package.json / tsconfig，依赖列表与锁无需变化，不进入生产 main。审核另经 `review:adaptive-eval -- --packet/--record/--select` 只增存档，评分必须显式 `--reviews` 选择；原轨迹在读取时重新核验，模型自评不计通过。真实正式留出和逐项语义审核仍未完成。
 
 Google 协议的每个模型可在控制台「模型 → 编辑」选择思考强度：供应商默认 / 低 / 中 / 高。对应 `ProviderModel.thinkingLevel` 缺省 / LOW / MEDIUM / HIGH，配置随现有 providers 分区同步；实际请求与测试按钮均使用当前候选模型的值。其他协议或非法等级在保存时原子拒绝；具体模型是否支持由供应商决定，保存后可测试，不按模型名字猜测。未提供 MINIMAL 或思考预算设置；未改变现有默认参数。`test/google-thinking.test.ts` 覆盖保存、导入、原生 schema、测试按钮与跨协议故障转移，无新增依赖或部署步骤。
+
+Google 工具回查后续接保留供应商返回的 thoughtSignature；不需要额外配置。合成回归 `test/google-tool-continuation.test.ts` 覆盖流式 / JSON、并行与连续调用及模型 / 协议隔离。无新增依赖、环境变量、部署步骤或构建入口。

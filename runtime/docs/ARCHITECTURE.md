@@ -236,3 +236,5 @@ adapters/
 `tool/adaptive-eval/review.ts` 从原始轨迹重建并核对空审核执行回执，生成带冻结断言的审核包；只增修订绑定 packet / receipt / plan / suite 摘要，完整验证前版链。review-cli 的审核者由调用方明确声明，草稿不能自报；每版完整覆盖断言，未评不继承旧通过。评分仅叠加显式清单选中的版本，不改原执行文件、不隐式选择最新、不把纯模型评语记为通过。归档审核采用归档 schema 摘要并核对实际请求；当前执行仍须匹配当前代码和格式。新增开发入口纳入 package / tsconfig，无新依赖、产品 RPC、部署服务或灵魂格式。
 
 `ProviderModel.thinkingLevel` 缺省 / LOW / MEDIUM / HIGH，经 registry 原子校验与既有配置同步；router 为每个候选及 testModel 生成相同 Target，Google adapter 映射到 thinkingConfig。跨协议故障转移不继承前一模型的设置。开发观察器只配置隔离身体、记录实际 Target；ADC 不修改正文，回执未知等级只记固定 other，避免日志带入任意内容。无新增依赖、构建项或部署环境变量，现有导入链和测试 glob 覆盖。
+
+Google adapter 将 functionCall 部件的 thoughtSignature 与模型名存入 ToolCall.providerMetadata.google，下一步仅向同名 Google 模型的原调用部件回传。引擎和当前上下文保留该元数据，工具参数及审计记录不包含它；其他供应商不发送。并行调用不复制签名到未签名部件，连续步骤各保留原值。仅覆盖工具续接，不实现非工具文字签名或跨模型签名转换；旧历史缺签名时不伪造补齐，沿用供应商错误 / 路由处理。使用现有工具协议、构建与测试入口，无依赖或部署配置变化。

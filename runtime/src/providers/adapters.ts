@@ -225,7 +225,12 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
     if (m.role === "tool") push("user", { functionResponse: { name: m.name, response: m.error ? { error: m.content } : { content: m.content } } });
     else if (m.role === "assistant") {
       if (m.content) push("model", { text: m.content });
-      for (const c of m.toolCalls ?? []) push("model", { functionCall: { name: c.name, args: c.args } });
+      for (const c of m.toolCalls ?? []) {
+        const metadata = c.providerMetadata?.google as { model?: unknown; thoughtSignature?: unknown } | undefined;
+        push("model", { functionCall: { name: c.name, args: c.args },
+          ...(metadata?.model === t.model && typeof metadata.thoughtSignature === 'string'
+            ? { thoughtSignature: metadata.thoughtSignature } : {}) });
+      }
     } else {
       push("user", { text: m.content });
       if (m.role === "user") for (const i of m.images ?? []) push("user", { inlineData: { mimeType: i.mime, data: i.data } });
@@ -239,7 +244,9 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
     if (c.error) throw streamError(c.error);
     for (const p of c.candidates?.[0]?.content?.parts ?? []) {
       if (p.text && !p.thought) { text += p.text; if (live) r.onText?.(p.text); }
-      if (p.functionCall) toolCalls.push({ id: newId(), name: p.functionCall.name, args: p.functionCall.args ?? {} });
+      if (p.functionCall) toolCalls.push({ id: newId(), name: p.functionCall.name, args: p.functionCall.args ?? {},
+        ...(typeof p.thoughtSignature === 'string'
+          ? { providerMetadata: { google: { model: t.model, thoughtSignature: p.thoughtSignature } } } : {}) });
     }
     if (c.candidates?.[0]?.finishReason) finish = c.candidates[0].finishReason;
     const m = c.usageMetadata;

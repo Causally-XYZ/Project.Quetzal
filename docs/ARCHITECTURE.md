@@ -710,3 +710,5 @@ flowchart LR
 - **配置缺省**：`body` 由安装器写为机型名（Android、Windows；Windows 取 Win32_ComputerSystem 的型号，拿不到用计算机名，避开保留名）或主机名（Linux；macOS 去掉 `.local` 后缀），`timezone` 取系统时区；相机、麦克风、定位、操作屏幕、造工具默认「交给审核模型」（§8.0）；听觉默认关闭；网关只监听本机（局域网访问需显式开启，且只走 HTTPS）。
 
 模型的可选思考强度由现有 providers 配置管理：控制台草稿保存、版本防覆盖、身体间同步、逐候选路由、Google 原生参数与连通性测试共享同一字段。缺省保持供应商默认，显式 LOW / MEDIUM / HIGH 只允许 Google 协议；测试 ADC 仅认证与观察，不再覆盖请求正文。不同等级的开发结果仍分开保留，不能改变既有正式评测计划或证明生产质量。
+
+Google 工具调用的协议续接元数据由适配器保存到 ToolCall.providerMetadata，引擎不解释；同模型下一步回传原 functionCall 部件上的 thoughtSignature，避免工具回查后缺签名被拒绝。该字段不属于记忆事实或工具参数。边界与限制见 runtime 架构文档。
