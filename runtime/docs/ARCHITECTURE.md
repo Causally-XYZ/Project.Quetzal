@@ -24,6 +24,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
+提案规则明确局部纠正应以原文和纠正联合支持未变内容；真正撤回该内容时不继续保留。时间字段说明禁止借 recordedAt 的 Z 填充事件时区或月末时分秒，有明确 UTC 依据的时间仍可输出。只改生成说明，不改存档 schema、规范化形状或宿主信任边界；既有提案 / 引用 / 结构化输出 / 归档审核测试覆盖工程路径，真实质量另经公开多轮材料核查。无新依赖、配置或部署项，原 tsconfig 与构建导入链覆盖。
+
 开发评测在 `tool/adaptive-vertex-*.py` 保留安全失败分类和可选 curl 传输，未报告用量为 null；取消会结束 HTTP 子进程。`tool/adaptive-checkpoint-probe/` 单独锁定开源探针的开发依赖，实际执行真实 MemorySaver 契约，不加入生产依赖 / 打包路径；范围和复现命令见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。
 
 `tool/adaptive-eval/` 是独立的 M2 留出资料与评分工具：spec 校验50案例的逐步输入 / 权限 / 轨迹，cases 为冻结构造器，holdout / manifest 保存正式数据及摘要，score 核查回执证据定位并按固定分母统计，cli 提供只读检查和评分。这些数据 / 评分模块不启动宿主、不生成语义审核、不改变生产提示；完整正式运行器尚未完成。测试夹具的 live 标记只测试算术，不能当真实成绩；运行计划和审阅身份仍需受信流程核对。见[工具说明](../tool/adaptive-eval/README.md)。
