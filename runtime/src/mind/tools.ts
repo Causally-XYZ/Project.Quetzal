@@ -40,6 +40,7 @@ import crypto from "node:crypto";
 import { taskState, contextReadChecked } from './context.ts';
 import { searchAdaptiveHistory, adaptiveReadingRequired } from '../memory/adaptive.ts';
 import { readStructuredRecords, archiveRecord, rollbackRecord } from '../memory/structured.ts';
+import { readMaterialViews, readAdaptiveNote } from '../memory/adaptive-material.ts';
 import { evolveMemory } from '../memory/prime.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
 import type { MemoryRecord } from '../../../engine/src/memory.ts';
@@ -115,9 +116,9 @@ const core: Tool[] = [
     handler: async (a, ctx) => { if (!ctx.session) return failed('此工具需要当前运行轮次'); ctx.session.check(); return contextReadChecked(ctx.session.id, String(a.ref), a.offset ?? 0, a.limit ?? 8000, stopOf(ctx)); },
   },
   {
-    name: 'memory_records', permission: 'memory', description: '查看结构化记忆及经验的版本、来源与验证状态；candidate尚未被验证，不能当作已知事实。可按kind/state筛选。',
+    name: 'memory_records', permission: 'memory', description: '查看结构化记忆及经验的版本、来源与原审核状态，可按kind/state筛选。修订模式另附当前reading状态，active/verified不等于当前依据成立；来源不可访问时只返回管理元数据。',
     parameters: obj({ kind: { type: 'string', enum: ['fact', 'preference', 'episode', 'experience'] }, state: { type: 'string', enum: ['candidate', 'active', 'superseded', 'archived'] } }),
-    handler: async (a, ctx) => JSON.stringify(readStructuredRecords().filter((r) => accessibleMemory(r, ctx) && (!a.kind || r.kind === a.kind) && (!a.state || r.state === a.state)).slice(-30).map((r) => ({ key: memoryKey(r), kind: r.kind, state: r.state, text: r.text, scope: r.scope, evidence: r.evidence, validation: r.validation }))),
+    handler: async (a, ctx) => JSON.stringify(await readMaterialViews(readStructuredRecords().filter((r) => accessibleMemory(r, ctx) && (!a.kind || r.kind === a.kind) && (!a.state || r.state === a.state)).slice(-30), stopOf(ctx))),
   },
   {
     name: 'memory_evolve', permission: 'memory', description: '为已验证经验提出改写、泛化或组合，独立评测不通过时只保留候选；也可归档或恢复已验证历史版本。不会改人格或USER原文件。keys为memory_records列出的版本键。',
@@ -148,9 +149,9 @@ const core: Tool[] = [
     handler: async (a) => mem.exclusive(() => mem.saveNote(a.title, a.body, !!a.append, a.summary ?? "")),
   },
   {
-    name: "note_read", permission: "memory", description: "读取一篇笔记的全文（name 为记忆目录里方括号中的路径）。",
+    name: "note_read", permission: "memory", description: "读取笔记（name 为目录中的路径）。普通笔记返回原文；修订模式下受管记忆返回带当前来源状态的资料，不沿用不可访问来源的正文。无出处材料不能作当前事实确认。",
     parameters: obj({ name: str("笔记路径，如 身体/handset/硬件") }, ["name"]),
-    handler: async (a) => mem.readNote(a.name) || `没有这篇笔记：${a.name}`,
+    handler: async (a, ctx) => await readAdaptiveNote(a.name, (record) => accessibleMemory(record, ctx), stopOf(ctx)) || `没有这篇笔记：${a.name}`,
   },
   {
     name: "note_list", permission: "memory", description: "浏览笔记目录树：不给 dir 看全部，给 dir 只看该分支（每篇附一句话摘要）。",

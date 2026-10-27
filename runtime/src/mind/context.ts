@@ -4,11 +4,12 @@ import crypto from 'node:crypto';
 import { bus } from '../bus.ts';
 import { ContextManager, withModelPreparation, type TaskWorkingState, type ContextPlan, type SummaryInput } from '../../../engine/src/context-manager.ts';
 import type { ChatRequest, Msg } from '../providers/types.ts';
-import type { MemoryStage } from '../../../engine/src/memory.ts';
+import type { MemoryStage, MemoryRecord } from '../../../engine/src/memory.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
 import { selectContextMemory } from '../memory/semantic.ts';
 import { queryAdaptive, adaptiveContext, withAdaptiveSources, adaptiveReadingRequired } from '../memory/adaptive.ts';
 import { sourceReadingHeader, type SourceReading } from '../memory/adaptive-reading.ts';
+import { materialSources, materialContext, checkMaterialVersions } from '../memory/adaptive-material.ts';
 import { identity } from '../memory/identity.ts';
 import { config, paths } from '../config.ts';
 import { chat } from '../providers/router.ts';
@@ -35,14 +36,20 @@ function summaryBasis(value: unknown): SummaryBasis | undefined {
 }
 
 /** 原始消息数组保持不变；自己的投影对象保持身份，使摘要缓存和原文编号仍稳定。 */
-async function historyReading(messages: Msg[], conv: string, projected: WeakMap<Msg, Msg>, previous?: SummaryBasis, signal?: AbortSignal) {
+async function historyReading(messages: Msg[], conv: string, projected: WeakMap<Msg, Msg>, records: MemoryRecord[], previous?: SummaryBasis, signal?: AbortSignal) {
   const currentIds = [...new Set(messages.flatMap((m) => { const ref = historySources.get(m); return ref ? [ref.id] : []; }))];
   const union = [...new Set([...currentIds, ...(previous?.sources ?? [])])];
   // 滚动历史不无限积累摘要依赖；超过单次核查预算就放弃继承，重新按当前原文压缩。
   const inheritedBasis = union.length <= 1000 ? previous : undefined;
-  const ids = inheritedBasis ? union : currentIds;
+  const historyIds = inheritedBasis ? union : currentIds;
+  const ids = [...new Set([...historyIds, ...records.flatMap(materialSources)])];
   return withAdaptiveSources(ids, (view) => {
-    if (!view) return { messages, key: '', basis: undefined, previousValid: true };
+    if (!view) return { messages, records, key: '', basis: undefined, previousValid: true };
+    checkMaterialVersions(records);
+    const checkedRecords = records.flatMap((record) => {
+      const text = materialContext(record, view);
+      return text === undefined ? [] : [{ ...record, text }];
+    });
     const sources = new Map(view.sources.map((s) => [s.id, s]));
     const rows = new Map(ids.map((id) => [id, getSessionMessage(id, conv)]));
     // process 等宿主附注不在语义来源 hash 中，也须纳入派生摘要的失效条件。
@@ -69,8 +76,9 @@ async function historyReading(messages: Msg[], conv: string, projected: WeakMap<
       if ((!row || !source?.hash || JSON.stringify(row) !== ref.original) && 'images' in result) delete result.images;
       return result;
     });
-    const key = keyFor(ids);
-    return { messages: fresh, key, basis: { sources: ids, key }, previousValid: !!inheritedBasis && keyFor(inheritedBasis.sources) === inheritedBasis.key };
+    const key = crypto.createHash('sha256').update(JSON.stringify([keyFor(ids), checkedRecords])).digest('hex');
+    return { messages: fresh, records: checkedRecords, key, basis: { sources: historyIds, key: keyFor(historyIds) },
+      previousValid: !!inheritedBasis && keyFor(inheritedBasis.sources) === inheritedBasis.key };
   }, signal);
 }
 
@@ -137,18 +145,18 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
         if (fs.existsSync(paths.stop)) throw new Error('急停中，停止上下文准备');
         // 摘要模型等待期间可能接受新的纠正；返回主模型前重核一次，最多重建一次。
         for (let attempt = 0; attempt < 2; attempt++) {
-          const reading = await historyReading(request.messages, context.conv, projected, previousBasis, signal);
+          const reading = await historyReading(request.messages, context.conv, projected, candidates, previousBasis, signal);
           if (reading.key !== lastReadingKey) manager.invalidateSummaries();
           lastReadingKey = reading.key;
           const inherited = reading.previousValid ? previousSummary : undefined;
           const plan = await manager.prepare({ messages: reading.messages, tools: request.tools, contextWindow, maxOutputTokens,
             protectedFrom, state: context.state, signal,
-            memory: [...adaptiveContext(adaptive), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...candidates.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
+            memory: [...adaptiveContext(adaptive), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...reading.records.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
               priority: record.kind === 'fact' || record.preference === 'explicit' ? 2 : 1,
               reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
           });
           signal.throwIfAborted();
-          const checked = await historyReading(request.messages, context.conv, projected, previousBasis, signal);
+          const checked = await historyReading(request.messages, context.conv, projected, candidates, previousBasis, signal);
           if (reading.key !== checked.key) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
           context.plan = plan;
           kv.set(`context.plan.${context.conv}`, { turn: id, model, estimate: plan.estimate, selectedIds: plan.selectedIds, skippedMemoryIds: plan.skippedMemoryIds,

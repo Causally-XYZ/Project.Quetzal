@@ -22,6 +22,12 @@ JSON 损坏、格式未知、id 与文件名不匹配、过大文件或 `.incomi
 
 `getMemoryCandidates(query, scope, phase, options)` 返回引擎 `MemoryRecord[]`。结构化候选、过期记录、superseded / archived、错 agent / 用户 / 会话 / 任务类型、不满足标签或工具条件的记录均被排除。阶段未知时仅匹配 any；不以模型名字或文字相似自动突破作用域。legacy 保留知识可用性，但其事实来源等级保持显式区分。
 
+## 与自适应修订读取的衔接
+
+启用修订核查或本机已有认识存档时，`adaptive-material.ts` 对发送给主模型的旧候选以及 memory_records / note_read 增加读取视图，不改私有 Markdown。旧 active / verified 仅表示原审核；另给 historical / unverifiable / unavailable 和当前来源修订。只解析正式 evidence.ref 的 message:<id>，旧格式没有精确来源 hash，不能据消息仍存在就认定断言仍有效。任一消息来源不可访问时不返回该条派生正文 / 旧引语，管理元数据仍可见；这不是自动归档或整段语义撤回。
+
+候选文件及 legacy 映射在返回前重读，变化拒绝旧副本，名字以 legacy_ 开头也不能跳过检查。普通无出处资料保留历史性质，不靠关键词编造出处；尚未解决旧文档召回和选择模型自身的所有输入路径，因此不是完整 C07 验收。
+
 ## 宿主 API
 
 | API | 行为 |

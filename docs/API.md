@@ -260,6 +260,8 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 `context_read` / `recall` 的工具参数不变。有本机认识状态时，文本结果携带 generation、本机快照范围、源 hash 和相关认识的 revision / status / 片段位置；这不是新的 RPC packet 版本。`context_read` 的每页都带修订头，offset / limit 只计算原文字符；调用者不能把头部算入分页偏移。`recall` 同时覆盖前后邻句；不可访问来源不返回，已变动候选要求重新检索。仅关闭生成不清除这些工具对已知修订的核对；存档异常 / 等锁超时明确报错。没有来源的旧材料标记无法核对，完整 C07 和远端语义读取仍未验收。 默认模型历史也使用修订覆盖层；本机 `context.plan` 的派生摘要另保存可选 `adaptiveBasis`（来源 ID 与核查摘要值），无凭据或凭据变化时不继承。它不是同步协议或权威记忆格式。`session_compact` 在修订读取模式只存档手动摘要，后续按可用原文自动压缩。
 
+修订模式下 `memory_records` 与读取受管结构化笔记的 `note_read` 返回原 key / kind / state / scope / validation，并新增 `reading`：status 为 historical / unverifiable / unavailable，附 generation、local-snapshot、来源 hash / notices 和说明。state / validation 只表示原审核；unavailable 时省略 text / evidence，保留管理元数据。普通笔记仍返回带无法核对说明的原文；自适应批次存档核对权威文件和全部输入，输入不可访问时不返回旧 payload。工具参数与 RPC 不变，纯存储读取 API 不改变。
+
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic 为默认关闭的后台语义试验开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
