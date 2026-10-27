@@ -1,8 +1,8 @@
 # 多语言候选召回开发实验
 
-用途：对照 Quetzal 的实际 `engine/src/retrieval.ts` 词面排序、本机多语言嵌入与固定 Graphiti 的 RRF 融合。仅使用本目录公开合成的30段材料 / 15个问题，不读取真实灵魂、数据库、ADC 或冻结留出集，不调用生成式 LLM。
+用途：对照 Quetzal 的实际 `engine/src/retrieval.ts` 词面排序、本机多语言嵌入与固定 Graphiti 的 RRF 融合。仅使用本目录公开合成的30段材料 / 15个问题，不读取真实用户资料或冻结留出集，不调用生成式 LLM。本机实验不读取 ADC；显式云端对照见后文。
 
-这是组件实验，**没有接入生产认识查询**。目标是先测清改述召回及代价，再决定生产适配；不是使用者需要操作的安装步骤，不代表产品部署已完成。
+`run.mjs` 是独立组件对照；`host.ts` 另走真实认识存档、worker、派生 SQLite 与生产宿主查询。已准备组件可由中心自动加载，但首次自动下载 / 安装仍待完成；这里不是使用者需要操作的安装步骤，不代表产品部署已完成。
 
 ## 固定组件
 
@@ -20,8 +20,8 @@
 ```bash
 # 从仓库根运行；Node 24、Python 3.12+、curl
 PROBE_ROOT=$(mktemp -d)
-cp runtime/tool/adaptive-retrieval-probe/package*.json "$PROBE_ROOT/"
-npm ci --prefix "$PROBE_ROOT" --ignore-scripts --no-audit --no-fund
+cp runtime/components/adaptive-retrieval/package*.json "$PROBE_ROOT/"
+(cd "$PROBE_ROOT" && npm ci --ignore-scripts --no-audit --no-fund)
 python3 -B runtime/tool/adaptive-retrieval-probe/prepare.py "$PROBE_ROOT"
 node runtime/tool/adaptive-retrieval-probe/run.mjs "$PROBE_ROOT" "$OSS_ROOT"
 
@@ -40,9 +40,20 @@ node runtime/tool/adaptive-retrieval-probe/run.mjs "$PROBE_ROOT" "$OSS_ROOT" --f
 - 报告保留全部排名 / 分数、输入和源码摘要、完整45次查询耗时（每题3次），并报告 hit@1/3/6 与按问题平均的 recall。`relevant` 只表示应找回的候选，不是正确答案；例如四月在职与五月离职均需找回后按时间解释。
 - 名称与语境相近的材料是干扰项；相似度不能消歧、证明事实或替代来源权限。尚无经过校准的零命中阈值，无关问题也会有向量近邻，必须保留该反例。
 - 本机读取权重的耗时不含下载，也不是磁盘冷缓存。查询 P95 只有45个短合成样本，不是端到端首字延迟 / 多身体性能门禁。另记事件循环最大延迟和进程峰值 RSS，帮助判断是否需要独立 worker。
-- 文档标题为公开夹具标签，正文为短材料；调用的是实际词面函数，但不是生产候选构造、支持链和RPC的完整路径。没有验证生产索引增量更新、删除 / 修正失效、长文分块、备份重建和自动安装。
+- `run.mjs` 的文档标题为公开夹具标签，正文为短材料；调用实际词面函数，不是生产候选构造 / RPC 的完整路径。`host.ts` 不沿用这些标签，采用由真实来源支持的受控认识，因此两份词面基线不同，不能混成同一个实验。
 
 生产适配必须保留：仅将当前可访问、共同支持链成立的认识作为候选；每个分块绑定内容与版本；查询等待和计算不占灵魂写锁；模型未就绪 / 超时退回现有同门禁词面路径；返回前再核对来源；向量索引可删除重建，不成为记忆权威。不通过组件和宿主验收，不能宣称已修复 M2 改述召回。
+
+## 真实宿主与持久索引实验
+
+```bash
+# 先按上面的命令准备仓库外组件；测试自身创建隔离 QUETZAL_HOME
+node runtime/tool/adaptive-retrieval-probe/host.ts "$PROBE_ROOT"
+```
+
+使用30条公开合成材料和生产 archive.accept 安装受控认识，再走 queryAdaptiveSemantic；不调用生成模型，不验证实体 / 语境抽取是否正确，不使用正式留出。对照同一候选的词面与真实嵌入，保存45次查询的 P50 / P95、完整命中、源码及模型空间摘要。随后检查纠正前旧索引、增量新版本、来源忽略、重启缓存复用、损坏行重建、长文末尾线索、索引期间查询、中心自动加载已准备组件、关闭原生推理与重启补做。自动加载测试复用已验证组件目录，不冒充首次下载或跨平台安装。
+
+所有报告与合成家目录保留在外部工作目录，失败不覆盖；若进程级崩溃无法保存报告，外层 stdout / stderr 与退出码必须单独保留。原生 ONNX worker 必须在当前调用结束后 dispose，不能用 terminate 强杀推理线程。生产文档块使用128 token而非独立短材料探针的512 token截断路径，查询块最多480 token；最多128块，超限显式失去该候选的向量召回，词面与最终版本门禁保留。
 
 
 ## 独立的 GCP 嵌入对照

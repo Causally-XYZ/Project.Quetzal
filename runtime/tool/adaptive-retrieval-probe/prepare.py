@@ -7,7 +7,7 @@ import sys
 import subprocess
 
 HERE = Path(__file__).resolve().parent
-PIN = json.loads((HERE / 'model.json').read_text())
+PIN = json.loads((HERE.parent.parent / 'components/adaptive-retrieval/model.json').read_text())
 
 
 def check(path, entry):

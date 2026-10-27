@@ -90,4 +90,4 @@ Google 记忆提案通过原生结构化输出发送 schema；其他协议继续
 `tool/adaptive-retrieval-probe/` 为独立开源改述召回实验：完整开发锁、固定模型摘要、公开夹具、实际词面函数与上游 RRF。`--lexical-only` 已实际运行；完整嵌入 / 混合结果尚待依赖和权重完整核验。准备工具仅下载固定公开文件，支持中断续传；模型推理前再次核对全部文件，禁止远程自动取模型。所有依赖、模型和结果放仓库外，不进入 runtime 的 package / tsconfig / main 构建，无生产配置变化。复跑与边界见[探针说明](../tool/adaptive-retrieval-probe/README.md)。
 
 
-候选索引边界与可选 RRF 融合已在 adaptive-query / adaptive-ranking 中实现，宿主尚未传入真实近邻。错误 / 过期摘要继续同门禁词面回退。纯 TypeScript 模块由现有 tsconfig、测试 glob 和 main 构建覆盖；新增 RRF 副本的版权 / 许可通过既有打包脚本分发，无生产依赖或配置变更。检索探针的 --fusion-only 可不安装模型就对照固定上游；vertex.py 的 --live 仅用公开夹具做独立 ADC 参考，不表示可接受其前台网络延迟。
+adaptive-vector / adaptive-vector-worker 已将固定 E5 的实际近邻接到宿主查询：中心自动加载 QUETZAL_HOME/data/adaptive-retrieval/component 中已准备的组件，空闲时增量索引，100ms内无近邻则词面降级；最终仍核对当前来源和认识摘要。SQLite 缓存按 agent / 模型空间隔离，组件关闭时等待原生调用释放。独立组件清单位于 components/adaptive-retrieval，固定版本不加入所有身体的 npm 主依赖；tsconfig 开启 JSON 导入，worker 与固定元数据由既有 main 构建纳入。首次自动下载 / 安装未完成，不能要求正式使用者手动执行开发脚本来替代部署验收。RRF 副本许可继续随 main 分发。检索探针的 --fusion-only 可不安装模型就对照固定上游；vertex.py 的 --live 仅用公开夹具做独立 ADC 参考，不表示可接受其前台网络延迟。

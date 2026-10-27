@@ -69,7 +69,7 @@ function fixture(conv: string, long = false) {
       { baseGeneration: archive.generation(), records: [record] }), true);
   }
   accept(claim, source);
-  return { source, correct: () => accept({ ...claim, revision: 2, text: '饭友是弟弟', reasons: [span(correction)],
+  return { source, correction, correct: () => accept({ ...claim, revision: 2, text: '饭友是弟弟', reasons: [span(correction)],
     supports: [{ id: 'corrected', premises: [span(correction)], assumptions: [] }] }, correction) };
 }
 const historyMessages = (conv: string): Msg[] => [{ role: 'system', content: '当前系统政策' }, ...brain.history(conv, Number.MAX_SAFE_INTEGER), { role: 'user', content: '当前请求只读，不允许写入' }];
@@ -78,9 +78,42 @@ const summaryRequest = (request: any) => joined(request).startsWith('压缩历�
 
 
 const adaptive = await import('../src/memory/adaptive.ts');
+const { semanticDigest } = await import('../src/memory/adaptive-query.ts');
 const { markBusy } = await import('../src/heart/heart.ts');
 const { exclusive } = await import('../src/memory/memory.ts');
 markBusy(true); adaptive.startAdaptiveMemory();
+
+test('向量等待不占灵魂锁；等待中的纠正由最终快照拒绝旧候选', async () => {
+  const f = fixture('vector-race');
+  let keys: string[] = [];
+  let action: () => Promise<void> = async () => {};
+  const detach = adaptive.setAdaptiveRetriever(identity().id, {
+    replace: (candidates) => { keys = candidates.filter((c) => c.item.roots.some((r) => r.id === f.source)).map((c) => c.key); },
+    query: async (query) => { await action(); return { queryHash: semanticDigest(query), keys }; },
+  });
+  try {
+    await adaptive.refreshAdaptiveRetrieval(); assert.equal(keys.length, 1);
+    const before = await adaptive.queryAdaptiveSemantic('涮肉同行者');
+    assert.equal(before.items.length, 1); const id = before.items[0].id;
+    action = () => exclusive(() => { f.correct(); });
+    const corrected = await adaptive.queryAdaptiveSemantic('涮肉同行者');
+    assert.equal(corrected.status, 'ready'); assert(!corrected.items.some((x) => x.id === id), '旧近邻不能让不匹配的新版本冒充命中');
+    action = async () => {};
+    const visible = await adaptive.queryAdaptiveSemantic('饭友');
+    assert(visible.items.some((x) => x.id === id && x.revision === 2));
+  } finally { detach(); store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction); }
+});
+
+test('向量服务不响应时100ms内放弃等待，保留当前词面读取与调用者取消', async () => {
+  const f = fixture('vector-timeout');
+  const detach = adaptive.setAdaptiveRetriever(identity().id, { replace() {}, query: () => new Promise(() => {}) });
+  try {
+    const begin = performance.now(), reading = await adaptive.queryAdaptiveSemantic('饭友');
+    assert.equal(reading.status, 'ready'); assert(reading.items.some((x) => x.roots.some((r) => r.id === f.source)));
+    assert(performance.now() - begin < 500);
+    await assert.rejects(adaptive.queryAdaptiveSemantic('饭友', AbortSignal.abort()), /abort/i);
+  } finally { detach(); store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction); }
+});
 
 test('集中主机本机从权威图读取，当前主模型接收认识并在纠正后使用新版本', async () => {
   configure([{ id: 'large', context: 131072 }]); seen.length = 0;

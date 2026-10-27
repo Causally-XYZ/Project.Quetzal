@@ -10,13 +10,14 @@ import { rank } from '../../../engine/src/retrieval.ts';
 import { reciprocalRankFusion } from '../../src/memory/adaptive-ranking.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const component = path.resolve(here, '../../components/adaptive-retrieval');
 const work = await realpath(process.argv[2]);
 const repo = await realpath(path.resolve(here, '../../..'));
 assert(!work.startsWith(repo + path.sep) && work !== repo, '依赖、模型和报告必须在仓库外');
 const oss = process.argv[3];
 assert(oss, '用法：node run.mjs <仓库外工作目录> <固定上游 clone 父目录 | --lexical-only>');
 const hash = (data) => createHash('sha256').update(data).digest('hex');
-const pin = JSON.parse(await readFile(path.join(here, 'model.json'), 'utf8'));
+const pin = JSON.parse(await readFile(path.join(component, 'model.json'), 'utf8'));
 const data = await readFile(path.join(here, 'cases.json'));
 const cases = JSON.parse(data);
 assert.equal(cases.documents.length, new Set(cases.documents.map((d) => d[0])).size);
@@ -110,10 +111,17 @@ if (process.argv[4] === '--vertex') {
   process.exit(0);
 }
 const lockBytes = await readFile(path.join(work, 'package-lock.json'));
-assert.equal(hash(lockBytes), hash(await readFile(path.join(here, 'package-lock.json'))), '锁文件不一致');
+assert.equal(hash(lockBytes), hash(await readFile(path.join(component, 'package-lock.json'))), '锁文件不一致');
 const lock = JSON.parse(lockBytes);
+const manifest = JSON.parse(await readFile(path.join(component, 'package.json'), 'utf8'));
+assert.equal(lock.name, manifest.name);
+assert.equal(lock.version, manifest.version);
+assert.equal(lock.packages[''].name, manifest.name);
+assert.equal(lock.packages[''].version, manifest.version);
+assert.deepEqual(lock.packages[''].dependencies, manifest.dependencies);
 for (const [name, value] of Object.entries(lock.packages)) {
   if (!name) continue;
+  assert(name.startsWith('node_modules/') && !name.split('/').some((part) => part === '..' || part === '.'), `非可移植安装路径：${name}`);
   assert(value.resolved.startsWith('https://registry.npmjs.org/') && value.integrity.startsWith('sha512-'), `未锁定来源：${name}`);
 }
 for (const file of pin.files) {

@@ -212,7 +212,7 @@ adapters/
 `adaptive-model.ts` 按 router.prepareForModel 提供的 structuredOutput 能力准备提案：Google 的 schema 通过 generationConfig 发送，其他协议继续完整提示协议；两者均预算全部 schema，普通对话不设置 responseSchema。既有严格 JSON、截断 / 工具输出拒绝及宿主认识校验保留。ProviderError 新增可选固定原因码；开发 model-observer 保存实际 responseSchema 与白名单原因，不保存供应商错误正文。没有新增依赖、配置、迁移或构建入口，现有类型检查 / 测试 glob 覆盖。
 
 
-`tool/adaptive-retrieval-probe/prepare.py` 取得固定公开权重并核对文件摘要；`run.mjs` 调实际 engine 词面排序和隔离安装的 Transformers.js，`fuse.py` 核对固定 Graphiti 源码后执行原始 RRF 函数。独立 package / lock 只约束开发实验；不新增生产模块、索引、配置或打包入口。当前仅词面基线已执行，完整本机嵌入实验仍待组件准备，不宣称已接入自适应查询。
+`tool/adaptive-retrieval-probe/prepare.py` 取得固定公开权重并核对文件摘要；`run.mjs` 调实际 engine 词面排序和隔离安装的 Transformers.js，`fuse.py` 核对固定 Graphiti 源码后执行原始 RRF 函数。package / lock / model 元数据已移至 components/adaptive-retrieval，由实验和生产适配共用。锁使用标准 node_modules 相对路径，安装须在目标目录内运行 npm ci；运行前核对根版本、来源 / 摘要和模型文件。真实本机模型和宿主读取已运行，结果与失败记录见进度 §4.39。
 
 
-`adaptive-query.ts` 的 semanticCandidates 为派生索引提供与当前查询相同门禁的输入及摘要；selectSemantic 的可选近邻只允许匹配当前候选 / 查询，失效摘要不能参与结果。`adaptive-ranking.ts` 移植固定 Graphiti RRF，由既有 main 构建自动纳入，许可已加入随包 NOTICE。宿主尚未提供真实近邻，查询继续默认词面路径；没有生产索引、worker 或新配置。开发探针另有显式 ADC 嵌入对照，复用既有认证 / 传输，不进入生产模型路由。
+`adaptive-query.ts` 的 semanticCandidates 为派生索引提供与当前查询相同门禁的输入及摘要；selectSemantic 的可选近邻只允许匹配当前候选 / 查询，失效摘要不能参与结果。`adaptive-ranking.ts` 移植固定 Graphiti RRF，由既有 main 构建自动纳入，许可已加入随包 NOTICE。adaptive-vector.ts 管理独立 worker、候选快照确认和有界请求；adaptive-vector-worker.ts 使用固定 E5，文档块128 token、查询块480 token，最多128块，按最大分块相似度推荐候选。派生 SQLite 缓存按 agent / 模型空间 / 候选摘要绑定，逐候选原子提交，更新移除旧 key；查询只收 key，仍在权威快照复核。中心的既有 semantic 开关开启且组件已准备时自动加载；空闲快照刷新间隔至少2秒，单块间优先查询，停止时等待原生调用结束并 dispose。未准备时仍用词面查询；首次自动安装尚未接线，无新配置或 RPC。开发探针另有显式 ADC 嵌入对照，复用既有认证 / 传输，不进入生产模型路由。

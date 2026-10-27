@@ -7,6 +7,7 @@ import { AdaptiveGraph } from './adaptive-graph.ts';
 import { ARTIFACT_ID, artifactDigest, parseArtifact, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
 import { publicationRoot, readPublication } from './adaptive-publication.ts';
 import { semanticSchema, type SemanticBatch, type SourceReader } from './adaptive-evidence.ts';
+import type { SemanticNeighbors } from './adaptive-query.ts';
 
 export interface ArchiveCheckpoint { generation: number; artifact: string; digest: string }
 export class AdaptiveArchive {
@@ -92,7 +93,8 @@ export class AdaptiveArchive {
   history(id: string) { this.refresh(); return this.graph.history(id); }
   assess(read?: SourceReader) { this.refresh(); return this.graph.assess(read); }
   supportedClaims(read?: SourceReader) { this.refresh(); return this.graph.supportedClaims(read); }
-  query(query: string, read?: SourceReader) { this.refresh(); return this.graph.query(query, read); }
+  candidates(read?: SourceReader) { this.refresh(); return this.graph.candidates(read); }
+  query(query: string, read?: SourceReader, neighbors?: SemanticNeighbors) { this.refresh(); return this.graph.query(query, read, neighbors); }
   readSources(ids: number[], read?: SourceReader) { this.refresh(); return this.graph.readSources(ids, read); }
   accept(job: MemoryJob, inputs: ArtifactInput[], batch: SemanticBatch, now = Date.now()): boolean {
     this.refresh(); return this.graph.accept(job, inputs, batch, now);

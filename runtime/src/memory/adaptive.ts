@@ -1,5 +1,6 @@
 // 固定身体登记来源；默认保留 M1 观察路径，semantic 开关运行受控后台整合 / 重评。
 import fs from 'node:fs';
+import path from 'node:path';
 import { observeReadSources, observeReadDocument } from './read-receipt.ts';
 import { config, paths, saveConfig } from '../config.ts';
 import { db, messageMode, kv } from '../store.ts';
@@ -20,10 +21,11 @@ import { routes } from '../providers/router.ts';
 import { isBusy } from '../heart/heart.ts';
 import { sourceReadingHeader, type SourceReading } from './adaptive-reading.ts';
 import { prepareNoteReading, MaterialAccessDenied, type NoteReading } from './adaptive-material.ts';
-import { semanticBasis, semanticDigest, compatibleSemanticBasis, type SemanticBasis, type SemanticSelection } from './adaptive-query.ts';
+import { semanticBasis, semanticDigest, compatibleSemanticBasis, type SemanticBasis, type SemanticSelection, type SemanticNeighbors } from './adaptive-query.ts';
 import { decodeSemanticPacket, type SemanticQueryPacket } from './adaptive-query-packet.ts';
 import type { SourceReader } from './adaptive-evidence.ts';
 import { parseAnswerBasis, answerBasisStatus, ANSWER_CHANGED, ANSWER_UNBOUND, type AnswerBasis } from './answer-basis.ts';
+import { AdaptiveVectorRetriever, type AdaptiveRetriever } from './adaptive-vector.ts';
 
 export interface MemoryPacket {
   version: 1; agent: string; host: string; generatedAt: number;
@@ -48,6 +50,47 @@ let semanticAbort: AbortController | undefined;
 let semanticJob: string | undefined;
 let nextSemanticAt = 0, busySince = 0;
 let semanticState = 'disabled';
+let retrieval: { agent: string; backend: AdaptiveRetriever } | undefined;
+let retrievalRefresh: Promise<void> | undefined;
+let nextRetrievalAt = 0;
+let ownedRetrieval: { agent: string; backend: AdaptiveVectorRetriever; detach: () => void } | undefined;
+let retrievalClosing: Promise<void> | undefined;
+let nextRetrievalStartAt = 0;
+
+// 已准备的组件在主机启动时自动加载；首次组件下载 / 安装尚由部署接线补齐。
+export const adaptiveVectorComponentRoot = () => path.join(paths.data, 'adaptive-retrieval', 'component');
+function reconcileAdaptiveRetriever() {
+  const permitted = active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop);
+  const agent = permitted ? identity().id : '';
+  if (ownedRetrieval && (!permitted || ownedRetrieval.agent !== agent || retrieval?.backend !== ownedRetrieval.backend || ownedRetrieval.backend.status().state === 'failed')) {
+    const previous = ownedRetrieval; ownedRetrieval = undefined; previous.detach();
+    retrievalClosing = previous.backend.close().finally(() => { retrievalClosing = undefined; });
+    nextRetrievalStartAt = Date.now() + 30_000;
+  }
+  if (!permitted || retrieval || retrievalClosing || Date.now() < nextRetrievalStartAt) return;
+  nextRetrievalStartAt = Date.now() + 2000;
+  const root = adaptiveVectorComponentRoot();
+  if (!fs.existsSync(path.join(root, 'package-lock.json'))) return;
+  const backend = new AdaptiveVectorRetriever({ root, cache: path.join(paths.data, 'adaptive-retrieval', `${semanticDigest(agent)}.sqlite`), agent });
+  ownedRetrieval = { agent, backend, detach: setAdaptiveRetriever(agent, backend) };
+}
+
+/** 内部组件接线；不暴露外部近邻注入 RPC，身份 / 来源门禁仍由最终快照核查。 */
+export function setAdaptiveRetriever(agent: string, backend: AdaptiveRetriever) {
+  if (agent !== identity().id) throw new Error('检索组件 agent 不一致');
+  const current = { agent, backend }; retrieval = current; nextRetrievalAt = 0;
+  return () => { if (retrieval === current) retrieval = undefined; };
+}
+
+export async function refreshAdaptiveRetrieval() {
+  const current = retrieval;
+  if (!current || !active || !isHost() || !config.adaptiveMemory.semantic || fs.existsSync(paths.stop) || current.agent !== identity().id) return;
+  const candidates = await withAdaptiveSnapshot((store, archive, visible) => {
+    if (current.agent !== store.agent) throw new Error('索引范围已变化');
+    return archive.candidates(visible);
+  });
+  if (retrieval === current && active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) && current.agent === identity().id) current.backend.replace(candidates);
+}
 
 function localStore() {
   const agent = identity().id;
@@ -59,6 +102,7 @@ const isHost = () => config.adaptiveMemory.enabled && config.adaptiveMemory.host
 
 /** 来源观察一批让出事件循环；语义处理器异步复用同一持久任务 / 发布边界。 */
 export function processAdaptiveBatch() {
+  try { reconcileAdaptiveRetriever(); } catch { lastError = 'retrieval_unavailable'; }
   if (!active || !isHost() || fs.existsSync(paths.stop)) { semanticAbort?.abort(); return; }
   try {
     const store = localStore();
@@ -71,6 +115,10 @@ export function processAdaptiveBatch() {
     }
     lastError = null;
     processSemanticBackground(store);
+    if (retrieval && !retrievalRefresh && !isBusy() && Date.now() >= nextRetrievalAt) {
+      retrievalRefresh = refreshAdaptiveRetrieval().catch(() => { /* 无法取得权威快照时不更新索引；查询仍核对当前图。 */ })
+        .finally(() => { retrievalRefresh = undefined; nextRetrievalAt = Date.now() + 2000; });
+    }
     if (!publishing && (store.pendingPublications(Date.now(), 1).length || store.uncommittedPublications().length)) {
       publishing = true;
       void exclusive(() => publishPending(store, paths.soul, () => active && isHost() && !fs.existsSync(paths.stop)))
@@ -123,16 +171,21 @@ function processSemanticBackground(store: AdaptiveStore) {
 
 export function startAdaptiveMemory() {
   if (active) return;
-  active = true;
+  active = true; nextRetrievalStartAt = 0;
   timer = setInterval(processAdaptiveBatch, 500); timer.unref();
   processAdaptiveBatch();
 }
-export function stopAdaptiveMemory() { active = false; clearInterval(timer); timer = undefined; semanticAbort?.abort(); return semanticTask ?? Promise.resolve(); }
+export async function stopAdaptiveMemory() {
+  active = false; clearInterval(timer); timer = undefined; semanticAbort?.abort(); reconcileAdaptiveRetriever();
+  await Promise.all([semanticTask, retrievalRefresh, retrievalClosing]);
+}
 
 export function adaptiveStatus() {
   const base = { enabled: config.adaptiveMemory.enabled, hostBody: config.adaptiveMemory.hostBody,
     running: active, local: isHost(), stopped: fs.existsSync(paths.stop), error: lastError,
-    semantic: { enabled: config.adaptiveMemory.semantic, state: semanticState } };
+    semantic: { enabled: config.adaptiveMemory.semantic, state: semanticState },
+    retrieval: ownedRetrieval?.backend.status() ?? { state: retrieval ? 'attached' :
+      active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) ? 'unavailable' : 'inactive' } };
   if (!active || !isHost()) return { ...base, queue: null };
   try { return { ...base, queue: localStore().status(), semantic: { ...base.semantic, queue: localStore().status(SEMANTIC_PROCESSOR),
     lastModel: kv.get('adaptive.semantic.lastModel', null), reviewBudget: kv.get('adaptive.review.budget', null) } }; }
@@ -273,10 +326,18 @@ async function readSemanticLocal(query: string, signal?: AbortSignal): Promise<S
   if (fs.existsSync(paths.stop)) return empty('stopped');
   if (!active || !isHost()) return empty('unavailable');
   try {
+    const timed = AbortSignal.any([AbortSignal.timeout(500), ...(signal ? [signal] : [])]);
+    const current = retrieval;
+    // 向量等待在 SQLite / 灵魂锁之外；组件不可用或100ms内无结果时继续词面路径。
+    let neighbors: SemanticNeighbors | undefined;
+    if (current?.agent === agent) {
+      try { neighbors = await bounded(current.backend.query(query.slice(0, 8000), timed), AbortSignal.any([timed, AbortSignal.timeout(100)])); } catch { /* 保留词面降级 */ }
+    }
+    if (retrieval !== current) neighbors = undefined;
     const selection = await withAdaptiveSnapshot((store, archive, visible) => {
       if (store.agent !== agent || !active || !isHost() || !config.adaptiveMemory.enabled || !config.adaptiveMemory.semantic) throw new Error('认识查询范围已改变');
-      return archive.query(query.slice(0, 8000), visible);
-    }, signal);
+      return archive.query(query.slice(0, 8000), visible, neighbors);
+    }, timed);
     signal?.throwIfAborted();
     if (agent !== identity().id || host !== config.adaptiveMemory.hostBody || !active || !isHost() || !config.adaptiveMemory.enabled || !config.adaptiveMemory.semantic) return empty('unavailable');
     if (fs.existsSync(paths.stop)) return empty('stopped');

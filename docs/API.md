@@ -256,7 +256,7 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 正常回答的消息行可带 answerBasis（null 或 version 1 对象）：agent、answerHash、consistent 与 sources[{id,hash,reading}]。这是宿主生成的消息来源依赖，随既有消息复制；不新增 RPC，客户端不应将其显示为“事实已验证”。原始历史接口继续保留回答正文；模型使用的历史 / 近况 / context_read / recall 在来源 changed 时返回占位与当前修订。旧消息缺少凭据时明确 unbound；来源文件与其他派生依赖仍有覆盖缺口，完整约定见[读取语义](engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。
 
-认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。仍为词面检索，不能宣称完整多语言语义召回。内部选择函数现可接受绑定本次问题与当前候选摘要的近邻次序，先核对再融合；宿主尚未提供真实近邻，不新增网关参数、RPC 字段或生产配置。
+认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。中心已准备本机嵌入组件时，可在灵魂锁外等待至多100ms取得近邻，随后核对本次问题和当前候选摘要再融合；缺组件 / 超时保留同门禁词面路径。整次读取仍受500ms截止约束，不新增查询参数或语义信封字段。status.adaptiveMemory.retrieval 新增组件状态：inactive / unavailable / attached 或 loading / ready / failed / closed；受管 worker 另含 current、snapshot、indexed、pending、reused、computed、errors。current 只表示已收到本次候选快照的状态，pending=0 才表示该快照全部索引完成；均非语义质量或全历史覆盖证明。首次自动安装及真实多身体向量验收仍待完成。
 
 内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。
 
