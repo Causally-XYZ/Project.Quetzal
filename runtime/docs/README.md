@@ -88,3 +88,6 @@ Google 记忆提案通过原生结构化输出发送 schema；其他协议继续
 
 
 `tool/adaptive-retrieval-probe/` 为独立开源改述召回实验：完整开发锁、固定模型摘要、公开夹具、实际词面函数与上游 RRF。`--lexical-only` 已实际运行；完整嵌入 / 混合结果尚待依赖和权重完整核验。准备工具仅下载固定公开文件，支持中断续传；模型推理前再次核对全部文件，禁止远程自动取模型。所有依赖、模型和结果放仓库外，不进入 runtime 的 package / tsconfig / main 构建，无生产配置变化。复跑与边界见[探针说明](../tool/adaptive-retrieval-probe/README.md)。
+
+
+候选索引边界与可选 RRF 融合已在 adaptive-query / adaptive-ranking 中实现，宿主尚未传入真实近邻。错误 / 过期摘要继续同门禁词面回退。纯 TypeScript 模块由现有 tsconfig、测试 glob 和 main 构建覆盖；新增 RRF 副本的版权 / 许可通过既有打包脚本分发，无生产依赖或配置变更。检索探针的 --fusion-only 可不安装模型就对照固定上游；vertex.py 的 --live 仅用公开夹具做独立 ADC 参考，不表示可接受其前台网络延迟。

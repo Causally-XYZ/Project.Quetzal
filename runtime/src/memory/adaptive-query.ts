@@ -1,6 +1,7 @@
 // 前台只读选择：复用证据计算与现有词面排序，不在查询中生成新认识。
 import { rank } from '../../../engine/src/retrieval.ts';
 import crypto from 'node:crypto';
+import { reciprocalRankFusion } from './adaptive-ranking.ts';
 import { directSpans, evaluateEvidence, spanCurrent, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
 
 interface BaseItem { id: string; revision: number; realm: Realm; roots: { id: number; hash: string }[] }
@@ -28,9 +29,10 @@ export function compatibleSemanticBasis(remote: SemanticBasis, local: SemanticBa
   return remote.sources.every((s) => !sources.has(s.id) || sources.get(s.id) === s.hash);
 }
 
-export function selectSemantic(records: SemanticRecord[], query: string, generation: number, read: SourceReader, global: SourceReader): SemanticSelection {
-  if (records.length > 1000 || query.length > 8000) throw new Error('认识查询超过工作上限');
-  if (!query.trim()) return { generation, items: [], matched: 0 };
+/** 只输出当前共同有效的候选；派生索引只能保存此输入，不得直接索引全部历史记录。 */
+export interface SemanticCandidate { key: string; item: SemanticItem; title: string; text: string }
+export function semanticCandidates(records: SemanticRecord[], read: SourceReader, global: SourceReader): SemanticCandidate[] {
+  if (records.length > 1000) throw new Error('认识查询超过工作上限');
   const localStates = evaluateEvidence(records, read), globalStates = evaluateEvidence(records, global);
   const byId = new Map(records.map((r) => [r.id, r]));
   // 两个视图可能分别依赖不同分支而成立；只保留共同有效的组后再计算闭包，不能拼成不存在的共同证明。
@@ -106,9 +108,31 @@ export function selectSemantic(records: SemanticRecord[], query: string, generat
         unknown: r.unknown || names.length !== r.candidates.length, candidates: names }, title: names.map((n) => n.name).join(' '), text: r.anchor.quote });
     }
   }
+  return candidates.map((candidate) => ({ ...candidate, key: semanticDigest(candidate) }));
+}
+
+/** 索引只建议候选摘要的次序；查询和当前候选不匹配时不能沿用旧排名。 */
+export interface SemanticNeighbors { queryHash: string; keys: string[] }
+export function selectSemantic(records: SemanticRecord[], query: string, generation: number, read: SourceReader, global: SourceReader, neighbors?: SemanticNeighbors): SemanticSelection {
+  if (records.length > 1000 || query.length > 8000) throw new Error('认识查询超过工作上限');
+  if (!query.trim()) return { generation, items: [], matched: 0 };
+  const candidates = semanticCandidates(records, read, global);
   const byKey = new Map(candidates.map((c) => [c.item.id, c.item]));
   const ranked = rank(query, candidates.map((c) => ({ kind: 'memory', source: c.item.id, title: c.title, text: c.text, mtime: 0 })), 0);
-  const result = { generation, items: ranked.slice(0, 6).map((hit) => byKey.get(hit.source)!), matched: ranked.length };
+  let items = ranked.slice(0, 6).map((hit) => byKey.get(hit.source)!), matched = ranked.length;
+  if (neighbors && neighbors.queryHash === semanticDigest(query) && Array.isArray(neighbors.keys) && neighbors.keys.length <= 1000 &&
+      neighbors.keys.every((key) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key))) {
+    const current = new Map(candidates.map((c) => [c.key, c.item]));
+    const keys = new Map(candidates.map((c) => [c.item.id, c.key]));
+    // 先核对当前候选再截断；重复条目不能获得额外票数，旧版本 / 隐藏 / 其他范围的摘要无权加入结果。
+    const dense = [...new Set(neighbors.keys)].filter((key) => current.has(key)).slice(0, 6);
+    if (dense.length) {
+      const lexical = ranked.map((hit) => keys.get(hit.source)!);
+      items = reciprocalRankFusion([lexical.slice(0, 6), dense]).slice(0, 6).map((hit) => current.get(hit.key)!);
+      matched = new Set([...lexical, ...dense]).size;
+    }
+  }
+  const result = { generation, items, matched };
   if (Buffer.byteLength(JSON.stringify(result)) > 256 * 1024) throw new Error('认识查询结果超过工作上限');
   return result;
 }

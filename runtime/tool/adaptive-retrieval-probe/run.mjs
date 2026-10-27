@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { rank } from '../../../engine/src/retrieval.ts';
+import { reciprocalRankFusion } from '../../src/memory/adaptive-ranking.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const work = await realpath(process.argv[2]);
@@ -39,6 +40,73 @@ if (oss === '--lexical-only') {
   const target = path.join(work, `baseline-${Date.now()}.json`);
   await writeFile(target, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   console.log(JSON.stringify({ report: target, summary: report.summary }, null, 2));
+  process.exit(0);
+}
+function verifyFusion(input) {
+  const result = spawnSync('python3', ['-B', path.join(here, 'fuse.py'), oss], {
+    input: JSON.stringify(input), encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const original = JSON.parse(result.stdout);
+  return input.map((row, i) => Object.fromEntries([1, 60].map((k) => {
+    const actual = reciprocalRankFusion(row, k);
+    assert.deepEqual(actual.map((x) => x.key), original[i][k][0]);
+    actual.forEach((x, j) => assert(Math.abs(x.score - original[i][k][1][j]) < 1e-12));
+    return [k, actual];
+  })));
+}
+if (process.argv[4] === '--fusion-only') {
+  let seed = 17;
+  const next = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
+  const input = [[], [[], []], [['a', 'b'], ['b', 'c']], ...Array.from({ length: 200 }, () =>
+    Array.from({ length: next() % 4 }, () => Array.from({ length: next() % 20 }, () => `key-${next() % 15}`)))];
+  verifyFusion(input);
+  console.log(JSON.stringify({ status: 'passed', cases: input.length, constants: [1, 60], inputHash: hash(JSON.stringify(input)) }));
+  process.exit(0);
+}
+if (process.argv[4] === '--vertex') {
+  const receipt = await readFile(process.argv[5]);
+  const source = JSON.parse(receipt);
+  assert.equal(source.status, 'completed'); assert.equal(source.model, 'gemini-embedding-001');
+  assert.equal(source.casesHash, hash(data)); assert.equal(source.dimensions, 768);
+  assert.equal(source.scriptHash, hash(await readFile(path.join(here, 'vertex.py'))));
+  assert.equal(source.transportScriptHash, hash(await readFile(path.join(here, '../adaptive-vertex-proposal.py'))));
+  assert(['urllib', 'curl'].includes(source.transport));
+  assert.equal(source.documents.length, docs.length); assert.equal(source.queries.length, cases.queries.length * 3);
+  assert.equal(source.calls.length, docs.length + cases.queries.length * 3);
+  assert(source.calls.every((c) => c.ok && c.truncated === false && Number.isFinite(c.latencyMs)));
+  const vectors = [...source.documents, ...source.queries];
+  for (const item of vectors) {
+    assert.equal(item.vector.length, 768); assert(item.vector.every(Number.isFinite));
+    assert(Math.abs(Math.hypot(...item.vector) - 1) < 1e-6);
+  }
+  const find = (list, id, repeat) => {
+    const matches = list.filter((v) => v.id === id && v.repeat === repeat);
+    assert.equal(matches.length, 1); return matches[0].vector;
+  };
+  const dot = (a, b) => a.reduce((sum, x, i) => sum + x * b[i], 0);
+  const rows = cases.queries.map((q) => {
+    const query = find(source.queries, q.id, 0);
+    return { ...q, lexical: rank(q.query, docs, 0).map((x) => ({ id: x.source, score: x.score })),
+      dense: docs.map((d) => ({ id: d.source, score: dot(query, find(source.documents, d.source, 0)) })).sort((a, b) => b.score - a.score),
+      repeatSimilarity: [1, 2].map((repeat) => dot(query, find(source.queries, q.id, repeat))) };
+  });
+  const fused = verifyFusion(rows.map((r) => [r.lexical.slice(0, 6).map((x) => x.id), r.dense.slice(0, 6).map((x) => x.id)]));
+  rows.forEach((row, i) => { for (const k of [1, 60]) row[`rrf${k}`] = fused[i][k].map((x) => ({ id: x.key, score: x.score })); });
+  const latencies = source.calls.filter((c) => c.kind === 'query').map((c) => c.latencyMs).sort((a, b) => a - b);
+  assert.equal(latencies.length, cases.queries.length * 3);
+  const report = { version: 1, kind: 'vertex-embedding-comparison', model: source.model, modelVersion: source.modelVersion, transport: source.transport, requestTimeoutSeconds: source.requestTimeoutSeconds,
+    receiptHash: hash(receipt), casesHash: hash(data), sourceHashes: {
+      ranking: hash(await readFile(path.join(repo, 'runtime/src/memory/adaptive-ranking.ts'))),
+      lexical: hash(await readFile(path.join(repo, 'engine/src/retrieval.ts'))), run: hash(await readFile(path.join(here, 'run.mjs'))),
+    }, summary: summarize(rows, ['lexical', 'dense', 'rrf1', 'rrf60']), rows,
+    queryP50Ms: latencies[Math.ceil(latencies.length * 0.5) - 1], queryP95Ms: latencies[Math.ceil(latencies.length * 0.95) - 1],
+    tokensReported: source.calls.every((c) => Number.isFinite(c.tokenCount)) ? source.calls.reduce((s, c) => s + c.tokenCount, 0) : null,
+    billableCharactersReported: source.calls.every((c) => Number.isFinite(c.billableCharacterCount)) ? source.calls.reduce((s, c) => s + c.billableCharacterCount, 0) : null,
+    warnings: ['公开短材料召回对照，不是事实判断或正式留出成绩', '无相关性阈值，无关问题也会有向量近邻', '采样期间有组件下载，延迟含网络和请求开销，不是纯模型推理时间'] };
+  const target = path.join(work, `vertex-comparison-${Date.now()}.json`);
+  await writeFile(target, JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
+  console.log(JSON.stringify({ report: target, summary: report.summary, queryP50Ms: report.queryP50Ms, queryP95Ms: report.queryP95Ms }, null, 2));
   process.exit(0);
 }
 const lockBytes = await readFile(path.join(work, 'package-lock.json'));
@@ -101,13 +169,9 @@ try {
   }
   // 与 Graphiti 默认 RRF 和常见常数 60 对照；各通路先取6候选，既定设置不按结果改写。
   const input = rows.map((r) => [r.lexical.slice(0, 6).map((x) => x.id), r.dense.slice(0, 6).map((x) => x.id)]);
-  const result = spawnSync('python3', ['-B', path.join(here, 'fuse.py'), oss], {
-    input: JSON.stringify(input), encoding: 'utf8', timeout: 10_000, maxBuffer: 1024 * 1024,
-  });
-  assert.equal(result.status, 0, result.stderr);
-  const fused = JSON.parse(result.stdout);
+  const fused = verifyFusion(input);
   rows.forEach((row, i) => {
-    for (const k of [1, 60]) row[`rrf${k}`] = fused[i][k][0].map((id, j) => ({ id, score: fused[i][k][1][j] }));
+    for (const k of [1, 60]) row[`rrf${k}`] = fused[i][k].map((x) => ({ id: x.key, score: x.score }));
   });
   const summary = summarize(rows, ['lexical', 'dense', 'rrf1', 'rrf60']);
   const longText = 'query: ' + '无关的背景细节。'.repeat(1000) + '真正的问题在最后：饭友是谁？';

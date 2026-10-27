@@ -152,3 +152,12 @@ SQLite 可选投影保存 meta（格式版本 2、整体 generation）、batches
 没有新增守护进程或运行依赖。配置与既有管理 RPC 增加 semantic 字段；main 引入相关库后，构建脚本将完整 Graphiti 许可 / 修改说明嵌入跨平台分发的 main.cjs。当前只做受控后台试验，默认不启用，不能据构建或合成 HTTP 测试宣称 M2 通过。
 
 统一供应商结果及后台 lastModel 现保留 input / output 和可选 reasoning / total。Google 按 promptTokenCount + toolUsePromptTokenCount 计输入，candidatesTokenCount + thoughtsTokenCount 计输出；reasoning 是后者的子集，total 原样保存供应商总量，缺失或非法字段不覆盖先前累计快照。该映射依据 [Google UsageMetadata](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1/GenerateContentResponse#UsageMetadata)。思考正文不进入回答或记忆提案。每日 SQLite / 身体同步仍只存聚合 input / output / cost，无新 schema；最后模型明细存在既有本机 KV，不是逐调用账本。费用为配置单价估算，未处理缓存折扣、分层价格或未知失败用量，旧记录也不追溯补算；ADC 开发报告仍与生产状态分开。
+
+
+### 派生检索索引的候选边界
+
+`semanticCandidates` 与现有词面查询共用证据 / 来源计算，返回当前候选正文、可见对象名和完整认识的摘要 key。认识修订、时间、根来源、共同支持分支或可见对象发生变化时摘要变化；候选中不包含不可访问来源、失效支持、隐藏反证导致失效的结论或未解歧对象的隐藏名称。
+
+`selectSemantic` 可接受内部近邻次序 `{queryHash, keys}`。它只把匹配本次问题且仍在当前候选中的摘要参与 Graphiti RRF 融合；先核对再截取，重复摘要不加票，过期 / 隐藏摘要不能恢复认识，形状错误或超过1000项退回同门禁词面路径。每路至多6项、最终至多6项，输出仍是当前完整认识；不把排名当身份、事实或相关性真值。
+
+这是生产选择函数的可选输入边界，**宿主尚未提供真实近邻，默认查询继续词面排序**。还没有生产向量存储、worker、自动下载 / 安装、查询嵌入或新 RPC。未来后台须从该入口构造索引并绑定 agent、候选摘要及模型空间；向量只属可重建派生数据，不能代替权威认识和返回前版本核查。

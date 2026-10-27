@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { selectSemantic } from '../src/memory/adaptive-query.ts';
+import { selectSemantic, semanticCandidates, semanticDigest } from '../src/memory/adaptive-query.ts';
 import type { SemanticRecord, ClaimRecord, ObjectRecord, MentionRecord, SourceSpan, RecordRef, EvidenceSource } from '../src/memory/adaptive-evidence.ts';
 
 function fixture() {
@@ -143,4 +143,70 @@ test('纠正后旧措辞可定位当前认识，但无效旧支持不制造命�
   const spans = Array.from({ length: 9 }, () => f.source('a'.repeat(8000)));
   const huge = f.claim('Large source set', spans[0]); huge.supports[0].premises = spans;
   assert.throws(() => selectSemantic([huge], 'source', 2, f.read, f.read), /检索依据超过工作上限/);
+});
+
+
+test('索引候选绑定完整当前内容与版本，不继承旧正文、隐藏来源或失效支持', () => {
+  const f = fixture(), s = f.source('在海边采访守灯塔的人'), c = f.claim('为小说采集口述素材', s);
+  const initial = semanticCandidates([c], f.read, f.read);
+  assert.equal(initial.length, 1); assert.match(initial[0].key, /^[a-f0-9]{64}$/);
+  assert.equal(initial[0].text, `${c.text}\n${s.quote}`);
+  assert.deepEqual(semanticCandidates([structuredClone(c)], f.read, f.read), initial);
+  const revised = { ...c, revision: 2, text: '这次是旅行记录，尚未决定是否用于小说' };
+  const next = semanticCandidates([revised], f.read, f.read);
+  assert.notEqual(next[0].key, initial[0].key);
+  assert.equal(next[0].item.revision, 2);
+  assert.ok(!next[0].text.includes(c.text));
+  const retimed = { ...revised, occurred: { text: '去年六月', earliest: null, latest: null } };
+  assert.notEqual(semanticCandidates([retimed], f.read, f.read)[0].key, next[0].key);
+  assert.deepEqual(semanticCandidates([revised], () => undefined, f.read), []);
+  f.sources.set(s.source, { ...f.read(s.source)!, hash: 'f'.repeat(64) });
+  assert.deepEqual(semanticCandidates([revised], f.read, f.read), []);
+});
+
+test('索引候选的共同支持分支和可见对象变化都会改变摘要，不泄漏隐藏候选名', () => {
+  const f = fixture(), a = f.source('采访来源甲'), b = f.source('采访来源乙');
+  const c = f.claim('有两个独立采访依据', a);
+  c.supports.push({ id: 'alternative', premises: [b], assumptions: [] });
+  const all = semanticCandidates([c], f.read, f.read)[0];
+  const onlyB = (id: number) => id === a.source ? undefined : f.read(id);
+  const limited = semanticCandidates([c], onlyB, f.read)[0];
+  assert.notEqual(all.key, limited.key); assert.ok(!limited.text.includes(a.quote));
+  assert.deepEqual(limited.item.roots, [{ id: b.source, hash: b.hash }]);
+  const anchor = f.source('阿舟来了'), first = f.node('同事阿舟', a), second = f.node('私密朋友阿舟', b);
+  const mention: MentionRecord = { ...f.base(anchor), kind: 'mention', anchor, candidates: [ref(first), ref(second)], resolved: null, unknown: false };
+  const records = [first, second, mention];
+  const visible = (id: number) => id === b.source ? undefined : f.read(id);
+  const full = semanticCandidates(records, f.read, f.read)[0], narrowed = semanticCandidates(records, visible, f.read)[0];
+  assert.notEqual(full.key, narrowed.key); assert.ok(!JSON.stringify(narrowed).includes('私密'));
+  assert.ok(narrowed.item.kind === 'mention' && narrowed.item.unknown);
+});
+
+
+test('额外近邻只能重新排序当前候选，旧查询、修订和不可访问来源不能借索引复活', () => {
+  const f = fixture(), s = f.source('到海边采访守灯塔的人'), c = f.claim('为小说收集素材', s);
+  const query = 'What first-hand research did I plan?';
+  const key = semanticCandidates([c], f.read, f.read)[0].key;
+  const neighbors = { queryHash: semanticDigest(query), keys: [key, key, 'f'.repeat(64)] };
+  assert.equal(selectSemantic([c], query, 1, f.read, f.read).matched, 0);
+  const hit = selectSemantic([c], query, 1, f.read, f.read, neighbors);
+  assert.equal(hit.matched, 1); assert.equal(hit.items[0].id, c.id);
+  assert.equal(selectSemantic([c], 'different query', 1, f.read, f.read, neighbors).matched, 0);
+  assert.equal(selectSemantic([{ ...c, revision: 2 }], query, 2, f.read, f.read, neighbors).matched, 0);
+  assert.equal(selectSemantic([c], query, 1, () => undefined, f.read, neighbors).matched, 0);
+  assert.equal(selectSemantic([{ ...c, state: 'withdrawn' }], query, 2, f.read, f.read, neighbors).matched, 0);
+  const counter = f.source('这次明确不用于创作'); c.counters = [{ id: 'against', premises: [counter], assumptions: [] }];
+  assert.equal(selectSemantic([c], query, 2, (id) => id === counter.source ? undefined : f.read(id), f.read, neighbors).matched, 0);
+});
+
+test('无效或超量近邻降级同门禁词面检索，语义次序不改变认识、支持与来源', () => {
+  const f = fixture(), s = f.source('采风'), a = f.claim('采风计划甲', s), b = f.claim('另一项安排', s);
+  const records = [a, b], query = '采风', baseline = selectSemantic(records, query, 1, f.read, f.read);
+  for (const keys of [['bad-key'], Array.from({ length: 1001 }, () => 'a'.repeat(64))]) {
+    assert.deepEqual(selectSemantic(records, query, 1, f.read, f.read, { queryHash: semanticDigest(query), keys }), baseline);
+  }
+  const candidates = semanticCandidates(records, f.read, f.read);
+  const result = selectSemantic(records, query, 1, f.read, f.read, { queryHash: semanticDigest(query), keys: candidates.map((x) => x.key).reverse() });
+  assert.equal(result.matched, 2);
+  for (const item of result.items) assert.deepEqual(item, baseline.items.find((x) => x.id === item.id));
 });

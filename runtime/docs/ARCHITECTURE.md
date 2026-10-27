@@ -213,3 +213,6 @@ adapters/
 
 
 `tool/adaptive-retrieval-probe/prepare.py` 取得固定公开权重并核对文件摘要；`run.mjs` 调实际 engine 词面排序和隔离安装的 Transformers.js，`fuse.py` 核对固定 Graphiti 源码后执行原始 RRF 函数。独立 package / lock 只约束开发实验；不新增生产模块、索引、配置或打包入口。当前仅词面基线已执行，完整本机嵌入实验仍待组件准备，不宣称已接入自适应查询。
+
+
+`adaptive-query.ts` 的 semanticCandidates 为派生索引提供与当前查询相同门禁的输入及摘要；selectSemantic 的可选近邻只允许匹配当前候选 / 查询，失效摘要不能参与结果。`adaptive-ranking.ts` 移植固定 Graphiti RRF，由既有 main 构建自动纳入，许可已加入随包 NOTICE。宿主尚未提供真实近邻，查询继续默认词面路径；没有生产索引、worker 或新配置。开发探针另有显式 ADC 嵌入对照，复用既有认证 / 传输，不进入生产模型路由。

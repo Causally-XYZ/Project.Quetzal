@@ -8,13 +8,13 @@
 
 | 候选 | 固定源码 / 包 | 许可证 | 本批执行范围 |
 |---|---|---|---|
-| Graphiti | [2b5db9e](https://github.com/getzep/graphiti/tree/2b5db9e139b2627c3ba18ff55f9181569b0d8224)，pyproject 0.31.2 | Apache-2.0 | 原样执行标准库去重辅助模块；合成人物对象，无数据库 / 向量 / LLM |
+| Graphiti | [2b5db9e](https://github.com/getzep/graphiti/tree/2b5db9e139b2627c3ba18ff55f9181569b0d8224)，pyproject 0.31.2 | Apache-2.0 | 原样执行标准库去重辅助模块；后续增加 RRF 函数对照与 TypeScript 适配（§7），未运行完整 Graphiti 服务 |
 | A-MEM | [ceffb860](https://github.com/agiresearch/A-mem/tree/ceffb860f0712bbae97b184d440df62bc910ca8d)，agentic-memory 0.0.1 | MIT | 原样执行 MemoryNote 和指定 update / delete / process_memory 方法 AST；检索器与 LLM 用明确的故障注入替身 |
 | LangGraphJS | [7ab1b8d8](https://github.com/langchain-ai/langgraphjs/tree/7ab1b8d840c068c2593fea4683899508d93e6b33)；checkpoint 1.2.1、checkpoint-sqlite 1.1.0 | MIT | 已审读检查点与 SQLite saver；可执行探针针对 npm checkpoint 1.2.1 的真实 MemorySaver，执行结果单独记录 |
 
-Graphiti 的默认依赖包括 Neo4j 驱动、Pydantic、模型 SDK、NumPy、重试与遥测组件，另有 FalkorDB / 嵌入式数据库选项；A-MEM 默认依赖 Chroma、sentence-transformers、LiteLLM、scikit-learn 等。LangGraph 的 SQLite saver 另需 better-sqlite3 原生依赖。**本批没有把这些依赖加入 runtime**，也没有借包名声称其完整服务可部署。除源码 clone 和检查点临时 npm 安装外，后续已有提示词规则副本；没有启动图数据库。
+Graphiti 的默认依赖包括 Neo4j 驱动、Pydantic、模型 SDK、NumPy、重试与遥测组件，另有 FalkorDB / 嵌入式数据库选项；A-MEM 默认依赖 Chroma、sentence-transformers、LiteLLM、scikit-learn 等。LangGraph 的 SQLite saver 另需 better-sqlite3 原生依赖。**本批没有把这些依赖加入 runtime**，也没有借包名声称其完整服务可部署。后续已有提示词 / RRF 适配副本和独立检索组件探针（§7），没有启动图数据库。
 
-后续选型仍需补齐：真实语义质量、完整依赖锁、取消与超时传播、索引 / 导出 / 重建、运行成本及自动部署恢复。若复用上游代码或提示词，必须随副本保留许可证、版权、固定源链接和修改说明；最初批次只提交实验工具；后续 M2 开发批次已将抽取 / 时间提示规则改编到 `runtime/src/memory/prompts/adaptive-graphiti.ts`，并附 Apache-2.0 LICENSE、版权和修改说明，详见[提示词副本说明](../../runtime/third_party/graphiti/NOTICE.md)。这不是完整 Graphiti 服务集成。
+后续选型仍需补齐：真实语义质量、完整依赖锁、取消与超时传播、索引 / 导出 / 重建、运行成本及自动部署恢复。若复用上游代码或提示词，必须随副本保留许可证、版权、固定源链接和修改说明；最初批次只提交实验工具；后续 M2 开发批次已将抽取 / 时间提示规则改编到 `runtime/src/memory/prompts/adaptive-graphiti.ts`，并附 Apache-2.0 LICENSE、版权和修改说明，详见[提示词副本说明](../../runtime/third_party/graphiti/NOTICE.md)。后续 RRF 适配同样附在该说明内；这不是完整 Graphiti 服务集成。
 
 ## 2. 已复现的契约差异
 
@@ -103,3 +103,23 @@ python3 -B runtime/tool/test_adaptive_vertex_smoke.py
 当前只完成词面基线和固定上游融合函数核对：14个有相关材料问题中，hit@1=7/14、hit@3=9/14、hit@6=9/14；另一个无关问题为零词面命中。正文引用 / 版本门禁的10项既有测试通过。下载期间出现连接中断与600秒传输超时，原失败保留，准备脚本增加有摘要核验的部分文件续传；完整 npm 安装和权重尚未核验完成，**向量 / 混合排名、延迟与内存结果尚未取得**。不能据模型说明或词面缺陷宣称向量方案已经修复问题。
 
 这次新增清单、锁和脚本均为开发探针，不进入 runtime 生产依赖 / 打包 / 配置 / RPC。即使组件对照改善，仍须实现并验证：后台分块索引与来源版本绑定、中心自动安装 / 加载 / 恢复、前台有界查询与同门禁降级、长输入和无关候选处理、纠正后失效及真实双身体接线；完整 M2 门禁保持不变。
+
+
+### 7.1 候选版本边界、RRF 副本与云端质量参考
+
+后续生产选择函数已拆出同门禁的 semanticCandidates；摘要绑定当前正文、时间、语境、可见对象、支持和根来源。可选近邻必须匹配本次问题和当前候选摘要，先核对 / 去重再融合；失效索引不恢复旧认识。宿主尚未提供真实近邻，默认仍是词面查询。RRF TypeScript 副本与上游203组输入、常数1和60逐项一致；完整 Apache 许可及修改说明随 main.cjs 分发。
+
+独立云端对照使用官方 [gemini-embedding-001 predict API](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/models/text-embeddings-api)、已有 ADC、768维、文档 / 查询任务类型及显式归一化。它不是本机开源模型成绩，也没有改变正式模型配置。最初 urllib 批次12次请求中11次成功、1次响应中断，失败保留；新的 HTTP/1.1 批次完整75次成功，未自动重试或覆盖前批。
+
+| 方法 | hit@1 | hit@3 | hit@6 |
+|---|---:|---:|---:|
+| 现有词面 | 7/14 | 9/14 | 9/14 |
+| Gemini 嵌入 | 14/14 | 14/14 | 14/14 |
+| RRF 常数1 | 11/14 | 14/14 | 14/14 |
+| RRF 常数60 | 11/14 | 14/14 | 14/14 |
+
+这只是14个有目标问题的公开短材料开发对照，时间变化问题有两个相关候选，因此嵌入 recall@1 为0.9643、@3为1。另一个无关问题同样得到向量近邻（最高相似度约0.513），不能把所有近邻都解释成相关事实。词面噪声与稳定并列次序还使3个问题的融合首位差于纯向量；不据这个小样本直接确定最终排序或相关性阈值。
+
+45次查询的网络往返 P50 **3492ms**、P95 **4455ms**，采样期间存在组件下载，不是纯模型推理耗时或隔离性能试验；但本次实际请求显然不能满足当前500ms前台读取预算。故这条云端路线仅作为质量参考，**没有同步接入前台**。完整批次报告1171 token、1804计费字符；缺失实际模型版本保留 null。11次成功的失败批次另报告281 token / 412字符，失败请求用量未知；连通性单次另为11 token / 17字符。
+
+本机五个模型文件现已通过完整固定摘要核对；独立 npm 安装仍在进行，本机模型推理、分块与生产索引 / worker 接入尚未完成。不同模型的向量空间不能混用。下一步仍按本机真实结果评估延迟和质量，再完成自动部署及真实宿主接线。
