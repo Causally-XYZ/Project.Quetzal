@@ -26,6 +26,7 @@ import { decodeSemanticPacket, type SemanticQueryPacket } from './adaptive-query
 import type { SourceReader } from './adaptive-evidence.ts';
 import { parseAnswerBasis, answerBasisStatus, ANSWER_CHANGED, ANSWER_UNBOUND, type AnswerBasis } from './answer-basis.ts';
 import { AdaptiveVectorRetriever, type AdaptiveRetriever } from './adaptive-vector.ts';
+import { prepareAdaptiveComponent, type ComponentProgress } from './adaptive-component.ts';
 
 export interface MemoryPacket {
   version: 1; agent: string; host: string; generatedAt: number;
@@ -56,23 +57,51 @@ let nextRetrievalAt = 0;
 let ownedRetrieval: { agent: string; backend: AdaptiveVectorRetriever; detach: () => void } | undefined;
 let retrievalClosing: Promise<void> | undefined;
 let nextRetrievalStartAt = 0;
+let componentTask: Promise<void> | undefined;
+let componentAbort: AbortController | undefined;
+let componentProgress: ComponentProgress = { phase: 'checking' };
+let componentFailure: string | null = null, componentAttempts = 0;
+type ComponentPreparer = (root: string, signal: AbortSignal, progress: (state: ComponentProgress) => void) => Promise<boolean>;
+let prepareComponent: ComponentPreparer = async (root, signal, progress) => { await prepareAdaptiveComponent(root, signal, progress); return true; };
+/** 工程夹具可替换组件传输 / 安装；产品不提供覆盖固定组件的 RPC 或模型配置。 */
+export function setAdaptiveComponentPreparer(prepare: ComponentPreparer) {
+  const previous = prepareComponent; prepareComponent = prepare;
+  return () => { if (prepareComponent === prepare) prepareComponent = previous; };
+}
 
-// 已准备的组件在主机启动时自动加载；首次组件下载 / 安装尚由部署接线补齐。
+// 仅中心自动准备公开组件；没有模型密钥或用户正文进入下载 / npm 进程。
 export const adaptiveVectorComponentRoot = () => path.join(paths.data, 'adaptive-retrieval', 'component');
 function reconcileAdaptiveRetriever() {
   const permitted = active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop);
   const agent = permitted ? identity().id : '';
+  if (!permitted) componentAbort?.abort();
+  if (ownedRetrieval?.backend.status().state === 'ready') { componentFailure = null; componentAttempts = 0; }
   if (ownedRetrieval && (!permitted || ownedRetrieval.agent !== agent || retrieval?.backend !== ownedRetrieval.backend || ownedRetrieval.backend.status().state === 'failed')) {
     const previous = ownedRetrieval; ownedRetrieval = undefined; previous.detach();
-    retrievalClosing = previous.backend.close().finally(() => { retrievalClosing = undefined; });
-    nextRetrievalStartAt = Date.now() + 30_000;
+    const failure = previous.backend.status().failure;
+    if (failure) { componentFailure = failure === 'component' ? 'component_load_failed' : `component_${failure}_failed`; componentAttempts++; }
+    retrievalClosing = previous.backend.close().then(async () => {
+      if (failure === 'component') await fs.promises.rm(path.join(adaptiveVectorComponentRoot(), 'dependencies.json'), { force: true });
+    }).catch(() => { componentFailure = 'component_repair_unavailable'; }).finally(() => { retrievalClosing = undefined; });
+    nextRetrievalStartAt = Date.now() + Math.min(600_000, 30_000 * 2 ** Math.min(Math.max(0, componentAttempts - 1), 5));
   }
-  if (!permitted || retrieval || retrievalClosing || Date.now() < nextRetrievalStartAt) return;
-  nextRetrievalStartAt = Date.now() + 2000;
+  if (!permitted || retrieval || retrievalClosing || componentTask || Date.now() < nextRetrievalStartAt) return;
   const root = adaptiveVectorComponentRoot();
-  if (!fs.existsSync(path.join(root, 'package-lock.json'))) return;
-  const backend = new AdaptiveVectorRetriever({ root, cache: path.join(paths.data, 'adaptive-retrieval', `${semanticDigest(agent)}.sqlite`), agent });
-  ownedRetrieval = { agent, backend, detach: setAdaptiveRetriever(agent, backend) };
+  const controller = new AbortController(); componentAbort = controller; componentProgress = { phase: 'checking' };
+  componentTask = (async () => {
+    if (!await prepareComponent(root, controller.signal, (state) => { componentProgress = state; })) return;
+    if (controller.signal.aborted || !active || !isHost() || !config.adaptiveMemory.semantic || fs.existsSync(paths.stop) || agent !== identity().id || retrieval) return;
+    const backend = new AdaptiveVectorRetriever({ root, cache: path.join(paths.data, 'adaptive-retrieval', `${semanticDigest(agent)}.sqlite`), agent });
+    ownedRetrieval = { agent, backend, detach: setAdaptiveRetriever(agent, backend) };
+  })().catch((error) => {
+    if (!controller.signal.aborted) {
+      componentFailure = error instanceof Error && /^component_[a-z_]+$/.test(error.message) ? error.message : 'component_unavailable';
+      componentAttempts++;
+    }
+  }).finally(() => {
+    componentTask = undefined; componentAbort = undefined;
+    nextRetrievalStartAt = Date.now() + Math.min(600_000, 30_000 * 2 ** Math.min(Math.max(0, componentAttempts - 1), 5));
+  });
 }
 
 /** 内部组件接线；不暴露外部近邻注入 RPC，身份 / 来源门禁仍由最终快照核查。 */
@@ -177,7 +206,7 @@ export function startAdaptiveMemory() {
 }
 export async function stopAdaptiveMemory() {
   active = false; clearInterval(timer); timer = undefined; semanticAbort?.abort(); reconcileAdaptiveRetriever();
-  await Promise.all([semanticTask, retrievalRefresh, retrievalClosing]);
+  await Promise.all([semanticTask, retrievalRefresh, retrievalClosing, componentTask]);
 }
 
 export function adaptiveStatus() {
@@ -185,7 +214,8 @@ export function adaptiveStatus() {
     running: active, local: isHost(), stopped: fs.existsSync(paths.stop), error: lastError,
     semantic: { enabled: config.adaptiveMemory.semantic, state: semanticState },
     retrieval: ownedRetrieval?.backend.status() ?? { state: retrieval ? 'attached' :
-      active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) ? 'unavailable' : 'inactive' } };
+      active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) ? componentTask ? 'preparing' : 'unavailable' : 'inactive',
+      preparation: componentProgress, error: componentFailure, retryAt: nextRetrievalStartAt } };
   if (!active || !isHost()) return { ...base, queue: null };
   try { return { ...base, queue: localStore().status(), semantic: { ...base.semantic, queue: localStore().status(SEMANTIC_PROCESSOR),
     lastModel: kv.get('adaptive.semantic.lastModel', null), reviewBudget: kv.get('adaptive.review.budget', null) } }; }

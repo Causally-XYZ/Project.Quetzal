@@ -78,6 +78,7 @@ const summaryRequest = (request: any) => joined(request).startsWith('压缩历�
 
 
 const adaptive = await import('../src/memory/adaptive.ts');
+adaptive.setAdaptiveComponentPreparer(async () => false); // 此夹具不测试组件部署，不启动网络安装。
 const { semanticDigest } = await import('../src/memory/adaptive-query.ts');
 const { markBusy } = await import('../src/heart/heart.ts');
 const { exclusive } = await import('../src/memory/memory.ts');

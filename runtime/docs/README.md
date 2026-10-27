@@ -87,7 +87,7 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 Google 记忆提案通过原生结构化输出发送 schema；其他协议继续提示格式并严格解析。故障转移会按新候选重新准备 schema 和窗口；供应商约束不替代宿主形状 / 来源 / 版本校验。普通对话不变，无新增依赖、配置或部署步骤。`adaptive-structured-output.test.ts` 检查实际 HTTP 请求 / 跨协议故障转移，`provider-failure-reason.test.ts` 检查固定失败分类及既有超时边界；开发记录保留实际 schema，缺失用量不填零。
 
 
-`tool/adaptive-retrieval-probe/` 为独立开源改述召回实验：完整开发锁、固定模型摘要、公开夹具、实际词面函数与上游 RRF。`--lexical-only` 已实际运行；完整嵌入 / 混合结果尚待依赖和权重完整核验。准备工具仅下载固定公开文件，支持中断续传；模型推理前再次核对全部文件，禁止远程自动取模型。所有依赖、模型和结果放仓库外，不进入 runtime 的 package / tsconfig / main 构建，无生产配置变化。复跑与边界见[探针说明](../tool/adaptive-retrieval-probe/README.md)。
+`tool/adaptive-retrieval-probe/` 为独立开源改述召回实验：完整开发锁、固定模型摘要、公开夹具、实际词面函数与上游 RRF。词面、真实嵌入、混合与生产宿主对照均已运行，开发成绩不等于正式语义验收。准备工具仅下载固定公开文件，支持中断续传；模型推理前再次核对全部文件，禁止远程自动取模型。所有安装依赖、模型和结果放仓库外；固定组件清单已由生产适配共用，探针本身不进入 main，无新生产配置。复跑与边界见[探针说明](../tool/adaptive-retrieval-probe/README.md)。
 
 
-adaptive-vector / adaptive-vector-worker 已将固定 E5 的实际近邻接到宿主查询：中心自动加载 QUETZAL_HOME/data/adaptive-retrieval/component 中已准备的组件，空闲时增量索引，100ms内无近邻则词面降级；最终仍核对当前来源和认识摘要。SQLite 缓存按 agent / 模型空间隔离，组件关闭时等待原生调用释放。独立组件清单位于 components/adaptive-retrieval，固定版本不加入所有身体的 npm 主依赖；tsconfig 开启 JSON 导入，worker 与固定元数据由既有 main 构建纳入。首次自动下载 / 安装未完成，不能要求正式使用者手动执行开发脚本来替代部署验收。RRF 副本许可继续随 main 分发。检索探针的 --fusion-only 可不安装模型就对照固定上游；vertex.py 的 --live 仅用公开夹具做独立 ADC 参考，不表示可接受其前台网络延迟。
+adaptive-vector / adaptive-vector-worker 已将固定 E5 的实际近邻接到宿主查询：中心自动准备并加载 QUETZAL_HOME/data/adaptive-retrieval/component 中的固定组件，空闲时增量索引，100ms内无近邻则词面降级；最终仍核对当前来源和认识摘要。SQLite 缓存按 agent / 模型空间隔离，组件关闭时等待原生调用释放。独立组件清单位于 components/adaptive-retrieval，固定版本不加入所有身体的 npm 主依赖；tsconfig 开启 JSON 导入，worker 与固定元数据由既有 main 构建纳入。首次安装、模型续传、停止取消、依赖重装、派生库损坏重建和暂时索引失败重试均已接线；使用者不需要执行开发准备脚本。缓存预热下的真实部署已验证，全冷网络及跨平台仍待验收。RRF 副本许可继续随 main 分发。检索探针的 --fusion-only 可不安装模型就对照固定上游；vertex.py 的 --live 仅用公开夹具做独立 ADC 参考，不表示可接受其前台网络延迟。

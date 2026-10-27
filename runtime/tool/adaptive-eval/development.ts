@@ -44,12 +44,12 @@ const repo = fileURLToPath(new URL('../../..', import.meta.url));
 const git = (...args: string[]) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
 // 开发期间也绑定未提交代码的实际字节；这份指纹不是正式计划或干净提交的替代。
 const files = git('ls-files', '--cached', '--others', '--exclude-standard').split('\n').filter((f) =>
-  /^(engine\/src\/|runtime\/src\/|runtime\/tool\/adaptive-|runtime\/test\/fixtures\/fake-sync\.ts$|(?:engine|runtime)\/package(?:-lock)?\.json$)/.test(f));
+  /^(engine\/src\/|runtime\/src\/|runtime\/components\/|runtime\/tool\/adaptive-|runtime\/test\/fixtures\/fake-sync\.ts$|(?:engine|runtime)\/package(?:-lock)?\.json$)/.test(f));
 const code = [...new Set(files)].sort().map((file) => ({ file, sha256: digest(fs.readFileSync(path.join(repo, file)).toString('base64')) }));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-multibody-development-'));
 fs.writeFileSync(path.join(root, 'development-plan.json'), JSON.stringify({ schema: 'quetzal-multibody-development-plan-v1',
   revision: git('rev-parse', 'HEAD'), dirty: !!git('status', '--porcelain'), code, codeHash: digest(code), inputHash: digest(track),
-  model, kind, scenario, steps: count, maxCallsPerBody: 36, stepTimeoutMs: 180000,
+  model, kind, scenario, steps: count, maxCallsPerBody: 36, stepTimeoutMs: 180000, retrieval: 'lexical-only-component-preparation-disabled',
   limits: '公开开发资料；非正式留出、性能基线或真人试用。各次失败保留独立目录。' }, null, 2), { flag: 'wx' });
 console.log(JSON.stringify({ root, kind, model, scenario, steps: count }));
 const result = await runTrack({ root: path.join(root, 'track'), track, kind: kind as 'live' | 'stub', model });

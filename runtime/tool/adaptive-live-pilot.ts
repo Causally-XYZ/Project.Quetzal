@@ -23,7 +23,7 @@ const dataset = {
 fs.writeFileSync(path.join(home, 'dataset.json'), JSON.stringify(dataset, null, 2));
 const report: any = { schema: 'quetzal-adaptive-live-development-v1', model, dataset: dataset.id,
   datasetHash: crypto.createHash('sha256').update(JSON.stringify(dataset)).digest('hex'),
-  status: 'running', calls: [], transport: [], checkpoints: [],
+  status: 'running', calls: [], transport: [], checkpoints: [], retrieval: 'lexical-only-component-preparation-disabled',
   limits: '开发资料，非正式留出集；实际宿主/路由/Google适配器/对话循环，ADC仅注入传输认证；未测多身体/UI，未隔离其他历史召回，不能证明回答收益仅来自新图。' };
 const save = () => fs.writeFileSync(path.join(home, 'report.json'), JSON.stringify(report, null, 2));
 save(); console.log(JSON.stringify({ home, case: dataset.id, model }));
@@ -74,6 +74,7 @@ adapters['google-generative-ai'] = (target, request) => {
   void task.then(() => pending.delete(task), () => pending.delete(task)); return task;
 };
 const host = await import('../src/memory/adaptive.ts');
+host.setAdaptiveComponentPreparer(async () => false); // 此夹具不测试组件部署，不启动网络安装。
 const brain = await import('../src/mind/brain.ts');
 const wall = setTimeout(() => {
   fs.writeFileSync(cfg.paths.stop, 'development-timeout'); deadline.abort(); void brain.stopTurn('synthetic-answer', { local: true });

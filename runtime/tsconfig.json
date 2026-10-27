@@ -23,6 +23,7 @@
     "tool/adaptive-read-benchmark.ts",
     "tool/adaptive-live-pilot.ts",
     "tool/adaptive-retrieval-probe/host.ts",
+    "tool/adaptive-retrieval-probe/deploy.ts",
     "tool/adaptive-eval/cli.ts",
     "tool/adaptive-eval/body.ts",
     "tool/adaptive-eval/development.ts"

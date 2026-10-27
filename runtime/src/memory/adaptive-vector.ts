@@ -20,16 +20,18 @@ export class AdaptiveVectorRetriever implements AdaptiveRetriever {
   private fingerprint = '';
   private readonly requests = new Map<number, (keys?: string[]) => void>();
   private state: 'loading' | 'ready' | 'failed' | 'closed' = 'loading';
+  private failure: 'component' | 'cache' | 'worker' | null = null;
   private exited = false;
   private closing?: Promise<void>;
-  private stats = { snapshot: '', indexed: 0, pending: 0, reused: 0, computed: 0, errors: 0 };
+  private stats = { snapshot: '', indexed: 0, pending: 0, reused: 0, computed: 0, errors: 0, retrying: 0, blocked: 0, cacheRecovered: false };
   constructor(options: { root: string; cache: string; agent: string }) {
     this.worker = new Worker(`(${adaptiveVectorWorker.toString()})()`, { eval: true, workerData: { ...options, pin, lock, space: VECTOR_SPACE } });
     this.worker.on('message', (message) => {
       if (this.state === 'closed') return;
       if (message.type === 'ready') { this.state = 'ready'; this.worker.postMessage({ type: 'replace', candidates: this.latest }); }
-      else if (message.type === 'failed') this.fail();
-      else if (message.type === 'status') this.stats = { ...this.stats, snapshot: message.snapshot, indexed: message.indexed, pending: message.pending, reused: message.reused, computed: message.computed };
+      else if (message.type === 'failed') this.fail(message.stage === 'component' || message.stage === 'cache' ? message.stage : 'worker');
+      else if (message.type === 'status') this.stats = { ...this.stats, snapshot: message.snapshot, indexed: message.indexed, pending: message.pending, reused: message.reused, computed: message.computed,
+        retrying: message.retrying, blocked: message.blocked, cacheRecovered: message.cacheRecovered };
       else if (message.type === 'index-error') this.stats.errors++;
       else if (message.type === 'answer') this.requests.get(message.id)?.(message.keys);
     });
@@ -37,8 +39,9 @@ export class AdaptiveVectorRetriever implements AdaptiveRetriever {
     this.worker.on('exit', () => { this.exited = true; if (this.state !== 'closed') this.fail(); });
     this.worker.unref();
   }
-  status() { return { state: this.state, current: this.fingerprint === this.stats.snapshot, ...this.stats }; }
-  private fail() {
+  status() { return { state: this.state, failure: this.failure, current: this.fingerprint === this.stats.snapshot, ...this.stats }; }
+  private fail(reason: 'component' | 'cache' | 'worker' = this.state === 'loading' ? 'component' : 'worker') {
+    this.failure ??= reason;
     if (this.state !== 'closed') this.state = 'failed';
     for (const finish of [...this.requests.values()]) finish();
   }

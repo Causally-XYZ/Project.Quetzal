@@ -15,6 +15,7 @@ const store = await import('../src/store.ts'); store.openStore();
 await (await import('../src/memory/soul-sync.ts')).ensureSoul();
 const registry = await import('../src/providers/registry.ts');
 const host = await import('../src/memory/adaptive.ts');
+host.setAdaptiveComponentPreparer(async () => false); // 此夹具不测试组件部署，不启动网络安装。
 const { generateAdaptiveProposal, boundedProposal } = await import('../src/memory/adaptive-model.ts');
 const { proposalPrompt } = await import('../src/memory/adaptive-proposal.ts');
 const { AdaptiveStore } = await import('../src/memory/adaptive-store.ts');

@@ -15,6 +15,7 @@ await (await import('../src/memory/soul-sync.ts')).ensureSoul();
 const { identity } = await import('../src/memory/identity.ts');
 const { AdaptiveStore } = await import('../src/memory/adaptive-store.ts');
 const host = await import('../src/memory/adaptive.ts');
+host.setAdaptiveComponentPreparer(async () => false); // 此夹具不测试组件部署，不启动网络安装。
 
 test('1000条认识的实际宿主读取：100次查询、来源失效与坏文件降级', { timeout: 90_000 }, async (t) => {
   t.after(async () => { await host.stopAdaptiveMemory(); store.db.close(); fs.rmSync(home, { recursive: true, force: true }); });

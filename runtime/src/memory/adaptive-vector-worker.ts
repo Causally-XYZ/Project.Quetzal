@@ -13,6 +13,7 @@ export async function adaptiveVectorWorker() {
   const digest = (value: string) => createHash('sha256').update(value).digest('hex');
   let database: InstanceType<typeof DatabaseSync> | undefined;
   let extractor: any;
+  let failureStage = 'component';
   try {
     const actual = JSON.parse(await fs.readFile(path.join(root, 'package-lock.json'), 'utf8'));
     if (digest(JSON.stringify(actual)) !== digest(JSON.stringify(lock))) throw new Error('lock');
@@ -32,19 +33,43 @@ export async function adaptiveVectorWorker() {
       session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
     });
     if (extractor.tokenizer.model_max_length !== 512) throw new Error('tokenizer');
+    failureStage = 'cache';
     await fs.mkdir(path.dirname(cache), { recursive: true, mode: 0o700 });
     const file = await fs.open(cache, 'a', 0o600); await file.close();
-    database = new DatabaseSync(cache);
-    database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS vectors (agent TEXT, space TEXT, key TEXT, value TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(agent,space,key))');
+    let cacheRecovered = false;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        database = new DatabaseSync(cache);
+        if (database.prepare('PRAGMA quick_check(1)').get()?.quick_check !== 'ok') throw new Error('cache_corrupt');
+        database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS vectors (agent TEXT, space TEXT, key TEXT, value TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(agent,space,key))');
+        const columns = database.prepare('PRAGMA table_info(vectors)').all().map((r) => [r.name, r.type, r.pk, r.notnull]);
+        if (JSON.stringify(columns) !== JSON.stringify([['agent', 'TEXT', 1, 0], ['space', 'TEXT', 2, 0], ['key', 'TEXT', 3, 0], ['value', 'TEXT', 0, 1], ['digest', 'TEXT', 0, 1]])) throw new Error('cache_schema');
+        break;
+      } catch (error) {
+        try { database?.close(); } catch { /* 半打开连接 */ }
+        database = undefined;
+        const code = Number((error as { errcode?: number }).errcode) & 255;
+        if (attempt || !([11, 26].includes(code) || error instanceof Error && ['cache_corrupt', 'cache_schema'].includes(error.message))) throw error;
+        // 只处理派生缓存的确定损坏；busy / 权限 / 磁盘错误不能当损坏清空。保留现场便于核查。
+        const quarantine = `${cache}.damaged-${Date.now()}`;
+        for (const suffix of ['', '-wal', '-shm']) {
+          try { await fs.rename(cache + suffix, quarantine + suffix); }
+          catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+        }
+        const replacement = await fs.open(cache, 'a', 0o600); await replacement.close(); cacheRecovered = true;
+      }
+    }
     const db = database;
     type Candidate = { key: string; title: string; text: string };
     type Query = { id: number; query: string; deadline: number };
     const vectors = new Map<string, number[][]>();
     let desired = new Map<string, Candidate>(), remaining: Candidate[] = [], queries: Query[] = [];
     let pumping = false, epoch = 0, reused = 0, computed = 0, snapshot = '', closing = false, disposed = false;
+    const retries = new Map<string, { attempts: number; at: number }>(), blocked = new Set<string>();
+    let retryTimer: NodeJS.Timeout | undefined;
     async function shutdown() {
       if (disposed) return;
-      disposed = true;
+      disposed = true; clearTimeout(retryTimer);
       try { db.close(); await extractor.dispose(); } finally { port.close(); }
     }
     const valid = (v: unknown): v is number[] => Array.isArray(v) && v.length === 384 && v.every(Number.isFinite) && Math.abs(Math.hypot(...v) - 1) < 0.0001;
@@ -74,7 +99,19 @@ export async function adaptiveVectorWorker() {
       if (!valid(vector)) throw new Error('vector');
       return vector;
     }
-    const status = () => port.postMessage({ type: 'status', snapshot, indexed: vectors.size, pending: desired.size - vectors.size, reused, computed });
+    const status = () => port.postMessage({ type: 'status', snapshot, indexed: vectors.size, pending: desired.size - vectors.size, reused, computed,
+      retrying: retries.size, blocked: blocked.size, cacheRecovered });
+    function scheduleRetries() {
+      clearTimeout(retryTimer);
+      const next = Math.min(...[...retries.values()].map((r) => r.at));
+      if (closing || !Number.isFinite(next)) return;
+      retryTimer = setTimeout(() => {
+        for (const [key, retry] of retries) if (retry.at <= Date.now() && desired.has(key)) {
+          remaining.push(desired.get(key)!); retry.at = Infinity;
+        }
+        void pump();
+      }, Math.max(1, next - Date.now()));
+    }
     async function answer() {
       while (queries.length && !closing) {
         const q = queries.shift()!;
@@ -108,13 +145,26 @@ export async function adaptiveVectorWorker() {
               await answer(); // 每块之间让查询先走，避免排在整批历史后面。
               if (version !== epoch || closing) break;
             }
-            if (closing || version !== epoch || !desired.has(candidate.key)) continue;
+            if (closing || version !== epoch || !desired.has(candidate.key)) {
+              if (desired.has(candidate.key) && retries.has(candidate.key)) retries.get(candidate.key)!.at = Date.now() + 2000;
+              continue;
+            }
             const value = JSON.stringify(list);
             db.prepare('INSERT OR REPLACE INTO vectors VALUES (?,?,?,?,?)').run(agent, space, candidate.key, value, digest(value));
-            vectors.set(candidate.key, list); computed++; status();
-          } catch { port.postMessage({ type: 'index-error' }); }
+            vectors.set(candidate.key, list); retries.delete(candidate.key); computed++; status();
+          } catch (error) {
+            if (desired.has(candidate.key) && !closing) {
+              if ([11, 26].includes(Number((error as { errcode?: number }).errcode) & 255)) {
+                closing = true; port.postMessage({ type: 'failed', stage: 'cache' }); continue;
+              }
+              if (error instanceof Error && ['chunk_limit', 'truncated'].includes(error.message)) { blocked.add(candidate.key); retries.delete(candidate.key); }
+              else { const attempts = (retries.get(candidate.key)?.attempts ?? 0) + 1;
+                retries.set(candidate.key, { attempts, at: Date.now() + Math.min(60_000, 2000 * 2 ** Math.min(attempts - 1, 5)) }); }
+              port.postMessage({ type: 'index-error' }); status();
+            }
+          }
         }
-      } finally { pumping = false; if (closing) await shutdown(); }
+      } finally { pumping = false; if (closing) await shutdown(); else scheduleRetries(); }
     }
     port.on('message', (message) => {
       try {
@@ -127,6 +177,8 @@ export async function adaptiveVectorWorker() {
           if (!Array.isArray(list) || list.length > 1000 || Buffer.byteLength(JSON.stringify(list)) > 8 * 1024 * 1024 ||
               list.some((c) => !c || !/^[a-f0-9]{64}$/.test(c.key) || typeof c.title !== 'string' || typeof c.text !== 'string')) throw new Error('input');
           epoch++; snapshot = digest(JSON.stringify(list)); desired = new Map(list.map((c) => [c.key, c]));
+          for (const key of retries.keys()) if (!desired.has(key)) retries.delete(key);
+          for (const key of blocked) if (!desired.has(key)) blocked.delete(key);
           for (const key of vectors.keys()) if (!desired.has(key)) vectors.delete(key);
           // 当前快照未包含的旧记录删除；加载时校验空间、向量形状与内容摘要。
           for (const row of db.prepare('SELECT key,value,digest FROM vectors WHERE agent=? AND space=?').all(agent, space)) {
@@ -136,16 +188,20 @@ export async function adaptiveVectorWorker() {
               db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, key); vectors.delete(key);
             } else if (!vectors.has(key)) { vectors.set(key, stored); reused++; }
           }
-          remaining = list.filter((c) => !vectors.has(c.key)); status(); void pump();
+          remaining = list.filter((c) => !vectors.has(c.key) && !retries.has(c.key) && !blocked.has(c.key)); status(); void pump();
         } else if (message.type === 'query') {
           if (typeof message.query !== 'string' || message.query.length > 8000 || !Number.isSafeInteger(message.id) || !Number.isFinite(message.deadline) || queries.length >= 16) throw new Error('query');
           queries.push(message); void pump();
         } else if (message.type === 'cancel') queries = queries.filter((q) => q.id !== message.id);
-      } catch { port.postMessage({ type: 'index-error' }); }
+      } catch (error) {
+        if (Number.isInteger((error as { errcode?: number }).errcode)) {
+          closing = true; remaining = []; queries = []; port.postMessage({ type: 'failed', stage: 'cache' }); if (!pumping) void shutdown();
+        } else port.postMessage({ type: 'index-error' });
+      }
     });
     port.postMessage({ type: 'ready' });
   } catch {
     try { database?.close(); await extractor?.dispose(); } catch { /* 失败信息不含私有输入 */ }
-    port.postMessage({ type: 'failed' }); port.close();
+    port.postMessage({ type: 'failed', stage: failureStage }); port.close();
   }
 }

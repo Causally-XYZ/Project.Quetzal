@@ -21,6 +21,7 @@ const { AdaptiveStore } = await import('../../src/memory/adaptive-store.ts');
 const { AdaptiveArchive } = await import('../../src/memory/adaptive-archive.ts');
 const { markBusy } = await import('../../src/heart/heart.ts');
 const host = await import('../../src/memory/adaptive.ts');
+host.setAdaptiveComponentPreparer(async (root) => fs.existsSync(path.join(root, 'node_modules'))); // 本实验复用已核验组件；首次安装另测。
 const casesBytes = fs.readFileSync(new URL('cases.json', import.meta.url));
 const cases = JSON.parse(casesBytes.toString()) as { documents: string[][]; queries: { id: string; query: string; relevant: string[] }[] };
 const queue = new AdaptiveStore(store.db, identity().id), archive = new AdaptiveArchive(queue, cfg.paths.soul);

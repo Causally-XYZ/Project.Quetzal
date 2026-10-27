@@ -11,6 +11,7 @@ cfg.loadConfig();
 cfg.saveConfig({ body: 'center', brain: { memorySemantic: false, memoryLearning: false }, adaptiveMemory: { enabled: true, hostBody: 'center' } });
 const store = await import('../src/store.ts'); store.openStore();
 const host = await import('../src/memory/adaptive.ts');
+host.setAdaptiveComponentPreparer(async () => false); // 此夹具不测试组件部署，不启动网络安装。
 const { identity } = await import('../src/memory/identity.ts');
 const { AdaptiveStore } = await import('../src/memory/adaptive-store.ts');
 const { bus } = await import('../src/bus.ts');

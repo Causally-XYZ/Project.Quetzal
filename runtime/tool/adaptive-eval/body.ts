@@ -30,6 +30,7 @@ const uninstall = [
   (await import('../../src/mesh/soul-sync.ts')).installSoulSync(mesh),
 ];
 const adaptive = await import('../../src/memory/adaptive.ts');
+adaptive.setAdaptiveComponentPreparer(async () => false); // 此夹具不测试组件部署，不启动网络安装。
 const brain = await import('../../src/mind/brain.ts');
 const { identity } = await import('../../src/memory/identity.ts');
 if (identity().id !== (settings.agent ?? 'x')) throw new Error('评测灵魂身份不匹配');
