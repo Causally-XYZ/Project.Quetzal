@@ -111,3 +111,10 @@ complete 声明需要每检查点五类材料及 pipelineComplete 事件，否�
 **信任边界**：哈希不是签名，JSON Pointer 不是语义证明，live / reviewer / pipelineComplete 是受信运行与审核流程写下的声明。评分器不能阻止伪造整套回执；必须核查原始运行日志和审核 provenance，不能让被测模型生成整份回执后直接作为成绩。测试文件有意构造标 live 的占位回执来测试算术，明确不是正式执行证据或已审核语义。
 
 模型旁路记录现包含实际 ChatRequest.responseSchema（如果有），不能只保存 messages 后漏掉供应商原生约束。Google 提案原生发送 schema，普通对话不启用；其他协议按宿主现有路由准备提示。失败只新增白名单 reason（idle_timeout / content_timeout / cancelled / network / http / protocol），不保存任意异常正文、端点或凭据。旧记录没有 reason 时保持缺失，不追溯猜填；原因分类不改变时限、重试或语义评分。
+
+
+### 传输失败定位与后台恢复
+
+ADC 开发传输现对成功、HTTP 拒绝、异常和取消都生成一次终态回执。除模型版本 / finish / 已收到用量外，记录固定 state、phase（credentials / headers / body）、HTTP status 或 null、凭据完成 / 响应头 / 首字节的相对毫秒数和已收字节数。等待响应头只表示 fetch 尚未返回，不能据此区分 DNS、TLS、网络传输或服务端排队。`complete` 仅表示流结束，实际模型版本与 STOP 仍由运行器独立检查。无计量仍 unknown；部分流的已收到计量只作原始证据，不能冒充完整账单。回执不含 URL、项目、账号、凭据、响应头、异常正文或供应商错误正文；旧回执缺少阶段时不追溯猜填。
+
+`runtime/test/adaptive-background-recovery.test.ts` 单独检验生产后台的持久重试：真实双身体与自动 Git 发布，第一次模型生成由替身注入失败；观察 queued / 退避到期、无提前认识或回执，然后自行第二次生成、一次发布及对端可读。它不修改队列时钟、不手工重排任务、不调用真实模型，不表示外部服务已恢复。公开语义运行器仍在首次失败时停止，本测试不把带失败的语义轨迹改判通过。新测试由既有 test glob 和 tsconfig 包含，传输文件已在开发入口依赖图中，无新增依赖或生产部署配置。

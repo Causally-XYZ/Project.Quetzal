@@ -95,3 +95,6 @@ Google 记忆提案通过原生结构化输出发送 schema；其他协议继续
 
 
 adaptive-vector / adaptive-vector-worker 已将固定 E5 的实际近邻接到宿主查询：中心自动准备并加载 QUETZAL_HOME/data/adaptive-retrieval/component 中的固定组件，空闲时增量索引，100ms内无近邻则词面降级；最终仍核对当前来源和认识摘要。SQLite 缓存按 agent / 模型空间隔离，组件关闭时等待原生调用释放。独立组件清单位于 components/adaptive-retrieval，固定版本不加入所有身体的 npm 主依赖；tsconfig 开启 JSON 导入，worker 与固定元数据由既有 main 构建纳入。首次安装、模型续传、停止取消、依赖重装、派生库损坏重建和暂时索引失败重试均已接线；使用者不需要执行开发准备脚本。缓存预热下的真实部署已验证，全冷网络及跨平台仍待验收。RRF 副本许可继续随 main 分发。检索探针的 --fusion-only 可不安装模型就对照固定上游；vertex.py 的 --live 仅用公开夹具做独立 ADC 参考，不表示可接受其前台网络延迟。
+
+
+ADC 开发调用现在保留失败发生的安全阶段与计时，旧记录没有的字段不猜填。生产后台首次失败后的自动退避、再次生成、唯一发布与对端读取已由独立双身体替身测试验证；它不证明真实模型服务已恢复，不改变语义运行器的失败保留规则。详见[开发运行器](../tool/adaptive-eval/README.md#传输失败定位与后台恢复)及阶段记录 §4.43。既有依赖、构建、tsconfig 与测试入口已覆盖，无新增生产部署项。

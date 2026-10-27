@@ -221,3 +221,6 @@ adapters/
 
 
 `withAdaptiveSources` 在已有 SQLite / 灵魂读取边界内为可见来源附加 recordedAt（有效消息毫秒时间转换为 UTC，否则 null）。`historyReading` 将已核对 sources 送入 `adaptiveSemanticContext`，逐根比对 hash 后生成来源时间材料；不改 RPC v2 或认识正文。近况逐条标注记录时间，session.updated 只作为会话更新信息。`sourceRecordedAt` 不把缺失 / 损坏值补成当前时间；记录时间不填入事件时间。模型准备的既有复核覆盖该材料与时间变化。提案提示要求每个 reported 角色有来源，允许缺少未知参与角色，必要推断另建 inferred / hypothesis；提示约束仍须真实语义评测。
+
+
+开发专用 `adcFetch` 在 credentials / headers / body 阶段记录终态回执，取消监听只报告一次并清理；流异常保留已收到的白名单计量，认证值与错误正文继续隔离。成功状态仅描述传输结束，模型版本 / STOP 仍需上层核查。宿主既有失败任务最多五次尝试、持久退避不变；新增双身体恢复测试验证首次失败后无需控制端干预即可重试、发布和读取。公开语义试跑仍遇首次失败立即收尾；恢复测试是独立工程证据。

@@ -44,3 +44,53 @@ test('保留未知模型标记与缺失计量；流中断也不泄漏异常详�
   const broken = adcFetch(async () => new Response(new ReadableStream({ pull(c) { c.error(new Error('secret-sentinel')); } })), credentials, () => {});
   await assert.rejects((await broken(url, { method: 'POST' })).text(), (e: Error) => !e.message.includes('secret-sentinel'));
 });
+
+test('失败阶段与取消只记录一次，凭据等待失败和响应头前失败可区分', async () => {
+  for (const phase of ['credentials', 'headers'] as const) {
+    const receipts: VertexReceipt[] = [];
+    const send = adcFetch(async () => { throw new Error('PRIVATE-ENDPOINT'); }, async () => {
+      if (phase === 'credentials') throw new Error('PRIVATE-TOKEN'); return credentials();
+    }, (r) => receipts.push(r));
+    await assert.rejects(send(url, { method: 'POST' }));
+    assert.equal(receipts.length, 1); assert.equal(receipts[0].phase, phase); assert.equal(receipts[0].state, 'failed');
+    assert.equal(receipts[0].status, null); assert.equal(receipts[0].bytes, 0); assert.deepEqual(receipts[0].usage, []);
+    assert.ok(!JSON.stringify(receipts).includes('PRIVATE'));
+  }
+  const receipts: VertexReceipt[] = [], controller = new AbortController();
+  let started!: () => void; const waiting = new Promise<void>((resolve) => { started = resolve; });
+  const send = adcFetch(async (_input, init) => {
+    started(); return await new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new Error('PRIVATE')), { once: true }));
+  }, credentials, (r) => receipts.push(r));
+  const request = send(url, { method: 'POST', signal: controller.signal });
+  await waiting; controller.abort(); await assert.rejects(request);
+  assert.equal(receipts.length, 1); assert.equal(receipts[0].state, 'cancelled'); assert.equal(receipts[0].phase, 'headers');
+  assert.equal(typeof receipts[0].credentialsMs, 'number'); assert.equal(receipts[0].headersMs, undefined);
+});
+
+test('流中断保留已收到的计量与首字节时间，HTTP 不读取敏感错误正文', async () => {
+  const receipts: VertexReceipt[] = [], raw = 'data: {"modelVersion":"gemini-3.8-flash","usageMetadata":{"promptTokenCount":12}}\n\n';
+  let n = 0;
+  const send = adcFetch(async () => new Response(new ReadableStream({ pull(c) {
+    if (n++ === 0) c.enqueue(new TextEncoder().encode(raw)); else c.error(new Error('PRIVATE-BODY'));
+  } }), { headers: { 'content-type': 'text/event-stream' } }), credentials, (r) => receipts.push(r));
+  await assert.rejects((await send(url, { method: 'POST' })).text());
+  assert.equal(receipts.length, 1); const r = receipts[0];
+  assert.equal(r.phase, 'body'); assert.equal(r.state, 'failed'); assert.equal(r.status, 200);
+  assert.equal(r.bytes, Buffer.byteLength(raw)); assert.equal(typeof r.firstByteMs, 'number');
+  assert.deepEqual(r.versions, [vertexModels[1]]); assert.deepEqual(r.finish, []); assert.equal((r.usage[0] as any).promptTokenCount, 12);
+  const http = adcFetch(async () => new Response('PRIVATE-BODY', { status: 429 }), credentials, (r) => receipts.push(r));
+  await (await http(url, { method: 'POST' })).text();
+  assert.equal(receipts[1].state, 'http'); assert.equal(receipts[1].status, 429); assert.equal(receipts[1].bytes, 0);
+  assert.ok(!JSON.stringify(receipts).includes('PRIVATE'));
+});
+
+test('调用方取消响应流也生成终态；已取消请求不再取得凭据', async () => {
+  const receipts: VertexReceipt[] = []; let auth = 0, cancelled = false;
+  const send = adcFetch(async () => new Response(new ReadableStream({ cancel() { cancelled = true; } })),
+    async () => { auth++; return credentials(); }, (r) => receipts.push(r));
+  await (await send(url, { method: 'POST' })).body!.cancel();
+  assert.equal(cancelled, true); assert.equal(receipts.length, 1); assert.equal(receipts[0].state, 'cancelled');
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(send(url, { method: 'POST', signal: controller.signal }));
+  assert.equal(auth, 1); assert.equal(receipts[1].phase, 'credentials'); assert.equal(receipts[1].state, 'cancelled');
+});

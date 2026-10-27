@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 
 export const vertexModels = ['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'];
 export const vertexPlaceholder = 'https://quetzal-adc.invalid';
-export interface VertexReceipt { model: string; versions: string[]; finish: string[]; usage: unknown[]; elapsedMs: number }
+export interface VertexReceipt {
+  model: string; versions: string[]; finish: string[]; usage: unknown[]; elapsedMs: number;
+  state: 'complete' | 'http' | 'failed' | 'cancelled'; phase: 'credentials' | 'headers' | 'body';
+  status: number | null; credentialsMs?: number; headersMs?: number; firstByteMs?: number; bytes: number;
+}
 type Credentials = { project: string; token: string };
 
 export async function loadAdc(): Promise<Credentials> {
@@ -28,22 +32,39 @@ export function adcFetch(native: typeof fetch, credentials: () => Promise<Creden
     if (!url.startsWith(`${vertexPlaceholder}/`)) return native(input, init);
     const match = /^https:\/\/quetzal-adc\.invalid\/models\/([^/:?]+):streamGenerateContent\?alt=sse$/.exec(url);
     if (!match || !vertexModels.includes(match[1]) || init?.method !== 'POST') throw new Error('开发试验请求不在许可范围');
-    const start = Date.now(), { project, token } = await credentials();
-    init.signal?.throwIfAborted();
-    let response: Response;
+    const start = Date.now();
+    let phase: VertexReceipt['phase'] = 'credentials', status: number | null = null, reported = false;
+    let credentialsMs: number | undefined, headersMs: number | undefined, firstByteMs: number | undefined;
+    let buffer = '', bytes = 0;
+    const versions = new Set<string>(), finish = new Set<string>(), usage: unknown[] = [];
+    // 失败也只保存固定分类和计时；不能用缺少完整回执推断失败发生在哪一层。
+    const done = (state: VertexReceipt['state']) => {
+      if (reported) return;
+      reported = true; init?.signal?.removeEventListener('abort', aborted);
+      report({ model: match[1], versions: [...versions], finish: [...finish], usage: structuredClone(usage), elapsedMs: Date.now() - start,
+        state, phase, status, credentialsMs, headersMs, firstByteMs, bytes });
+    };
+    const aborted = () => done('cancelled');
+    init.signal?.addEventListener('abort', aborted, { once: true });
+    let response: Response | undefined;
     try {
+      init.signal?.throwIfAborted();
+      const { project, token } = await credentials(); credentialsMs = Date.now() - start;
+      init.signal?.throwIfAborted(); phase = 'headers';
       response = await native(`https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/${match[1]}:streamGenerateContent?alt=sse`,
         { ...init, redirect: 'error', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
           authorization: `Bearer ${token}`, 'x-goog-user-project': project } });
-    } catch { throw new Error('开发试验模型传输失败'); }
+      status = response.status; headersMs = Date.now() - start;
+      init.signal?.throwIfAborted();
+    } catch { done(init.signal?.aborted ? 'cancelled' : 'failed'); await response?.body?.cancel().catch(() => {}); throw new Error('开发试验模型传输失败'); }
     if (!response.ok) {
-      await response.body?.cancel();
+      done('http'); await response.body?.cancel();
       return new Response('{"error":"development-provider-http"}', { status: response.status, headers: { 'content-type': 'application/json' } });
     }
+    phase = 'body';
+    if (!response.body) { done('failed'); throw new Error('开发试验模型响应缺失'); }
     // 流式透传，不先缓冲整段回复；仅旁路读取白名单计量字段。
-    const reader = response.body!.getReader(), decoder = new TextDecoder();
-    let buffer = '', bytes = 0;
-    const versions = new Set<string>(), finish = new Set<string>(), usage: unknown[] = [];
+    const reader = response.body.getReader(), decoder = new TextDecoder();
     const consume = (line: string) => {
       if (!line.startsWith('data:')) return;
       try {
@@ -63,18 +84,18 @@ export function adcFetch(native: typeof fetch, credentials: () => Promise<Creden
         try {
           const part = await reader.read();
           if (part.done) {
-            consume(buffer); report({ model: match[1], versions: [...versions], finish: [...finish], usage, elapsedMs: Date.now() - start });
+            consume(buffer); done('complete');
             controller.close(); return;
           }
-          bytes += part.value.length;
+          firstByteMs ??= Date.now() - start; bytes += part.value.length;
           if (bytes > 2 * 1024 * 1024) throw new Error();
           buffer += decoder.decode(part.value, { stream: true });
           let end: number;
           while ((end = buffer.indexOf('\n')) >= 0) { consume(buffer.slice(0, end).replace(/\r$/, '')); buffer = buffer.slice(end + 1); }
           controller.enqueue(part.value);
-        } catch { await reader.cancel().catch(() => {}); controller.error(new Error('开发试验模型响应中断')); }
+        } catch { done(init.signal?.aborted ? 'cancelled' : 'failed'); await reader.cancel().catch(() => {}); controller.error(new Error('开发试验模型响应中断')); }
       },
-      cancel: () => reader.cancel(),
+      cancel: () => { done('cancelled'); return reader.cancel(); },
     }), { status: response.status, headers: response.headers });
   };
 }
