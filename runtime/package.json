@@ -11,6 +11,7 @@
     "bench:adaptive-read": "node --experimental-strip-types tool/adaptive-read-benchmark.ts",
     "pilot:adaptive-live": "node --experimental-strip-types tool/adaptive-live-pilot.ts",
     "eval:adaptive": "node --experimental-strip-types tool/adaptive-eval/cli.ts",
+    "pilot:adaptive-multibody": "node --experimental-strip-types tool/adaptive-eval/development.ts",
     "dev": "QUETZAL_HOME=./.dev node --experimental-strip-types src/main.ts"
   },
   "dependencies": {

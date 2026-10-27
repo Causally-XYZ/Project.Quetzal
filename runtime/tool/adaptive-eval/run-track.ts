@@ -1,0 +1,111 @@
+// 逐步输入 -> 真实复制/后台/灵魂发布 -> 对端网关回答。只收已释放操作，不收预期答案。
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fakeSync } from '../../test/fixtures/fake-sync.ts';
+import { loadNodeKey } from '../../src/mesh/identity.ts';
+import { startBody, type BodyClient } from './process-client.ts';
+import { digest, type Track } from './spec.ts';
+import type { ObservedCall } from './model-observer.ts';
+export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
+export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number }
+const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
+const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
+export async function runTrack(options: TrackOptions) {
+  // 负例和受控图需要专门执行端；不把未实现操作默默转换成普通输入。
+  if (options.track.setup !== 'empty' || !options.track.steps.length || options.track.steps.length > 8
+    || options.track.steps.some((s) => s.scope !== 'accessible' || s.operation || Object.hasOwn(s, 'checks')))
+    throw new Error('evaluation-track-not-supported');
+  const stepTimeoutMs = options.stepTimeoutMs ?? 180000, maxCalls = options.maxCalls ?? 36;
+  if (!Number.isSafeInteger(stepTimeoutMs) || stepTimeoutMs < 1000 || stepTimeoutMs > 300000) throw new Error('evaluation-timeout-invalid');
+  fs.mkdirSync(options.root); // 不复用旧目录，不覆盖失败证据。
+  write(options.root, 'input.json', options.track);
+  write(options.root, 'execution.json', { schema: 'quetzal-m2-track-development-v1', inputHash: digest(options.track), kind: options.kind,
+    model: options.model, maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
+    answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
+    limits: '开发链路；不等于冻结正式计划或语义通过。当前不支持权限负例/其他agent/受控依赖图。' });
+  const clients: BodyClient[] = [], keys: Record<string, string> = {};
+  let sync: Awaited<ReturnType<typeof fakeSync>> | undefined;
+  const report: any = { schema: 'quetzal-m2-track-development-result-v1', kind: options.kind, status: 'running', checkpoints: [], shutdown: [] };
+  const started = Date.now();
+  async function until<T>(check: () => Promise<T | undefined>, label: string, timeout = stepTimeoutMs): Promise<T> {
+    const deadline = Date.now() + timeout;
+    while (true) { const value = await check(); if (value !== undefined) return value;
+      if (Date.now() >= deadline) throw new Error(`evaluation-${label}-timeout`);
+      await new Promise((r) => setTimeout(r, 200)); }
+  }
+  const snapshot = (body: BodyClient) => body.call<any>('snapshot');
+  const checkFailures = (state: any) => {
+    if (state.calls.some((c: ObservedCall) => c.state === 'failed' || c.result?.truncated)
+      || state.jobs.some((j: any) => j.error && j.error !== 'source_changed') || state.status.error)
+      throw new Error('evaluation-background-or-model-failed');
+    if (options.kind === 'live' && state.calls.some((c: ObservedCall) => c.state === 'returned' && (!c.transport.length
+      || c.transport.some((t) => t.versions.length !== 1 || t.versions[0] !== options.model || !t.finish.includes('STOP')))))
+      throw new Error('evaluation-model-metadata-incomplete');
+  };
+  async function settled(center: BodyClient, satellite: BodyClient) {
+    return until(async () => {
+      const state = await snapshot(center); checkFailures(state);
+      const observed = new Set(state.receipts.filter((r: any) => r.processor === 'semantic-v1').map((r: any) => r.source));
+      if (state.messages.some((m: any) => m.mode !== 'ignored' && !observed.has(m.id))
+        || state.publications.some((p: any) => p.state !== 'published') || state.status.semantic.state !== 'idle' || state.sync.unpushed) return;
+      const remote = await snapshot(satellite); checkFailures(remote);
+      if (digest(state.records) !== digest(remote.records) || state.messages.some((m: any) => !remote.messages.some((r: any) => r.id === m.id))) return;
+      return { center: state, satellite: remote };
+    }, 'settle');
+  }
+  try {
+    await import('node-datachannel');
+    for (const body of ['center', 'satellite']) keys[body] = loadNodeKey(path.join(options.root, body, 'secrets/mesh_ed25519')).nodeKey;
+    sync = await fakeSync(keys);
+    const remote = path.join(options.root, 'soul.git'), seed = path.join(options.root, 'seed');
+    git(options.root, 'init', '--bare', '-b', 'main', remote); fs.mkdirSync(seed); git(seed, 'init', '-b', 'main');
+    git(seed, 'config', 'user.name', '合成评测'); git(seed, 'config', 'user.email', 'synthetic@example.invalid');
+    fs.writeFileSync(path.join(seed, 'agent.json'), JSON.stringify({ id: 'x', name: 'synthetic', displayName: '合成评测' }));
+    git(seed, 'add', 'agent.json'); git(seed, 'commit', '-m', '合成评测初始灵魂'); git(seed, 'push', remote, 'main');
+    for (const body of ['center', 'satellite']) clients.push(await startBody(path.join(options.root, body), {
+      body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
+    }));
+    const [center, satellite] = clients;
+    await until(async () => (await satellite.call<string[]>('connected')).includes('center') ? true : undefined, 'connection', 25000);
+    report.bodies = clients.map((c) => ({ pid: c.pid, port: c.port }));
+    for (const [index, step] of options.track.steps.entries()) {
+      const point = `${options.track.id}/${step.id}`, before = Date.now();
+      await Promise.all(clients.map((c) => c.call('phase', { value: point })));
+      const producer = step.body === 'A' ? center : satellite, consumer = step.body === 'A' ? satellite : center;
+      const source = await producer.call<number>('source', { ...step, query: undefined, session: `source-${index + 1}` });
+      await until(async () => {
+        const a = await snapshot(center), b = await snapshot(satellite); checkFailures(a);
+        return [a, b].every((s) => s.messages.some((m: any) => m.id === source && m.text === step.text && m.ts === Date.parse(step.at))) ? true : undefined;
+      }, 'replication');
+      const preAnswer = await settled(center, satellite);
+      const session = `answer-${index + 1}`, answerStarted = Date.now();
+      const answer = await consumer.rpc('chat.send', { conv: session, text: step.query }, stepTimeoutMs);
+      const answerElapsedMs = Date.now() - answerStarted, plan = await consumer.call('plan', { session });
+      // 查询和回答按正常产品历史留存；等待它们的后台处理，再发布下一步骤。
+      const postAnswer = await settled(center, satellite);
+      const checkpoint = { point, source, producer: step.body, answerBody: step.body === 'A' ? 'B' : 'A', preAnswer, postAnswer, answer, plan,
+        elapsedMs: Date.now() - before, answerElapsedMs };
+      write(options.root, `checkpoint-${index + 1}.json`, checkpoint);
+      report.checkpoints.push({ point, source, file: `checkpoint-${index + 1}.json`, sha256: digest(checkpoint), elapsedMs: checkpoint.elapsedMs, answerElapsedMs });
+    }
+    report.status = 'pipeline-completed-needs-review';
+  } catch (error) {
+    report.status = 'failed'; report.failure = error instanceof Error && /^evaluation-[a-z-]+$/.test(error.message) ? error.message : 'evaluation-run-failed';
+  } finally {
+    for (const [index, client] of clients.entries()) {
+      try { write(options.root, `final-body-${index + 1}.json`, await snapshot(client)); } catch { report.finalSnapshotMissing = true; }
+    }
+    report.shutdown = await Promise.all(clients.map((c) => c.stop()));
+    for (const [index, body] of ['center', 'satellite'].entries()) if (clients[index]) {
+      try {
+        const evidence = JSON.parse(fs.readFileSync(path.join(options.root, body, 'shutdown-evidence.json'), 'utf8'));
+        report.shutdown[index].evidenceHash = digest(evidence);
+      } catch { report.finalSnapshotMissing = true; }
+    }
+    sync?.close();
+    if (report.shutdown.some((s: any) => s.forced || s.exitCode !== 0) || report.finalSnapshotMissing) report.status = 'failed';
+    report.elapsedMs = Date.now() - started; write(options.root, 'result.json', report);
+  }
+  return report;
+}
