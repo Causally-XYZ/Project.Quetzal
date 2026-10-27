@@ -262,7 +262,7 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 修订模式下 `memory_records` 与读取受管结构化笔记的 `note_read` 返回原 key / kind / state / scope / validation，并新增 `reading`：status 为 historical / unverifiable / unavailable，附 generation、local-snapshot、来源 hash / notices 和说明。state / validation 只表示原审核；unavailable 时省略 text / evidence，保留管理元数据。普通笔记仍返回带无法核对说明的原文；自适应批次存档核对权威文件和全部输入，输入不可访问时不返回旧 payload。工具参数与 RPC 不变，纯存储读取 API 不改变。 `recall` 的笔记结果复用同一读取视图和会话范围；不可访问结果整项跳过，不输出旧片段或标题，随后再取请求条数。普通笔记 / 日记 / 常驻文档在返回前核对当前正文，无出处材料仍只作历史资料。候选最多200项、最终输出512 KiB，未承诺全库检索无遗漏。
 
-本轮 `recall` / `note_read` / `memory_records` / `context_read` 的成功读取新增内部 reading 凭据，通过引擎记录端口写入本机 tool_calls.reading。旧库自动补可空列，旧记录没有凭据时不伪造出处。后续模型准备与工具原文回查核对来源，变化 / 不可访问时不输出旧派生正文，原执行记录保持不变。context_read 的工具回查每页也重复当前修订；分页是当前读取视图中的字符位置，不承诺来源变化前后的分页偏移稳定。凭据不是新的语义查询 packet，也不复制进灵魂或网状状态。
+本轮 `recall` / `note_read` / `memory_records` / `context_read` 的成功读取新增内部 reading 凭据，通过引擎记录端口写入本机 tool_calls.reading。旧库自动补可空列，旧记录没有凭据时不伪造出处。后续模型准备与工具原文回查核对来源，变化 / 不可访问时不输出旧派生正文，原执行记录保持不变。context_read 的工具回查每页也重复当前修订；分页是当前读取视图中的字符位置，不承诺来源变化前后的分页偏移稳定。凭据不是新的语义查询 packet，也不复制进灵魂或网状状态。 修订模式中，历史消息回查的 message.process 是执行索引投影，不含原参数摘要 / 结果摘录 / 中途文字；每页说明限制，完整本机工具结果在 tools 中另经核查。缺少本机映射不自动跨身体获取或猜来源。等锁期间引用变动且未核查时返回错误，调用者可重读。原始 messages.process 和 tool.detail 管理记录不改。
 
 生产系统提示的跨会话近况在每个模型候选准备时核对来源，原文节选与完整修订提示整项保留或省略；快速内省的故障转移也重新读取。不改变外部 RPC。字符串 systemPrompt 仅作兼容预览，修订模式下不包含未经核查的跨会话正文；内部生产入口为 systemMessage，来源绑定由上下文宿主消费。此能力只保证本机已收到的状态，不保证中心最新或覆盖任意无出处派生资料。
 

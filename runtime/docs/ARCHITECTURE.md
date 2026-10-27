@@ -14,6 +14,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/read-receipt.ts` 用 AsyncLocalStorage 记录记忆工具实际读取的来源 hash / 文档摘要，拒绝混合或超限的可用凭据；`mind/tool-reading.ts` 核查作用域、原结果和当前来源，生成当前投影。store 启动自动为 tool_calls 补 reading 可空列；engine 仅原样把不透明凭据交给 recordTool。context 准备和 context_read 工具回查共用投影，atomic 标记防止修订被头尾节选裁掉。无新依赖 / 服务，既有构建自动包含；灵魂格式不变。
 
+`mind/process-reading.ts` 为历史过程生成执行索引；history 原始生成和 context 发送前都排除无独立凭据的展示副本。messageRef 回查同样投影 process，完整本机工具另经来源核查；缺失 / 其他身体旧副本不猜关联。摘要核查值包含读取政策版本，升级后旧摘要失效。新增路径复用原 context 缓存，无新表、依赖、配置或服务；既有 TypeScript / 测试 glob / 构建入口包含。专项用例见 adaptive-tool-reading 与 adaptive-history，原管理界面不改。
+
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
 开发评测在 `tool/adaptive-vertex-*.py` 保留安全失败分类和可选 curl 传输，未报告用量为 null；取消会结束 HTTP 子进程。`tool/adaptive-checkpoint-probe/` 单独锁定开源探针的开发依赖，实际执行真实 MemorySaver 契约，不加入生产依赖 / 打包路径；范围和复现命令见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。

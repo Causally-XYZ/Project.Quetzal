@@ -212,3 +212,22 @@ test('实际 session_compact 在修订模式仅存档，不承诺截断旧原文
     assert.match(text, /饭友是编辑/); assert.ok(!text.includes('MANUAL_UNVERSIONED'));
   } finally { session.close(); }
 });
+
+
+test('升级过程读取规则后不继承旧规则生成的持久摘要，即使消息和图版本未变', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0; script = async () => ({ content: '完成' });
+  const conv = 'history-old-policy'; store.ensureSession(conv, '合成');
+  const source = store.addMessage('agent', '合成', '历史回复', { session: conv, process: [{ type: 'text', text: 'OLD_PROCESS_IN_SUMMARY' }] });
+  const { withAdaptiveSources } = await import('../src/memory/adaptive.ts');
+  const key = await withAdaptiveSources([source], (view) => {
+    assert.ok(view);
+    const reading = crypto.createHash('sha256').update(JSON.stringify({ generation: view.generation, sources: view.sources })).digest('hex');
+    return crypto.createHash('sha256').update(JSON.stringify({ reading, rows: [[source, store.getSessionMessage(source, conv)]] })).digest('hex');
+  });
+  store.kv.set(`context.plan.${conv}`, { summary: { text: 'OLD_PROCESS_IN_SUMMARY' }, adaptiveBasis: { sources: [source], key } });
+  const messages: Msg[] = [{ role: 'user', content: '继续' }], ctx = contextHost.createTurnContext('old-policy-turn', conv, messages);
+  try {
+    await router.chat(await ctx.prepare({ messages, maxTokens: 256 }));
+    assert.ok(!joined(seen.at(-1)).includes('OLD_PROCESS_IN_SUMMARY'));
+  } finally { ctx.close(); }
+});

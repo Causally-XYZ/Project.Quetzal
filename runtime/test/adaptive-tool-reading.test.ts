@@ -237,6 +237,80 @@ test('摘要等待期间旧工具来源变化，清缓存重建，不让任务�
   } finally { context.close(); }
 });
 
+test('跨轮过程附注仅作索引，完整结果回查核对纠正和后续撤回，每页不返回旧副本', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const conv = 'process-local', turn = 'process-original', f = fixture(conv);
+  await record(conv, f.source, 'process-local', 'BOUND_PROCESS_FACT');
+  await execute('note_read', { name: 'QuetzalMemory/process-local_v1' }, turn, conv);
+  const process = [
+    { type: 'tool', call: 'read-call', name: 'note_read', status: 'ok', ms: 1, summary: 'STALE_PROCESS_ARGS', result: 'STALE_PROCESS_COPY' },
+    { type: 'text', text: 'STALE_PROCESS_NARRATIVE' },
+    { type: 'steer', text: 'STALE_PROCESS_STEER', ambient: true },
+  ];
+  const reply = store.addMessage('agent', '合成', '回复历史原文', { session: conv, process });
+  store.saveContextSource(`message-tools:${reply}`, conv, JSON.stringify([{ call: 'read-call', turn }]));
+  const messages = historyMessages(conv), original = structuredClone(messages), raw = store.getSessionMessage(reply, conv);
+  assert.ok(!JSON.stringify(messages).includes('STALE_PROCESS_'));
+  const ctx = contextHost.createTurnContext('process-next', conv, messages);
+  try {
+    f.correct(); await router.chat(await ctx.prepare({ messages, maxTokens: 256 }));
+    const text = joined(seen.at(-1));
+    assert.ok(!text.includes('STALE_PROCESS_')); assert.match(text, /note_read/); assert.match(text, /回复历史原文/);
+    const ref = `history-message:${reply}`; assert.ok(text.includes(ref));
+    const first = await contextHost.contextReadChecked('process-next', ref, 0, 8000);
+    assert.match(first, /饭友是弟弟/); assert.match(first, /BOUND_PROCESS_FACT/);
+    assert.ok(!first.includes('STALE_PROCESS_'));
+    const later = await contextHost.contextReadChecked('process-next', ref, 100, 80);
+    assert.match(later, /饭友是弟弟/); assert.match(later, /没有独立来源凭据/);
+    store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source);
+    const revoked = await contextHost.contextReadChecked('process-next', ref, 0, 8000);
+    assert.ok(!revoked.includes('BOUND_PROCESS_FACT')); assert.ok(!revoked.includes('STALE_PROCESS_'));
+    assert.match(revoked, /不输出旧正文/);
+    assert.deepEqual(messages, original); assert.deepEqual(store.getSessionMessage(reply, conv), raw);
+  } finally { ctx.close(); }
+});
+
+test('无本机工具记录的过程不会猜关联，旧附注对象在发送前也重建', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const conv = 'process-unbound'; store.ensureSession(conv, '合成');
+  const reply = store.addMessage('agent', '主动', '无绑定的历史回复', { session: conv,
+    process: [{ type: 'tool', call: 'other-body-call', name: 'recall', status: 'ok', result: 'UNBOUND_PROCESS_COPY' }, { type: 'text', text: 'UNBOUND_PROCESS_NARRATIVE' }] });
+  // 模拟启用修订前生成、带完整来源对象但仍含旧附注的缓存；不能依靠 history() 当时的模式。
+  const note = contextHost.registerHistorySource({ role: 'user', content: 'UNBOUND_PROCESS_COPY UNBOUND_PROCESS_NARRATIVE' }, reply, conv, true);
+  const messages: Msg[] = [note, { role: 'user', content: '继续' }], ctx = contextHost.createTurnContext('process-unbound-turn', conv, messages);
+  try {
+    await router.chat(await ctx.prepare({ messages, maxTokens: 256 }));
+    assert.ok(!joined(seen.at(-1)).includes('UNBOUND_PROCESS_')); assert.match(joined(seen.at(-1)), /other-body-call/);
+    const ref = `history-message:${reply}`;
+    const page = await contextHost.contextReadChecked('process-unbound-turn', ref);
+    assert.ok(!page.includes('UNBOUND_PROCESS_')); assert.match(page, /缺失时需重新读取/);
+    assert.match(note.content, /UNBOUND_PROCESS_COPY/);
+    store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(reply);
+    await assert.rejects(contextHost.contextReadChecked('process-unbound-turn', ref), /不可访问/);
+  } finally { ctx.close(); }
+});
+
+test('等锁期间替换过程或单工具回查引用，不能退回未经核查的完整记录', async () => {
+  const conv = 'process-race'; store.ensureSession(conv, '合成'); mem.saveNote('竞态笔记', 'RACE_TOOL_BODY');
+  await execute('note_read', { name: '竞态笔记' }, 'race-original', conv, 'race-new');
+  const reply = store.addMessage('agent', '合成', '历史结果', { session: conv });
+  store.saveContextSource('race-message-ref', conv, JSON.stringify({ messageRef: { id: reply, conv } }));
+  const ctx = contextHost.createTurnContext('process-race-turn', conv, []);
+  const replaceWhileWaiting = async (ref: string, mutate: () => void) => {
+    let release!: () => void;
+    const held = mem.exclusive(() => new Promise<void>((resolve) => { release = resolve; })); await new Promise((resolve) => setImmediate(resolve));
+    const pending = contextHost.contextReadChecked('process-race-turn', ref);
+    mutate(); release(); await held;
+    await assert.rejects(pending, /引用在核查期间改变/);
+  };
+  try {
+    await replaceWhileWaiting('race-message-ref', () => store.saveContextSource(`message-tools:${reply}`, conv, JSON.stringify([{ call: 'race-new', turn: 'race-original' }])));
+    store.saveContextSource('race-tool-ref', conv, JSON.stringify({ toolRef: { call: 'missing', turn: 'race-original' } }));
+    await replaceWhileWaiting('race-tool-ref', () => store.saveContextSource('race-tool-ref', conv, JSON.stringify({ toolRef: { call: 'race-new', turn: 'race-original' } })));
+    assert.match(await contextHost.contextReadChecked('process-race-turn', 'race-message-ref'), /RACE_TOOL_BODY/);
+  } finally { ctx.close(); }
+});
+
 test('数据库重新打开后凭据仍在，关闭后台不取消旧工具核查', async () => {
   const conv = 'tool-reopen', turn = 'tool-reopen-turn'; store.ensureSession(conv, '合成'); mem.saveNote('持久笔记', 'PERSISTED_TOOL_TEXT');
   await execute('note_read', { name: '持久笔记' }, turn, conv);

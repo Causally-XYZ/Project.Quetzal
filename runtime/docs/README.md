@@ -50,6 +50,8 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 
 `memory/read-receipt.ts` 捕获四类本机记忆读取的消息 / 文档摘要；`mind/tool-reading.ts` 在模型准备和 context_read 中核查历史工具结果，不重放工具。凭据通过引擎不透明 reading 字段与完整结果一起保存至 tool_calls.reading，启动自动补列，旧记录不伪造来源，记录淘汰同时删除凭据。原始结果不改；修订视图标为 atomic，不能头尾节选。测试见 `test/read-receipt.test.ts`、`test/adaptive-tool-reading.test.ts` 与 engine 的 loop / context-manager 测试。使用 Node 内置 AsyncLocalStorage / crypto，无新增依赖、环境变量或服务；现有类型检查、测试 glob 和部署打包包含新模块。仅本机数据库增加可空列，不改变灵魂格式或复制协议，旧程序仍可读取原有列。
 
+`mind/process-reading.ts` 为历史过程生成执行索引；history 原始生成和 context 发送前都排除无独立凭据的展示副本。messageRef 回查同样投影 process，完整本机工具另经来源核查；缺失 / 其他身体旧副本不猜关联。摘要核查值包含读取政策版本，升级后旧摘要失效。新增路径复用原 context 缓存，无新表、依赖、配置或服务；既有 TypeScript / 测试 glob / 构建入口包含。专项用例见 adaptive-tool-reading 与 adaptive-history，原管理界面不改。
+
 **semantic 生成与默认上下文仍处于受控试验**：前台语义读取 / 纠正覆盖尚未完成，开启时新增的 adaptive 来源查询返回 unavailable、不注入旧观察。关闭 semantic 恢复 M1 来源路径。旧记忆路径保持既有行为，这不是全局纠正一致性验收通过。多身体与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
 
 真实开发工具 `adaptive-semantic-pilot.ts` 与 `adaptive-review-pilot.ts` 使用仓库外隔离数据，见[评测登记](../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。开源探针与边界见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。Graphiti 提示适配副本的许可证与修改说明位于 `third_party/graphiti/`；`tool/build-main.mjs` 将完整许可和说明嵌入所有平台共用的 main.cjs。未新增生产运行依赖、独立服务或生产环境变量；已有 TypeScript / 测试模式覆盖实现，构建入口已同步更新。

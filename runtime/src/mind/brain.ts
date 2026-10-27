@@ -10,6 +10,7 @@ import { chat } from "../providers/router.ts";
 import type { Msg } from "../providers/types.ts";
 import { runTurn, type Step, type FinishTool } from "../../../engine/src/index.ts";
 import { createTurnContext, registerHistorySource } from "./context.ts";
+import { processReading, PROCESS_READING_NOTICE } from "./process-reading.ts";
 import { learnEpisode, evolveMemory, type EpisodeInput } from "../memory/prime.ts";
 import { readStructuredRecords } from "../memory/structured.ts";
 import type { ToolRecord } from "../../../engine/src/loop.ts";
@@ -336,7 +337,8 @@ export function history(conv: string, self: number, budget = Infinity): Msg[] {
       const via = entryBody(m.via);
       text = `[${stamp(m.ts)}${m.mode === "interrupt" ? "，打断" : m.mode === "steer" ? "，插话" : ""}${via ? `｜经 ${via} 发来` : ""}] ${m.text}${files}`;
     } else {
-      const proc = describeProcess(m.process, replies++ < FULL_PROCESS);
+      const full = replies++ < FULL_PROCESS;
+      const proc = guarded && m.process?.length ? PROCESS_READING_NOTICE + JSON.stringify(processReading(m.process)) : describeProcess(m.process, full);
       const where = entryBody(m.body); // 多具身体时：这一轮在哪具身体上做的（那一轮拍的照片、写的文件在那具身体上）
       const on = where ? `在 ${where} 上` : "";
       const sent = m.attachments?.length ? `；随这条消息交给对方的文件：${m.attachments.map((f) => `${f.name}（${f.source ?? f.path}）`).join("、")}` : ""; // deliverable_create 生成的
@@ -345,7 +347,7 @@ export function history(conv: string, self: number, budget = Infinity): Msg[] {
         : `[基座附注，不是对方的话｜${stamp(m.ts)} 你${on}回复了下一条${proc ? `；这一轮的过程记录：${proc}` : ""}${sent}]`;
       if (used + note.length + m.text.length > budget) break;
       used += note.length + m.text.length;
-      out.unshift(registerHistorySource({ role: "user", content: note }, m.id, conv), registerHistorySource({ role: "assistant", content: m.text }, m.id, conv));
+      out.unshift(registerHistorySource({ role: "user", content: note }, m.id, conv, true), registerHistorySource({ role: "assistant", content: m.text }, m.id, conv));
       continue;
     }
     if (used + text.length > budget) break;
