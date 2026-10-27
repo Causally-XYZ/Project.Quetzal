@@ -80,7 +80,7 @@ GCLOUD_BIN="$(command -v gcloud)" node --experimental-strip-types \
 `npm run pilot:adaptive-multibody --prefix runtime -- --kind=live --model=gemini-3.8-flash --steps=3` 把同一公开现实人物案例扩展为双身体开发链路：普通来源在两具独立身体间交替写入，实际复制至集中主机，经正常模型提案、存档与自动 Git 发布；每步在对端网关提问，再等待问题和回答的后台处理。输入时钟只在同步存储 / 广播期间固定，不经浏览器模拟历史发言。与旧工具仅末步提问不同，不能混合成绩。调用开始 / 结束、前后快照、上下文计划、退出证据独立保存，源码字节指纹与输入摘要在启动前记录。缺省 stub，只有显式 live 触发真实 ADC；没有自动语义审核或正式回执；--case=scope 可运行公开范围负例，denied 映射为现有 ignored 来源门禁，other-agent 使用第三个隔离进程与真实 RPC 范围对照，--case=graph 通过正式存档建立受控 AND/OR 图并撤回 A / C 版本，恢复正常模型重评与自动传播，构图不计为 LLM 推理成绩。完整限制见[工具说明](../../runtime/tool/adaptive-eval/README.md#公开多身体开发试跑)。
 
 
-正式执行工具现有 `run:adaptive-eval -- --init/--run`，严格计划要求干净提交和完整配置，逐案例执行、各轨迹独立新建状态、失败保留、原始材料与审核回执绑定。回执 reviews 默认为空，工程完成不等于语义通过；只读评分入口拒绝旧的配置不完整草稿。使用方式与界限见[工具说明](../../runtime/tool/adaptive-eval/README.md#严格计划与实际证据入口)，验证见阶段记录 §4.44。已启动单个真实正式案例并独立审核，但执行失败，M2 未放行。
+正式执行工具现有 `run:adaptive-eval -- --init/--run`，严格计划要求干净提交和完整配置，逐案例执行、各轨迹独立新建状态、失败保留、原始材料与审核回执绑定。回执 reviews 默认为空，工程完成不等于语义通过；只读评分入口拒绝旧的配置不完整草稿。使用方式与界限见[工具说明](../../runtime/tool/adaptive-eval/README.md#严格计划与实际证据入口)，验证见阶段记录 §4.44。已启动单个真实正式案例并独立审核，但执行失败；该完整评分结果保持未通过。M2 已按批准后的独立原型门禁验收，不能混作完整评分通过。
 
 
 独立审核入口 `review:adaptive-eval -- --packet/--record/--select` 已接线。原执行回执不改写，每版审核覆盖所有断言并保留前链；评分须显式传 `--reviews <相对清单路径>`，结果绑定选择摘要，无隐式最新版本。模型自评、替身和未评均不能贡献通过；审核者身份是受信调用方声明，开发 Agent 核查不冒充真人。既有 stub 的两版审核均保持20条未评，真实评分仍为 stub=1 / missing=149 / semanticGate=false。实现与边界见[工具说明](../../runtime/tool/adaptive-eval/README.md#独立审核与显式选择)，验证见阶段记录 §4.45。

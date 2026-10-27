@@ -1,6 +1,14 @@
 # 自适应记忆：开源组件契约实验与测试模型
 
-状态：M2 进行中。本页记录已执行的边界实验和下一步适配方向，**不是完整组件选型或 M2 放行**。关联：[计划](ADAPTIVE_MEMORY_PLAN.md)、[契约](ADAPTIVE_MEMORY_CONTRACT.md)、[验收](ADAPTIVE_MEMORY_ACCEPTANCE.md)、[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)。
+状态：M2 原型采用范围已确定如下；全量质量、跨平台与组件消融移至 M5，不能据此宣称最终工业化选型完成。关联：[计划](ADAPTIVE_MEMORY_PLAN.md)、[契约](ADAPTIVE_MEMORY_CONTRACT.md)、[验收](ADAPTIVE_MEMORY_ACCEPTANCE.md)、[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)。
+
+## 当前原型采用范围
+
+- 采用固定 Graphiti 抽取 / 时间提示与 RRF 的许可适配副本，分别接入提案与检索排序；不采用其默认同名归并或整套图数据库。依据是已复现的身份 / 修订边界差异和真实后台接线，不是声称自行实现优于完整 Graphiti。
+- 采用固定 Transformers.js 3.8.1 与 multilingual-e5-small 本机量化权重，元数据和摘要见 `runtime/components/adaptive-retrieval/`。中心自动准备并维护可重建向量缓存，查询仍经过现有来源 / 版本门禁；词面路径作为降级。真实缓存预热、多身体和损坏恢复已有原始证据，全冷 / 跨平台能力仍待 M4，收益与规模待 M5。
+- 目前不引入 LangGraph 完整执行器或 A-MEM 自动链接写入。已有持久队列、源记录和版本存档承担恢复与修正；这两者的契约探针保留。M3 若需要邻居演化，先借鉴具体实现，再检验是否比现有最小路径更合适，不预设必须引入或永久弃用整套框架。
+
+这是可运行原型的积木选择；最终去留取决于完整用户价值、基线和消融，不能把已有投入作为保留理由。
 
 ## 1. 固定候选与验证边界
 
