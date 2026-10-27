@@ -7,8 +7,8 @@ import { identity } from './identity.ts';
 import { retrieve } from './retrieval.ts';
 import { redactSecrets } from '../mind/secrets.ts';
 import { AdaptiveStore, SOURCE_PROCESSOR, sourceHash, type SourceSnapshot, type MemorySource } from './adaptive-store.ts';
-import { publishPending, commitPending } from './adaptive-publication.ts';
-import { exclusive } from './memory.ts';
+import { publishPending, commitPending, publicationRoot } from './adaptive-publication.ts';
+import { exclusive, search, searchEntries, formatSearchEntries, type SearchOptions } from './memory.ts';
 import { touched, verifyRecordedFiles } from './soul-sync.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
 import { processSemanticNext, SEMANTIC_PROCESSOR } from './adaptive-worker.ts';
@@ -17,6 +17,7 @@ import { reviewBudget, canReview, reserveReview } from './adaptive-review-budget
 import { generateAdaptiveProposal } from './adaptive-model.ts';
 import { routes } from '../providers/router.ts';
 import { isBusy } from '../heart/heart.ts';
+import { sourceReadingHeader, type SourceReading } from './adaptive-reading.ts';
 
 export interface MemoryPacket {
   version: 1; agent: string; host: string; generatedAt: number;
@@ -189,6 +190,63 @@ function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
     work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
     if (signal.aborted) abort();
   });
+}
+
+export function adaptiveReadingRequired(): boolean {
+  return config.adaptiveMemory.enabled && config.adaptiveMemory.semantic || fs.existsSync(publicationRoot(paths.soul)) ||
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='adaptive_graph_meta'").get();
+}
+
+/** 原文工具在同一数据库快照内同时读正文和已知修订；只承诺本机已收到的状态。
+ * 不要求后台已启动；只有没有任何本机认识存档 / 投影见证且功能未启用时保留旧路径。
+ */
+export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceReading | null) => T, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  if (!adaptiveReadingRequired()) return read(null);
+  const deadline = Date.now() + 500;
+  const timed = AbortSignal.any([AbortSignal.timeout(500), ...(signal ? [signal] : [])]);
+  return bounded(exclusive(() => {
+    timed.throwIfAborted();
+    if (fs.existsSync(paths.stop)) throw new Error('急停中，停止原文修订读取');
+    const store = localStore();
+    store.db.exec('SAVEPOINT adaptive_source_read');
+    try {
+      const visible = (id: number) => {
+        const row = store.db.prepare('SELECT id,session,role,channel,text,ts,body,via,mode,attachments FROM messages WHERE id=?').get(id) as SourceSnapshot | undefined;
+        return row && row.mode !== 'ignored' && ['user', 'agent', 'ambient'].includes(row.role) && row.text
+          ? { text: row.text, role: row.role, hash: sourceHash(store.agent, row) } : undefined;
+      };
+      const view = new AdaptiveArchive(store, paths.soul).readSources(ids, visible);
+      timed.throwIfAborted();
+      if (Date.now() > deadline) throw new Error('原文修订读取超时');
+      const value = read(view);
+      if (Date.now() > deadline) throw new Error('原文修订读取超时');
+      store.db.exec('RELEASE adaptive_source_read'); return value;
+    } catch (error) { store.db.exec('ROLLBACK TO adaptive_source_read'); store.db.exec('RELEASE adaptive_source_read'); throw error; }
+  }), timed);
+}
+
+/** recall 的命中与邻句都核对；索引结果只是候选，等待锁期间变动的正文不能输出。 */
+export async function searchAdaptiveHistory(query: string, options: SearchOptions, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  if (!adaptiveReadingRequired()) return search(query, options);
+  const entries = searchEntries(query, options);
+  const ids = [...new Set(entries.flatMap((e) => e.context.map((m) => m.id)))];
+  return withAdaptiveSources(ids, (view) => {
+    if (!view) return formatSearchEntries(entries);
+    const allowed = new Set(view.sources.filter((s) => s.hash).map((s) => s.id));
+    const filtered = entries.filter((e) => e.hit.kind !== 'chat' || allowed.has(Number(e.hit.ref))).map((entry) => ({
+      ...entry, context: entry.context.filter((m) => allowed.has(m.id)).map((m) => {
+        const current = db.prepare('SELECT text,ts,role,session FROM messages WHERE id=?').get(m.id);
+        if (!current || current.text !== m.text || current.ts !== m.ts || current.role !== m.role || current.session !== entry.hit.session)
+          throw new Error('召回来源已改变，请重新检索');
+        return m;
+      }),
+    }));
+    const result = formatSearchEntries(filtered, (id) => sourceReadingHeader(view, id));
+    if (Buffer.byteLength(result) > 512 * 1024) throw new Error('召回修订结果超过工作上限');
+    return result;
+  }, signal);
 }
 
 export async function queryAdaptive(query: string, signal?: AbortSignal): Promise<MemoryPacket> {

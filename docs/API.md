@@ -258,6 +258,8 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 内部 `reviewNext` 复用现有队列执行来源修订 / 依赖重评，由宿主注入模型、灵魂 exclusive 与启用 / 取消状态。提供同语境已有对象候选和定义，仍不按同名合并；旧引文须重新核对当前原文。semantic 开关显式开启后后台调用；无需修改的结果也核对完整输入快照后才记任务完成，不恢复失效依据。它不是模型可直接调用的工具。内部准入回调在领取前核对目标额度，生成回调附带目标 ID 以持久预扣；状态中的 reviewBudget 为 version 2，含 epoch / remaining / resumeAt / attempts。后台每五次调用冷却 60 秒后继续，同轮每目标五次、至多 1000 个目标；review-cooldown 是待到期续做，review-limit 是目标额度耗尽，都不表示认识已经修复。
 
+`context_read` / `recall` 的工具参数不变。有本机认识状态时，文本结果携带 generation、本机快照范围、源 hash 和相关认识的 revision / status / 片段位置；这不是新的 RPC packet 版本。`context_read` 的每页都带修订头，offset / limit 只计算原文字符；调用者不能把头部算入分页偏移。`recall` 同时覆盖前后邻句；不可访问来源不返回，已变动候选要求重新检索。仅关闭生成不清除这些工具对已知修订的核对；存档异常 / 等锁超时明确报错。没有来源的旧材料标记无法核对，完整 C07 和远端语义读取仍未验收。
+
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic 为默认关闭的后台语义试验开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |

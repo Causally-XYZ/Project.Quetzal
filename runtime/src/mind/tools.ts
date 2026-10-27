@@ -37,7 +37,8 @@ import * as agents from "./agents.ts";
 import { ensureSession, getSession, kv, listSessions, setSessionProject } from "../store.ts";
 import * as projects from "./projects.ts";
 import crypto from "node:crypto";
-import { taskState, contextRead } from './context.ts';
+import { taskState, contextReadChecked } from './context.ts';
+import { searchAdaptiveHistory } from '../memory/adaptive.ts';
 import { readStructuredRecords, archiveRecord, rollbackRecord } from '../memory/structured.ts';
 import { evolveMemory } from '../memory/prime.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
@@ -111,7 +112,7 @@ const core: Tool[] = [
   {
     name: 'context_read', permission: 'memory', description: '分页回查当前会话的上下文压缩原文。ref来自摘要或工具节选引用；不存在或过期会明确报错，用recall查持久历史。',
     parameters: obj({ ref: str('摘要中给出的ref'), offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 8000 } }, ['ref']),
-    handler: async (a, ctx) => { if (!ctx.session) return failed('此工具需要当前运行轮次'); ctx.session.check(); return contextRead(ctx.session.id, String(a.ref), a.offset ?? 0, a.limit ?? 8000); },
+    handler: async (a, ctx) => { if (!ctx.session) return failed('此工具需要当前运行轮次'); ctx.session.check(); return contextReadChecked(ctx.session.id, String(a.ref), a.offset ?? 0, a.limit ?? 8000, stopOf(ctx)); },
   },
   {
     name: 'memory_records', permission: 'memory', description: '查看结构化记忆及经验的版本、来源与验证状态；candidate尚未被验证，不能当作已知事实。可按kind/state筛选。',
@@ -176,13 +177,13 @@ const core: Tool[] = [
       from: str("从何时起（当地日期或时刻，可选）"), to: str("到何时为止，不含（当地日期或时刻，可选）"),
       scope: { type: "string", enum: ["all", "chats", "memory"], description: "all 全部（默认）；chats 只看对话；memory 只看笔记、日记与常驻记忆" },
     }),
-    handler: async (a) => {
+    handler: async (a, ctx) => {
       const range = timeRange(a.from, a.to);
       if (typeof range === "string") return range;
       if (!String(a.query ?? "").trim() && range.from === undefined && range.to === undefined) return "给出要找的内容，或者用 from / to 给一个时间段";
       const kinds = a.scope === "chats" ? ["chat"] as const : a.scope === "memory" ? ["note", "journal", "memory", "user"] as const : undefined;
       const head = range.label ? `（时间段：${range.label}）\n` : "";
-      return head + mem.search(String(a.query ?? ""), { from: range.from, to: range.to, kinds: kinds ? [...kinds] : undefined, limit: String(a.query ?? "").trim() ? 8 : 20 });
+      return head + await searchAdaptiveHistory(String(a.query ?? ""), { from: range.from, to: range.to, kinds: kinds ? [...kinds] : undefined, limit: String(a.query ?? "").trim() ? 8 : 20 }, stopOf(ctx));
     },
   },
   {

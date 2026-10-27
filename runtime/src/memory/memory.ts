@@ -68,7 +68,7 @@ export function setSoul(text: string) { write(p("SOUL.md"), text); }
 const fileOf = (t: Target) => p("memories", t === "memory" ? "MEMORY.md" : "USER.md");
 
 import { parseEntries, joinEntries } from "./entries.ts";
-import { retrieve, coreView } from "./retrieval.ts";
+import { retrieve, coreView, type Found } from "./retrieval.ts";
 export { parseEntries, joinEntries };
 
 export function entries(t: Target): string[] { return parseEntries(read(fileOf(t))); }
@@ -240,18 +240,24 @@ export function noteTree(dir = "", maxChars = 2500): string {
 }
 
 /** 在对话、笔记、日记与常驻记忆中检索（见 retrieval.ts / index.ts），返回可读的结果。from / to：只看这个时间段（毫秒）。 */
-export function search(query: string, o: { limit?: number; from?: number; to?: number; kinds?: Kind[] } = {}): string {
+export type SearchOptions = { limit?: number; from?: number; to?: number; kinds?: Kind[] };
+export interface SearchEntry { hit: Found; context: ReturnType<typeof around> }
+export function searchEntries(query: string, o: SearchOptions = {}): SearchEntry[] {
   const hits = retrieve(query, { limit: o.limit ?? 8, from: o.from, to: o.to, kinds: o.kinds });
-  if (!hits.length) return "没有找到相关记忆";
+  return hits.map((hit) => ({ hit, context: hit.kind === 'chat' ? around(Number(hit.ref), 1) : [] }));
+}
+export function formatSearchEntries(entries: SearchEntry[], annotate: (id?: number) => string = () => ''): string {
+  if (!entries.length) return "没有找到相关记忆";
   const at = (ts: number) => new Date(ts).toLocaleString("zh-CN", { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
   const who = (r: string) => (r === "user" ? "对方" : r === "agent" ? "我" : "（环境声音）");
   const clip = (t: string, n: number) => { const x = t.replace(/\s+/g, " ").trim(); return x.length > n ? `${x.slice(0, n)}…` : x; };
-  return hits.map((h) => {
-    if (h.kind !== "chat") return `【${h.source}】${h.mtime > 1e12 && h.kind === "note" ? `（改于 ${at(h.mtime)}）` : ""}\n${h.excerpt}`;
-    const ctx = around(Number(h.ref), 1).map((m) => `${m.id === Number(h.ref) ? "→ " : "  "}${who(m.role)}：${clip(String(m.text ?? ""), m.id === Number(h.ref) ? 400 : 120)}`);
+  return entries.map(({ hit: h, context }) => {
+    if (h.kind !== "chat") return `${annotate()}【${h.source}】${h.mtime > 1e12 && h.kind === "note" ? `（改于 ${at(h.mtime)}）` : ""}\n${h.excerpt}`;
+    const ctx = context.map((m) => `${annotate(m.id)}${m.id === Number(h.ref) ? "→ " : "  "}${who(m.role)}：${clip(String(m.text ?? ""), m.id === Number(h.ref) ? 400 : 120)}`);
     return `【对话 · 会话「${h.title || h.session}」· ${at(h.mtime)}】\n${ctx.join("\n")}`;
   }).join("\n\n");
 }
+export function search(query: string, o: SearchOptions = {}): string { return formatSearchEntries(searchEntries(query, o)); }
 
 import { around, type Kind } from "./index.ts";
 

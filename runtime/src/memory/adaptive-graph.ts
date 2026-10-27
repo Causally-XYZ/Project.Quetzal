@@ -4,6 +4,7 @@ import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { artifactDigest, artifactDocument, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
 import { SEMANTIC_SCHEMA, validateBatch, validateRecord, directSpans, recordRefs, spanCurrent, sameRealm,
   evaluateEvidence, type SemanticBatch, type SemanticRecord, type SourceReader, type ClaimRecord } from './adaptive-evidence.ts';
+import { sourceReading } from './adaptive-reading.ts';
 
 export class AdaptiveGraph {
   readonly queue: AdaptiveStore;
@@ -54,6 +55,17 @@ export class AdaptiveGraph {
   history(id: string): SemanticRecord[] {
     return (this.queue.db.prepare('SELECT document FROM adaptive_graph_records WHERE id=? ORDER BY revision').all(id) as { document: string }[])
       .map((r) => { const value: unknown = JSON.parse(r.document); validateRecord(value); return value; });
+  }
+
+  readSources(ids: number[], read: SourceReader = (id) => this.queue.source(id)) {
+    return this.snapshot(() => {
+      const history: SemanticRecord[] = [];
+      for (const row of this.queue.db.prepare('SELECT document FROM adaptive_graph_records ORDER BY id,revision').iterate()) {
+        if (history.length >= 10000) throw new Error('认识历史读取超过工作上限');
+        const r: unknown = JSON.parse(String(row.document)); validateRecord(r); history.push(r);
+      }
+      return sourceReading(history, ids, this.generation(), read, (id) => this.queue.source(id));
+    });
   }
 
   /** 宿主先把 LLM 提案规范化成带宿主 ID 的批次；不能把模型输出直接当批次使用。 */

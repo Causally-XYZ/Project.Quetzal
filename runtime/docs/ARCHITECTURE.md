@@ -10,6 +10,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
 
+`memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照，默认历史、摘要和其他读取路径仍待接入。
+
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
 开发评测在 `tool/adaptive-vertex-*.py` 保留安全失败分类和可选 curl 传输，未报告用量为 null；取消会结束 HTTP 子进程。`tool/adaptive-checkpoint-probe/` 单独锁定开源探针的开发依赖，实际执行真实 MemorySaver 契约，不加入生产依赖 / 打包路径；范围和复现命令见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。
@@ -99,6 +101,7 @@ src/
 │   ├── adaptive-review.ts    M2 失效来源 / 旧引用工作发现、同语境对象候选、持久队列复用与有界模型重评（后台与开发共用）
 │   ├── prompts/adaptive-graphiti.ts 固定上游抽取 / 时间规则的许可副本与适配
 │   ├── adaptive-archive.ts   M2 权威文件核对、重建与备份检查点（受控后台试验）
+│   ├── adaptive-reading.ts   原文按历史精确版本附上当前修订状态，不将旧原文覆盖为新事实
 │   ├── adaptive-graph.ts     M2 有版本 SQLite 投影、事务安装和快照读取（受控后台试验）
 │   ├── adaptive-artifact.ts  有版本结果信封与来源引用，不确认语义
 │   ├── adaptive-publication.ts SQLite 发件箱到私有 Markdown，原子安装与 Git 回执恢复
