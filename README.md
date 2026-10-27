@@ -154,9 +154,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 开发中：[自适应记忆 M0–M5 计划](docs/engine/ADAPTIVE_MEMORY_PLAN.md)记录跨会话关联、指代歧义、多步推理与持续修正的目标、行为契约和本机多身体验收；[阶段验证记录](docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)区分已验证工作与尚未实现能力。每个里程碑验收通过并成功推送工作分支后，才进入下一阶段；阶段内可只做本地提交。
 
-M2 已有合成测试覆盖的[版本化认识与证据依赖库](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)，真实语义模型与后台接线仍在实施中。
-
-M1 已验收并推送，M2 正进行[开源组件契约实验与真实模型连接](docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)；当前原文来源链路不等于已完成指代修正或多步推理。
+M1 与 M2 代表性原型已验收并推送；[版本化认识与证据依赖库](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)及[组件与模型接线](docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)已通过相应阶段检查。M3 正验证默认关闭的后台研究与完整关联体验，尚未放行；全量语义质量与规模验证保留至 M5。
 
 <br/>
 
