@@ -10,7 +10,7 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
 
-`memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照，默认历史、摘要和其他读取路径仍待接入。
+`memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照。默认历史由 `mind/context.ts` 在模型准备前重建；来源或认识版本变化会清摘要缓存，发送前复核，至多重建一次。无来源版本的持久摘要不继承；旧记忆 / 系统提示派生资料和远端语义读取仍待接入。
 
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
@@ -85,7 +85,7 @@ src/
 │   ├── search.ts         网页搜索：真实浏览器请求头；360 搜索 / 百度 / 必应结果页解析，固定顺序、拿到结果即止（相不相关由她判断）；没有结果时照实说明，被转到别的网站就写出是哪里
 │   ├── documents.ts      文档抽取：内置 zip 读取，docx / pptx / xlsx（日期格式、只有公式的单元格）/ ODF / EPUB / HTML / RTF，PDF 优先 pdftotext、没有时内置简易解析（按 ToUnicode 还原中文），旧版 Office 调用外部命令
 │   ├── secrets.ts        保密传递（pass_secret）：保密输入协议（结束口令、截走对话里的保密值）、保密库（QUETZAL_HOME/vault；每项多端同步或仅本机，exportVault / mergeVault 供 mesh/shared.ts 按条目同步）、工具输出与参数里的保密值替换（连同基座自己的密钥，见 secret-values.ts）
-│   └── brain.ts          注入宿主模型、工具、Session、脱敏与记录，调用独立 engine.runTurn；醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess；放在回复前一条单独的「基座附注」里，她的回复只留原文；主动消息的附注写明是她醒来时主动发的）；回复只取结束这一轮的那一步的文字，session_compact 的摘要之前不进上下文；session_new 把回复放进新会话；子 agent 的循环与报告送回；对话中模型空回的一步不算结束（提醒后重试最多两次，仍空则说明没能回复）；工具失败时上下文里写明失败，同样的调用第二次失败起提醒她不要原样重试；对方停止这一轮（stopTurn，网关 chat.stop）时中止模型输出、不再等工具，以一句说明结束；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
+│   └── brain.ts          注入宿主模型、工具、Session、脱敏与记录，调用独立 engine.runTurn；醒来（内省 → 多具身体时选在哪里做 → 工具循环 → finish）、做梦、对话（含环境输入：ambient 消息、「沉默」不入库）；会话历史带时间与每轮的过程记录（describeProcess；放在回复前一条单独的「基座附注」里，她的回复只留原文；主动消息的附注写明是她醒来时主动发的）；回复只取结束这一轮的那一步的文字，普通模式从 session_compact 摘要继续，修订读取模式不以无来源版本的摘要截断原文；session_new 把回复放进新会话；子 agent 的循环与报告送回；对话中模型空回的一步不算结束（提醒后重试最多两次，仍空则说明没能回复）；工具失败时上下文里写明失败，同样的调用第二次失败起提醒她不要原样重试；对方停止这一轮（stopTurn，网关 chat.stop）时中止模型输出、不再等工具，以一句说明结束；快速模型代写摘要；灵魂同步的提醒（soul.alert）：插话进碰过记忆的那一轮，已结束则在原会话 / 主动消息里开新的一轮（「基座提醒」的口吻，可回复沉默）
 ├── memory/
 │   ├── identity.ts       agent.json 的种子身份、读取与字段更新；称呼、颜色与语言来自数据
 │   ├── entries.ts        § 条目解析、序列化、条目级三方合并与文本合并；运行基座和灵魂桥共用的纯函数

@@ -1,5 +1,6 @@
 // 生产上下文宿主：每次模型调用重新选择记忆并按实际候选窗口生成视图。
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { bus } from '../bus.ts';
 import { ContextManager, withModelPreparation, type TaskWorkingState, type ContextPlan, type SummaryInput } from '../../../engine/src/context-manager.ts';
 import type { ChatRequest, Msg } from '../providers/types.ts';
@@ -18,11 +19,60 @@ import { log } from '../log.ts';
 
 interface TurnContext { state: TaskWorkingState; tags: string[]; phase: MemoryStage | 'unknown'; phaseExplicit: boolean; manager: ContextManager; conv: string; shared: boolean; query: string; plan?: ContextPlan } // shared：属于一个真正的会话（工作状态全网同步，见 task-states.ts）
 const turns = new Map<string, TurnContext>();
-const historySources = new WeakMap<Msg, { id: number; conv: string }>();
+const historySources = new WeakMap<Msg, { id: number; conv: string; original: string }>();
 export function registerHistorySource(message: Msg, messageId: number, conv: string): Msg {
-  historySources.set(message, { id: messageId, conv }); return message;
+  historySources.set(message, { id: messageId, conv, original: JSON.stringify(getSessionMessage(messageId, conv)) }); return message;
 }
 const clean = (message: Msg): string => redactSecrets(JSON.stringify({ ...message, ...('images' in message ? { images: undefined } : {}) }));
+
+interface SummaryBasis { sources: number[]; key: string }
+const readingKey = (view: SourceReading, ids = view.sources.map((s) => s.id)) => crypto.createHash('sha256')
+  .update(JSON.stringify({ generation: view.generation, sources: view.sources.filter((s) => ids.includes(s.id)).sort((a, b) => a.id - b.id) })).digest('hex');
+function summaryBasis(value: unknown): SummaryBasis | undefined {
+  const b = value as SummaryBasis | null;
+  return b && Array.isArray(b.sources) && b.sources.length <= 1000 && b.sources.every((id) => Number.isSafeInteger(id) && id > 0) &&
+    typeof b.key === 'string' && /^[a-f0-9]{64}$/.test(b.key) ? b : undefined;
+}
+
+/** 原始消息数组保持不变；自己的投影对象保持身份，使摘要缓存和原文编号仍稳定。 */
+async function historyReading(messages: Msg[], conv: string, projected: WeakMap<Msg, Msg>, previous?: SummaryBasis, signal?: AbortSignal) {
+  const currentIds = [...new Set(messages.flatMap((m) => { const ref = historySources.get(m); return ref ? [ref.id] : []; }))];
+  const union = [...new Set([...currentIds, ...(previous?.sources ?? [])])];
+  // 滚动历史不无限积累摘要依赖；超过单次核查预算就放弃继承，重新按当前原文压缩。
+  const inheritedBasis = union.length <= 1000 ? previous : undefined;
+  const ids = inheritedBasis ? union : currentIds;
+  return withAdaptiveSources(ids, (view) => {
+    if (!view) return { messages, key: '', basis: undefined, previousValid: true };
+    const sources = new Map(view.sources.map((s) => [s.id, s]));
+    const rows = new Map(ids.map((id) => [id, getSessionMessage(id, conv)]));
+    // process 等宿主附注不在语义来源 hash 中，也须纳入派生摘要的失效条件。
+    const keyFor = (sourceIds: number[]) => crypto.createHash('sha256').update(JSON.stringify({ reading: readingKey(view, sourceIds),
+      rows: [...sourceIds].sort((a, b) => a - b).map((id) => [id, rows.get(id)]) })).digest('hex');
+    const fresh = messages.map((message) => {
+      const ref = historySources.get(message); if (!ref) return message;
+      if (ref.conv !== conv) throw new Error('历史来源不属于当前上下文');
+      const row = rows.get(ref.id), source = sources.get(ref.id);
+      let content: string;
+      if (!row || !source?.hash) content = `【历史消息 ${ref.id} 已不存在或不可访问；不使用原缓存正文】`;
+      else if (row.role === 'ambient' && row.channel === '摘要')
+        content = `【历史摘要 ${ref.id} 未绑定来源版本；当前上下文按可用原始消息重建，不把旧摘要当作当前依据】`;
+      else {
+        // 原文变化后不靠字符串替换猜旧格式；改为明确带角色 / 时间的当前资料，完整过程仍可回查。
+        const text = JSON.stringify(row) === ref.original ? message.content : `历史消息资料：${JSON.stringify({ id: row.id, ts: row.ts,
+          role: row.role, channel: row.channel, text: row.text, attachments: row.attachments })}`;
+        content = redactSecrets(sourceReadingHeader(view, ref.id) + text);
+      }
+      let result = projected.get(message);
+      if (!result) { result = { ...message }; projected.set(message, result); historySources.set(result, ref); }
+      result.content = content;
+      // 失效历史 / 编辑后的附件不能沿用先前视图的图像内容。
+      if ((!row || !source?.hash || JSON.stringify(row) !== ref.original) && 'images' in result) delete result.images;
+      return result;
+    });
+    const key = keyFor(ids);
+    return { messages: fresh, key, basis: { sources: ids, key }, previousValid: !!inheritedBasis && keyFor(inheritedBasis.sources) === inheritedBasis.key };
+  }, signal);
+}
 
 export async function summarizeContext({ entries, previousSummary, maxTokens, signal }: SummaryInput): Promise<string> {
   const timed = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(config.brain.contextSummaryTimeoutMs)]);
@@ -39,12 +89,17 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
   const initial = messages[protectedFrom]?.content ?? '';
   const previousState = conv ? taskStates.get(conv) : null;
   const state: TaskWorkingState = { goal: initial, constraints: previousState?.constraints ?? [], openQuestions: previousState?.openQuestions ?? [], evidence: [] };
-  const previousSummary = conv ? kv.get<{ summary?: ContextPlan['summary'] } | null>(`context.plan.${conv}`, null)?.summary : undefined;
+  const previousPlan = conv ? kv.get<{ summary?: ContextPlan['summary']; adaptiveBasis?: unknown } | null>(`context.plan.${conv}`, null) : null;
+  const previousSummary = previousPlan?.summary, previousBasis = summaryBasis(previousPlan?.adaptiveBasis);
+  const projected = new WeakMap<Msg, Msg>();
+  const versionedSources = new Set<string>();
+  let lastReadingKey: string | undefined;
   const sourceRef = (sourceId: string, message: Msg, original?: Msg) => {
     const ref = `${id}/${sourceId}`;
     const history = original && historySources.get(original);
+    if (history) versionedSources.add(sourceId);
     const tool = message.role === 'tool' ? getToolCall(message.toolCallId, id) : undefined;
-    const content = history ? JSON.stringify({ messageRef: history }) : tool?.session === id ? JSON.stringify({ toolRef: { call: tool.call, turn: id } }) : clean(message);
+    const content = history ? JSON.stringify({ messageRef: { id: history.id, conv: history.conv } }) : tool?.session === id ? JSON.stringify({ toolRef: { call: tool.call, turn: id } }) : clean(message);
     return saveContextSource(ref, conv || id, content) ? `context_read(ref=${JSON.stringify(ref)})` : undefined;
   };
   const manager = new ContextManager({
@@ -80,18 +135,30 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
         ]);
         request.signal?.throwIfAborted();
         if (fs.existsSync(paths.stop)) throw new Error('急停中，停止上下文准备');
-        const plan = await manager.prepare({ messages: request.messages, tools: request.tools, contextWindow, maxOutputTokens,
-          protectedFrom, state: context.state, signal,
-          memory: [...adaptiveContext(adaptive), ...(previousSummary ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${previousSummary.text}`, priority: 3 }] : []), ...candidates.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
-            priority: record.kind === 'fact' || record.preference === 'explicit' ? 2 : 1,
-            reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
-        });
-        signal.throwIfAborted();
-        context.plan = plan;
-        kv.set(`context.plan.${context.conv}`, { turn: id, model, estimate: plan.estimate, selectedIds: plan.selectedIds, skippedMemoryIds: plan.skippedMemoryIds,
-          compactedIds: plan.compactedIds, projections: plan.projections, summary: plan.summary ?? previousSummary, state: context.state, at: Date.now() });
-        if (plan.summary || plan.projections.length) log('context', `${id} 在 ${model} 准备了摘要／工具节选，估计 ${plan.estimate.totalTokens}/${contextWindow}`);
-        return plan;
+        // 摘要模型等待期间可能接受新的纠正；返回主模型前重核一次，最多重建一次。
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const reading = await historyReading(request.messages, context.conv, projected, previousBasis, signal);
+          if (reading.key !== lastReadingKey) manager.invalidateSummaries();
+          lastReadingKey = reading.key;
+          const inherited = reading.previousValid ? previousSummary : undefined;
+          const plan = await manager.prepare({ messages: reading.messages, tools: request.tools, contextWindow, maxOutputTokens,
+            protectedFrom, state: context.state, signal,
+            memory: [...adaptiveContext(adaptive), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...candidates.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
+              priority: record.kind === 'fact' || record.preference === 'explicit' ? 2 : 1,
+              reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
+          });
+          signal.throwIfAborted();
+          const checked = await historyReading(request.messages, context.conv, projected, previousBasis, signal);
+          if (reading.key !== checked.key) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
+          context.plan = plan;
+          kv.set(`context.plan.${context.conv}`, { turn: id, model, estimate: plan.estimate, selectedIds: plan.selectedIds, skippedMemoryIds: plan.skippedMemoryIds,
+            compactedIds: plan.compactedIds, projections: plan.projections, summary: plan.summary ?? inherited,
+            adaptiveBasis: plan.summary ? (plan.compactedIds.every((sourceId) => versionedSources.has(sourceId)) ? reading.basis : undefined)
+              : inherited ? previousBasis : undefined, state: context.state, at: Date.now() });
+          if (plan.summary || plan.projections.length) log('context', `${id} 在 ${model} 准备了摘要／工具节选，估计 ${plan.estimate.totalTokens}/${contextWindow}`);
+          return plan;
+        }
+        throw new Error('上下文修订核对未完成');
         } finally { bus.off('state', stop); }
       });
     },

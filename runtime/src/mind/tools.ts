@@ -38,7 +38,7 @@ import { ensureSession, getSession, kv, listSessions, setSessionProject } from "
 import * as projects from "./projects.ts";
 import crypto from "node:crypto";
 import { taskState, contextReadChecked } from './context.ts';
-import { searchAdaptiveHistory } from '../memory/adaptive.ts';
+import { searchAdaptiveHistory, adaptiveReadingRequired } from '../memory/adaptive.ts';
 import { readStructuredRecords, archiveRecord, rollbackRecord } from '../memory/structured.ts';
 import { evolveMemory } from '../memory/prime.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
@@ -560,7 +560,7 @@ const core: Tool[] = [
   },
   {
     name: "session_compact", permission: "session",
-    description: "压缩当前会话的上下文（相当于 /compact）：之后你只看到这段摘要和它之后的新内容，更早的原文不再进入上下文（记录仍完整保留，对方在控制台能看到）；对话仍在当前会话继续。适合会话很长、很多内容已经没用、或你发现自己快记不住前面的要点时。summary 由你自己写（你眼前有全部上下文，知道什么重要）；不写则由基座用快速模型代写。只能在对话中调用。",
+    description: "保存当前会话摘要（相当于 /compact）。普通模式下下一轮从该摘要继续；启用记忆修订核查时，未绑定来源版本的手动摘要只作存档，模型上下文仍由可用原文按窗口自动压缩。原始记录完整保留，对话仍在当前会话继续。summary 可自行填写；不写则由快速模型代写。只能在对话中调用。",
     parameters: obj({ summary: str("摘要（可选，Markdown）：对方的要求与偏好、做完的事与结论、没做完的事、关键事实与约定") }),
     handler: async (a, ctx) => {
       const s = ctx.session;
@@ -569,6 +569,7 @@ const core: Tool[] = [
       const summary = typeof a.summary === "string" && a.summary.trim() ? a.summary.trim() : await summarizeConv(s.conv);
       addMessage("ambient", "摘要", summary, { session: s.conv });
       addTimeline("session", "压缩了当前会话的上下文", { conv: s.conv, chars: summary.length });
+      if (adaptiveReadingRequired()) return `已存档摘要（${summary.length} 字）。当前启用修订核查，后续模型上下文按可用原文自动压缩，这段无来源版本的摘要不作为当前依据。`;
       return `已压缩：从下一轮起，你只会看到这段摘要（${summary.length} 字）和之后的内容。\n\n${summary}`;
     },
   },

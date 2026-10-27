@@ -64,5 +64,5 @@ test('循环按确切历史版本去重，无依据时仅报告状态；超范�
   assert.equal(view.sources[0].notices.length, 2);
   assert.ok(view.sources[0].notices.every((n) => n.current === null));
   assert.throws(() => sourceReading([a, a], [3], 1, f.read), /重复/);
-  assert.throws(() => sourceReading([], Array.from({ length: 101 }, (_, i) => i + 1), 1, f.read), /范围/);
+  assert.throws(() => sourceReading([], Array.from({ length: 1001 }, (_, i) => i + 1), 1, f.read), /范围/);
 });

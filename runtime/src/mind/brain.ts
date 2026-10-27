@@ -14,6 +14,7 @@ import { learnEpisode, evolveMemory, type EpisodeInput } from "../memory/prime.t
 import { readStructuredRecords } from "../memory/structured.ts";
 import type { ToolRecord } from "../../../engine/src/loop.ts";
 import { identity } from "../memory/identity.ts";
+import { adaptiveReadingRequired } from "../memory/adaptive.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemPrompt } from "./prompt.ts";
 import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, saveContextSource, type Attachment } from "../store.ts";
@@ -301,7 +302,7 @@ export function describeProcess(items: unknown[] | null | undefined, full: boole
 
 /**
  * 会话自己的历史，作为真正的多轮上下文（从新到旧，在预算内）。不含这句话本身，也不含之后还在排队的话。
- * budget 按字符串字符数计算，不是 token 数；只查最近 80 条，遇到最新摘要时从摘要开始。完整请求没有统一预算。
+ * budget 按字符串字符数计算，不是 token 数；最多读取1000条。修订读取启用时不以无版本摘要截断原文。
  * 每条都带时间；她自己的回复前附上那一轮的过程记录（最近 FULL_PROCESS 轮给出每一步，更早的只给工具计数），
  * 否则下一轮她只看得到回复的文字，不知道自己做过什么、看过什么。
  * 时间与过程记录放在回复之前一条单独的「基座附注」里（user 一侧），她自己的回复只留原文：附注若写在她的回复里，
@@ -314,11 +315,13 @@ export function history(conv: string, self: number, budget = Infinity): Msg[] {
   let used = 0, replies = 0;
   const listed = sessionMessages(conv, 1000), at = listed.findIndex((m) => m.id === self); // 宿主读取有界原文，视图预算由engine逐次管理
   const all = listed.filter((m, i) => at < 0 || i < at || m.role === "agent");
-  const cut = all.map((m, i) => (m.role === "ambient" && m.channel === "摘要" ? i : -1)).filter((i) => i >= 0).at(-1) ?? -1; // session_compact：摘要之前的历史不再进入上下文
+  const guarded = adaptiveReadingRequired();
+  const cut = guarded ? -1 : all.map((m, i) => (m.role === "ambient" && m.channel === "摘要" ? i : -1)).filter((i) => i >= 0).at(-1) ?? -1;
   for (const m of all.slice(Math.max(0, cut)).reverse()) {
     let text: string;
     if (m.role === "ambient" && m.channel === "摘要") {
-      text = `[${stamp(m.ts)}｜你用 session_compact 压缩了这个会话，以下是之前对话的摘要，更早的原文不再在上下文里] ${m.text}`;
+      text = guarded ? `【历史摘要 ${m.id} 未绑定来源版本；按可用原文重建上下文】`
+        : `[${stamp(m.ts)}｜你用 session_compact 压缩了这个会话，以下是之前对话的摘要，更早的原文不再在上下文里] ${m.text}`;
     } else if (m.role === "ambient" && m.channel === "交接") {
       text = `[${stamp(m.ts)}｜这是你从上一个会话切过来时写的交接] ${m.text}`;
     } else if (m.role === "ambient" && m.channel === "续做") {

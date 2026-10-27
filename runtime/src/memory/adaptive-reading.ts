@@ -15,7 +15,7 @@ export interface SourceReading {
 /** 输入为同一 SQLite 快照的全部版本；旧引用必须追踪对应历史版本，不能跳至最新。 */
 export function sourceReading(history: SemanticRecord[], ids: number[], generation: number,
   visible: SourceReader, global: SourceReader = visible): SourceReading {
-  if (history.length > 10000 || ids.length > 100 || ids.some((id) => !Number.isSafeInteger(id) || id < 1)) throw new Error('原文修订读取超过范围');
+  if (history.length > 10000 || ids.length > 1000 || ids.some((id) => !Number.isSafeInteger(id) || id < 1)) throw new Error('原文修订读取超过范围');
   const versions = new Map(history.map((r) => [refKey(r), r])), latest = new Map<string, SemanticRecord>();
   if (versions.size !== history.length) throw new Error('认识历史包含重复版本');
   for (const r of history) if ((latest.get(r.id)?.revision ?? 0) < r.revision) latest.set(r.id, r);

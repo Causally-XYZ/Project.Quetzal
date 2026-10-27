@@ -84,6 +84,8 @@ export class ContextManager {
     this.options = { ...options };
   }
   source(id: string): Msg | undefined { const message = this.sources.get(id); return message && copy(message); }
+  /** 宿主发现来源 / 修订变化时只清除派生摘要，保留消息编号和原文引用。 */
+  invalidateSummaries(): void { this.cache.clear(); }
   private entry(message: Msg): ContextEntry {
     let id = this.ids.get(message);
     if (!id) { id = `msg-${++this.nextId}`; this.ids.set(message, id); }

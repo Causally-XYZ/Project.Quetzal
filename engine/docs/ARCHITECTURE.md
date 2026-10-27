@@ -40,7 +40,7 @@ FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供
 
 ## 动态上下文与记忆内核
 
-`context-manager.ts` 已实现逐请求有限窗口视图、字节保守估计、输出/Schema/图片余量、固定政策/用户约束与完整工具组、独立摘要slot/缓存和可回查投影。原消息不删除，固定部分无法装入时明确ContextOverflow；这是保守估计，不是真tokenizer。`TaskWorkingState`由宿主给出目标、约束、问题与证据，不从最新字符猜造事实。
+`context-manager.ts` 已实现逐请求有限窗口视图、字节保守估计、输出/Schema/图片余量、固定政策/用户约束与完整工具组、独立摘要slot/缓存和可回查投影。原消息不删除，固定部分无法装入时明确ContextOverflow；这是保守估计，不是真tokenizer。`TaskWorkingState`由宿主给出目标、约束、问题与证据，不从最新字符猜造事实。宿主可调用 `invalidateSummaries()` 清除派生摘要缓存，消息编号与原文引用保持稳定；来源版本核查与重试由宿主管理，引擎不依赖记忆图或 SQLite。
 
 `memory.ts`提供版本记录、来源/范围/有效期/阶段/条件门禁，以及可注入异步语义选择端口；`prime.ts`提供真实异步轨迹蒸馏与经验改写/泛化/组合/归档。经验需要可信独立结果评价，演化需要基线；模型自述与资料不是奖励。个人事实/偏好的可信确认、模型选择/学习预算、真实SQLite来源、Markdown持久化和自动Git同步由runtime实现。对应 [动态上下文](../../docs/engine/DYNAMIC_CONTEXT.md)、[记忆宿主](../../docs/engine/STRUCTURED_MEMORY.md) 与 [PRIME规则](../../docs/engine/PRIME_CORE.md)；没有宣称完整论文复现。
 
