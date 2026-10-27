@@ -39,7 +39,7 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。内核专项开发与实现现状见 [../../docs/engine/README.md](../../docs/engine/README.md)，包含上下文、记忆、执行循环、工具接口和基线验证。
 
-自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行，M2 代表性原型验收通过，推送核对后才进入 M3；全量质量移至 M5。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。 语义模式前台使用 `queryAdaptiveSemantic` 及来源 / 版本核查；旧原文观察接口此时返回 unavailable，不代表语义认识读取不可用。
+自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行，M2 代表性原型验收通过且推送已核对，M3 已启动但主动研究尚未实现；全量质量移至 M5。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。 语义模式前台使用 `queryAdaptiveSemantic` 及来源 / 版本核查；旧原文观察接口此时返回 unavailable，不代表语义认识读取不可用。
 
 原 M2、现移交 M5 的留出数据已冻结50案例 / 60独立轨迹，三次重复计150案例序列；AM-02-H1 已首次向真实模型释放，其余案例未运行。`tool/adaptive-eval/` 保存输入、逐检查点断言、摘要及只读评分器，严格计划、实际独立轨迹证据导出和只增审核选择已接线，真实正式执行和逐项语义审核仍待完成。评分器拒绝缺失 / 错版本材料，替身和纯模型自评不记为通过；定位有效不等于语义真实，须核查原始执行证据。命令、审核信任边界见[工具说明](../tool/adaptive-eval/README.md)。package.json / tsconfig 已包含开发入口，测试由既有 glob 发现；无需新依赖、环境变量、迁移或部署服务，不打入 main.cjs。
 
