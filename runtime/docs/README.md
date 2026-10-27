@@ -5,6 +5,7 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 | 命令 | 作用 |
 |---|---|
 | `npm run bench:adaptive-read -- 100 100,500,1000` | 合成认识读取基准；样本数与规模可指定，临时 SQLite / 灵魂文件自动清理，不调用模型 |
+| `npm run eval:adaptive -- --check` | 校验 M2 冻结数据；`--score <仓库外评测目录>` 只读汇总已有审核回执，不调用模型；不是完整运行器 |
 | `npm test` | 单元与集成测试（心脏、记忆与 FTS5 检索、上下文、会话与子 agent、灵魂 git 合并、模型路由、安全、听觉、网关、网状层与平台适配器；具体范围见 `test/*.test.ts` 及 `../engine/test/*.test.ts`） |
 | `npm run build` | engine 独立类型检查 + runtime 类型检查 + esbuild 打包：`dist/main.cjs`、`android.mjs`、`linux.mjs`、`macos.mjs`、`termux.mjs`、`windows.mjs`、`windows-body.mjs`、`windows-supervise.mjs`、`mermaid.mjs`；最后由 `tool/build-srt.mjs` 打包 `dist/srt.mjs` |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
@@ -32,6 +33,8 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。内核专项开发与实现现状见 [../../docs/engine/README.md](../../docs/engine/README.md)，包含上下文、记忆、执行循环、工具接口和基线验证。
 
 自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行、M2 尚未放行。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。
+
+M2 留出数据已冻结50案例 / 60独立轨迹，三次重复计150案例序列；尚未向模型释放。`tool/adaptive-eval/` 保存输入、逐检查点断言、摘要及只读评分器，真实多身体运行器和执行计划冻结仍待完成。评分器拒绝缺失 / 错版本材料，替身和纯模型自评不记为通过；定位有效不等于语义真实，须核查原始执行证据。命令、审核信任边界见[工具说明](../tool/adaptive-eval/README.md)。package.json / tsconfig 已包含开发入口，测试由既有 glob 发现；无需新依赖、环境变量、迁移或部署服务，不打入 main.cjs。
 
 `adaptive-model.ts` 复用模型路由、出站脱敏、实际用量和取消信号；完整输入装不进候选模型窗口时不发请求，不截掉必要依据。它严格拒绝截断、工具调用和非 JSON 输出。ADC 只用于显式启动的开发探针 / 试跑，生产后台不自行读取它，也不复制到其他身体。
 

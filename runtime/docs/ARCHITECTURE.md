@@ -20,6 +20,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 开发评测在 `tool/adaptive-vertex-*.py` 保留安全失败分类和可选 curl 传输，未报告用量为 null；取消会结束 HTTP 子进程。`tool/adaptive-checkpoint-probe/` 单独锁定开源探针的开发依赖，实际执行真实 MemorySaver 契约，不加入生产依赖 / 打包路径；范围和复现命令见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。
 
+`tool/adaptive-eval/` 是独立的 M2 留出资料与评分工具：spec 校验50案例的逐步输入 / 权限 / 轨迹，cases 为冻结构造器，holdout / manifest 保存正式数据及摘要，score 核查回执证据定位并按固定分母统计，cli 提供只读检查和评分。它不启动宿主、不生成语义审核、不改变生产提示；真实多身体运行器尚未完成。测试夹具的 live 标记只测试算术，不能当真实成绩；运行计划和审阅身份仍需受信流程核对。见[工具说明](../tool/adaptive-eval/README.md)。
+
 执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
 ```
