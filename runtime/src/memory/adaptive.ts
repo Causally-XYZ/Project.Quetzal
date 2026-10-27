@@ -13,6 +13,7 @@ import { touched, verifyRecordedFiles } from './soul-sync.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
 import { processSemanticNext, SEMANTIC_PROCESSOR } from './adaptive-worker.ts';
 import { reviewNext } from './adaptive-review.ts';
+import { reviewBudget, canReview, reserveReview } from './adaptive-review-budget.ts';
 import { generateAdaptiveProposal } from './adaptive-model.ts';
 import { routes } from '../providers/router.ts';
 import { isBusy } from '../heart/heart.ts';
@@ -95,18 +96,19 @@ function processSemanticBackground(store: AdaptiveStore) {
       claimed: (job) => { semanticJob = job.id; } });
     semanticJob = undefined; semanticState = result.status;
     if (result.status !== 'idle' || !enabled() || controller.signal.aborted) return;
-    // 每次新的整合回执最多资助五次依赖重评；预算跨重启持久，避免循环修订无限生成新任务。
+    // 五次调用后自动冷却续做；同一输入轮次每个目标至多五次，避免循环修订无限生成新任务。
     const epoch = store.status(SEMANTIC_PROCESSOR).lastProcessedAt ?? 0;
-    const previous = kv.get('adaptive.review.budget', { epoch: -1, remaining: 0 });
-    const budget = previous.epoch === epoch ? previous : { epoch, remaining: 5 };
-    if (budget.remaining <= 0) { semanticState = 'review-budget-exhausted'; return; }
+    const budget = reviewBudget(kv.get('adaptive.review.budget', null), epoch);
+    if (!budget.remaining) { semanticState = 'review-cooldown'; return; }
+    let limited = false;
     const review = await reviewNext({ queue: store, archive, exclusive, enabled: () => enabled() && !controller.signal.aborted,
       claimed: (job) => { semanticJob = job.id; },
-      generate: (prompt, signal) => {
-        budget.remaining--; kv.set('adaptive.review.budget', budget);
+      allowed: (target) => { const allowed = canReview(budget, target); if (!allowed) limited = true; return allowed; },
+      generate: (prompt, signal, target) => {
+        reserveReview(budget, target); kv.set('adaptive.review.budget', budget);
         return generate(prompt, signal);
       } });
-    semanticState = review.status;
+    semanticState = limited && review.status === 'deferred' ? 'review-limit' : review.status;
   })().catch(() => { semanticState = 'failed'; lastError = 'semantic_unavailable'; })
     .finally(() => { semanticTask = undefined; semanticAbort = undefined; semanticJob = undefined; nextSemanticAt = Date.now() + 2000; });
 }

@@ -73,7 +73,19 @@ The host lists newer dependency handles as review candidates, not equivalent ide
       sources: sources.map((s) => [s.id, s.revision, s.hash]), cause: cause.id })).digest('hex');
     plans.push({ processor: `review-${digest.slice(0, 56)}`, target: target.id, context, prompt });
   }
-  return { plans, deferred };
+  // 候选对象是上下文，不是调度依赖。沿实际引用先处理上游；环内没有拓扑序，
+  // 使用稳定 ID 次序打破遍历环，仍由版本门禁和调用预算约束，不据排序恢复证据。
+  const byTarget = new Map(plans.map((p) => [p.target, p])), ordered: ReviewPlan[] = [], visited = new Set<string>();
+  const visit = (id: string) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    const record = current.get(id);
+    if (record) for (const ref of recordRefs(record).sort((a, b) => a.id.localeCompare(b.id))) visit(ref.id);
+    const plan = byTarget.get(id);
+    if (plan) ordered.push(plan);
+  };
+  for (const id of [...byTarget.keys()].sort()) visit(id);
+  return { plans: ordered, deferred };
 }
 
 /** 调用者在与灵魂同步互斥的锁内提供 exclusive；模型调用期间释放锁。
@@ -81,11 +93,12 @@ The host lists newer dependency handles as review candidates, not equivalent ide
  */
 export async function reviewNext(options: {
   archive: AdaptiveArchive; queue: AdaptiveStore;
-  generate: (prompt: ReturnType<typeof proposalPrompt>, signal: AbortSignal) => Promise<unknown>;
+  generate: (prompt: ReturnType<typeof proposalPrompt>, signal: AbortSignal, target: string) => Promise<unknown>;
   exclusive: <T>(run: () => T) => Promise<T>;
   enabled: () => boolean;
   signal?: AbortSignal; timeoutMs?: number;
   claimed?: (job: MemoryJob) => void;
+  allowed?: (target: string) => boolean;
 }): Promise<ReviewResult> {
   const { archive, queue, exclusive, enabled } = options;
   const timeoutMs = options.timeoutMs ?? 120_000;
@@ -95,14 +108,28 @@ export async function reviewNext(options: {
   const selected = await exclusive(() => {
     if (!enabled() || options.signal?.aborted) return { unavailable: 'deferred' as const };
     const discovered = reviewPlans(archive, queue);
+    const blocked = new Set<string>();
     let unavailable: 'idle' | 'deferred' | 'failed' = discovered.deferred ? 'deferred' : 'idle';
     for (const plan of discovered.plans) {
+      // 上游退避或限额时，不抢先耗费下游调用；独立分支仍可推进。
+      const current = new Map(plan.context.records.map((r) => [r.id, r])), pending = [plan.target], seen = new Set<string>();
+      for (let i = 0; i < pending.length; i++) {
+        const id = pending[i]; if (seen.has(id)) continue; seen.add(id);
+        const record = current.get(id); if (record) pending.push(...recordRefs(record).map((r) => r.id));
+      }
+      if ([...seen].some((id) => blocked.has(id))) { blocked.add(plan.target); continue; }
       queue.scheduleSource(plan.processor, plan.context.current);
+      const before = queue.status(plan.processor).counts;
+      if (!before.queued && !before.running) {
+        if (before.failed) { unavailable = 'failed'; blocked.add(plan.target); }
+        continue;
+      }
+      if (options.allowed && !options.allowed(plan.target)) { blocked.add(plan.target); if (unavailable !== 'failed') unavailable = 'deferred'; continue; }
       const job = queue.claim(plan.processor, Date.now(), 300_000);
       if (job) return { plan, job, unavailable };
       const counts = queue.status(plan.processor).counts;
-      if (counts.failed) unavailable = 'failed';
-      else if (unavailable !== 'failed' && (counts.queued || counts.running)) unavailable = 'deferred';
+      if (counts.failed) { unavailable = 'failed'; blocked.add(plan.target); }
+      else if (counts.queued || counts.running) { blocked.add(plan.target); if (unavailable !== 'failed') unavailable = 'deferred'; }
     }
     return { unavailable };
   });
@@ -122,7 +149,7 @@ export async function reviewNext(options: {
     const proposal = await Promise.race([Promise.resolve().then(() => {
       controller.signal.throwIfAborted();
       if (!enabled()) throw new Error('disabled');
-      return options.generate(plan.prompt, controller.signal);
+      return options.generate(plan.prompt, controller.signal, plan.target);
     }), interrupted]);
     const batch = normalizeProposal(proposal, plan.context);
     const existing = new Set(plan.context.records.map((r) => r.id));

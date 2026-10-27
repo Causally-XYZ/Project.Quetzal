@@ -150,3 +150,31 @@ test('空提案也核对非调度锚点的来源修订；等锁期间急停不�
   assert.equal(calls, 0);
   assert.equal(g.db.prepare("SELECT COUNT(*) n FROM adaptive_jobs WHERE processor LIKE 'review-%'").get()!.n, 0);
 });
+
+test('来源同时失效时按真实依赖排序，不按随机 ID；上游退避期间独立分支仍可处理', async (t) => {
+  const f = fixture(t);
+  const a = f.claim('上游', 1), b = f.claim('下游', 1), other = f.claim('独立分支', 1);
+  a.id = 'ffffffff-ffff-4fff-8fff-ffffffffffff'; b.id = '00000000-0000-4000-8000-000000000001';
+  b.supports[0].premises.push({ kind: 'claim', id: a.id, revision: 1 });
+  f.accept([a, b, other]); f.db.exec("UPDATE messages SET text='原文已纠正' WHERE id=1");
+  const plans = reviewPlans(f.archive, f.queue).plans;
+  assert.ok(plans.findIndex((p) => p.target === a.id) < plans.findIndex((p) => p.target === b.id));
+  const upstream = plans.find((p) => p.target === a.id)!;
+  f.queue.scheduleSource(upstream.processor, upstream.context.current);
+  f.queue.fail(f.queue.claim(upstream.processor)!, 'timeout', Date.now() + 60_000);
+  const called: string[] = [];
+  for (let i = 0; i < plans.length; i++) await reviewNext({ ...f.options, generate: async (_, __, target) => { called.push(target); return f.empty(); } });
+  assert.ok(called.includes(other.id)); assert.ok(!called.includes(a.id)); assert.ok(!called.includes(b.id));
+  assert.equal(f.archive.history(b.id).length, 1);
+});
+
+test('预算不准入时不领取或调用；已完成检查不因预算用完变成待办', async (t) => {
+  const f = fixture(t); let calls = 0;
+  const generate = async () => { calls++; return f.empty(); };
+  assert.equal((await reviewNext({ ...f.options, allowed: () => false, generate })).status, 'deferred');
+  assert.equal(calls, 0);
+  assert.equal(f.queue.status(reviewPlans(f.archive, f.queue).plans[0].processor).counts.running, 0);
+  assert.equal((await reviewNext({ ...f.options, generate })).status, 'unchanged');
+  assert.equal((await reviewNext({ ...f.options, allowed: () => false, generate })).status, 'idle');
+  assert.equal(calls, 1);
+});

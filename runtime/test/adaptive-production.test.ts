@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-adaptive-production-'));
 process.env.QUETZAL_HOME = home;
@@ -34,7 +35,7 @@ const server = http.createServer((req, res) => {
     const patch = { contexts: [], records: [{ key: 'p1', replace: null, kind: 'claim', state: 'present', realm: 'real',
       reasons: [quote], text: source.text, nature: 'reported', participants: [], occurred: time, valid: time,
       supports: [{ id: 'direct', premises: [quote], assumptions: [] }], counters: [] }] };
-    const text = mode === 'fences' ? '```json\n{}\n```' : JSON.stringify(patch);
+    const text = mode === 'fences' ? '```json\n{}\n```' : JSON.stringify(mode === 'empty' ? { contexts: [], records: [] } : patch);
     const tools = mode === 'tools' ? [{ id: 'forbidden', type: 'function', function: { name: 'run', arguments: '{}' } }] : undefined;
     res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ choices: [{
       message: { content: text, tool_calls: tools }, finish_reason: mode === 'truncated' ? 'length' : 'stop',
@@ -50,8 +51,8 @@ const configure = () => registry.saveProviders({ quickModelId: 'quick', provider
 }] }, registry.configVersion());
 configure();
 after(async () => { await host.stopAdaptiveMemory(); server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); store.db.close(); fs.rmSync(home, { recursive: true, force: true }); });
-async function eventually(check: () => boolean) {
-  const until = Date.now() + 8000;
+async function eventually(check: () => boolean, timeout = 8000) {
+  const until = Date.now() + timeout;
   while (!check()) { if (Date.now() > until) throw new Error('后台试验未在测试时限内完成'); await new Promise((r) => setTimeout(r, 20)); }
 }
 let first = 0;
@@ -105,4 +106,32 @@ test('增量输入不含未处理未来消息；取消任务不会安装，重�
   const reopened = new AdaptiveStore(store.db, identity().id);
   assert.equal(reopened.status('semantic-v1').counts.cancelled, 1);
   assert.equal((await processSemanticNext({ ...options, queue: reopened, generate: async () => { throw new Error('不应复活'); } })).status, 'idle');
+});
+
+test('真实后台五次重评后保留冷却，重启且冷却届满后无需新消息自动处理第六个目标', async () => {
+  const original = archive.current().find((r) => r.kind === 'claim')!;
+  queue.scheduleSource('setup-review-backlog', first);
+  const job = queue.claim('setup-review-backlog')!, s = queue.source(first)!;
+  assert.equal(archive.accept(job, [{ id: first, revision: s.revision, hash: s.hash }], {
+    baseGeneration: archive.generation(), records: Array.from({ length: 5 }, () => ({ ...original, id: crypto.randomUUID() })),
+  }), true);
+  store.db.prepare('UPDATE messages SET text=? WHERE id=?').run('更正，周末准备去图书馆。', first);
+  mode = 'empty'; const start = seen.length;
+  const reviews = () => seen.slice(start).filter((r) => JSON.parse(r.messages[1].content).review);
+  host.startAdaptiveMemory();
+  await eventually(() => (host.adaptiveStatus().semantic as any).state === 'review-cooldown', 20_000);
+  assert.equal(reviews().length, 5);
+  await host.stopAdaptiveMemory();
+  const budget = store.kv.get('adaptive.review.budget', null) as any;
+  assert.equal(budget.remaining, 0); assert.equal(Object.keys(budget.attempts).length, 5);
+  assert.ok(budget.resumeAt > Date.now());
+  // 只把持久时钟移到已到期，避免测试真实等待一分钟；不改变输入、计数或任务。
+  store.kv.set('adaptive.review.budget', { ...budget, resumeAt: Date.now() - 1 });
+  host.startAdaptiveMemory();
+  await eventually(() => reviews().length === 6);
+  await eventually(() => (host.adaptiveStatus().semantic as any).state === 'idle');
+  await host.stopAdaptiveMemory();
+  assert.equal(Object.keys((store.kv.get('adaptive.review.budget', null) as any).attempts).length, 6);
+  assert.equal(archive.current().length, 6, '空提案不修复旧认识，仅完成检查');
+  assert.equal(archive.supportedClaims().length, 0);
 });
