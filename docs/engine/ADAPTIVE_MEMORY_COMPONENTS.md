@@ -29,7 +29,7 @@ Graphiti 的默认依赖包括 Neo4j 驱动、Pydantic、模型 SDK、NumPy、�
 
 可核查源码：[Graphiti dedup_helpers.py](https://github.com/getzep/graphiti/blob/2b5db9e139b2627c3ba18ff55f9181569b0d8224/graphiti_core/utils/maintenance/dedup_helpers.py)、[node_operations.py](https://github.com/getzep/graphiti/blob/2b5db9e139b2627c3ba18ff55f9181569b0d8224/graphiti_core/utils/maintenance/node_operations.py)、[A-MEM memory_system.py](https://github.com/agiresearch/A-mem/blob/ceffb860f0712bbae97b184d440df62bc910ca8d/agentic_memory/memory_system.py)。
 
-检查点探针已编写以下断言：同 task/index 的普通写入幂等、父检查点与旧版本保留、thread 隔离、旧来源结果是否仍能 put、内存 saver 生命周期及 deleteThread。**因临时依赖下载未完成，本批只过语法检查，尚未执行这些断言**，不能据此报告检查点实验通过。也未运行完整 LangGraph 图、SQLite saver 或跨进程恢复；检查点本身不负责 Quetzal 的来源修订门禁。
+检查点探针已实际执行 **5 组契约断言**：同 task/index 的普通写入幂等、父检查点与旧版本保留、thread 隔离、旧来源结果仍可 put、内存 saver 生命周期及 deleteThread。初次安装长期缺 js-tiktoken 的失败保留于阶段记录；后续从官方 npm 下载完整包并核对 SHA-512，补齐依赖后通过。现已保存独立开发清单和 13 个包的完整锁，在新的仓库外目录完成 `npm ci --offline --ignore-scripts`，再次运行真实探针通过。`npm ls --all` 退出 0；LangSmith 的可选 OpenTelemetry / OpenAI / ws peers 未装，本探针不使用这些集成。**未运行完整 LangGraph 图、SQLite saver 或跨进程恢复**；检查点本身不负责 Quetzal 的来源修订门禁，MemorySaver 也不能成为长期记忆的持久后端。
 
 ## 3. 适配方向与未决项
 
@@ -49,14 +49,14 @@ Graphiti 的默认依赖包括 Neo4j 驱动、Pydantic、模型 SDK、NumPy、�
 ```bash
 python3 runtime/tool/adaptive-oss-probe.py "$OSS_ROOT"
 
-# 独立临时目录；固定直接依赖，不执行安装脚本；不会修改 runtime/package-lock.json
-npm install --prefix "$CHECKPOINT_PROBE" --ignore-scripts --no-audit --no-fund \
-  --fetch-timeout=30000 --fetch-retries=1 \
-  @langchain/langgraph-checkpoint@1.2.1 @langchain/core@1.1.48
+# 独立临时目录；完整锁定开发依赖，不执行安装脚本；不修改 runtime/package-lock.json
+mkdir -p "$CHECKPOINT_PROBE"
+cp runtime/tool/adaptive-checkpoint-probe/package*.json "$CHECKPOINT_PROBE/"
+(cd "$CHECKPOINT_PROBE" && npm ci --ignore-scripts --no-audit --no-fund)
 node runtime/tool/adaptive-oss-checkpoint.mjs "$CHECKPOINT_PROBE"
 ```
 
-Python 探针用标准库，实际验证 Python 3.14；构造 AST 使用 3.12+ 的 type_params 字段。JS 探针实际环境 Node 24，等待 npm 安装完成后再运行。此处只有直接包版本固定，临时安装的传递依赖锁尚未成为生产供应链锁；正式采用时必须补齐，不能把临时 probe 环境当交付依赖清单。
+Python 探针用标准库，实际验证 Python 3.14；构造 AST 使用 3.12+ 的 type_params 字段。JS 探针实际环境 Node 24，使用 [开发清单](../../runtime/tool/adaptive-checkpoint-probe/package.json)与[完整锁](../../runtime/tool/adaptive-checkpoint-probe/package-lock.json)，运行时核对锁中官方 registry / SHA-512 信息和实际安装版本。该清单只用于开源契约实验，不被生产构建或部署加载；正式采用完整执行器或持久 saver 时仍须单独集成和验收。
 
 ## 5. 已授权的真实测试模型
 
@@ -80,7 +80,9 @@ python3 runtime/tool/adaptive-vertex-smoke.py
 python3 -B runtime/tool/test_adaptive_vertex_smoke.py
 ```
 
-真实请求有费用。每款仅一次短请求不构成性能分布；失败报告保留逐模型状态，模型或版本不符返回非零。HTTP 分块中断按传输失败记录，不能吞掉失败或打印供应商原始错误。当前 runtime 供应商入口仍为 API Key 机制，**本探针没有把 ADC 接入生产路由**；自动刷新、宿主接入与多身体凭据边界须在真实语义处理接线时实现和测试。
+真实请求有费用。最初每款仅一次短请求不构成性能分布；失败报告保留逐模型状态，模型或版本不符返回非零。HTTP 分块中断按传输失败记录，failure 只给阶段、白名单类别和已收字节数，不打印异常消息 / 正文。未报告的用量分项保留 null；旧开发报告曾将缺失分项补 0，不能据旧 thoughts=0 证明供应商显式报告零。当前 runtime 供应商入口仍为 API Key 机制，**本探针没有把 ADC 接入生产路由**；自动刷新、宿主接入与多身体凭据边界须在真实语义处理接线时实现和测试。
+
+提案探针可通过 `QUETZAL_VERTEX_TRANSPORT=curl` 做显式 HTTP/1.1 传输对照（默认 urllib，连通性 smoke 仍使用 urllib）。curl 须由测试环境提供；URL / ADC 令牌只经子进程 stdin，响应至多 1 MiB，curl 90 秒、子进程 100 秒上限；调用方仍有 150 秒时间墙。SIGTERM 经过清理路径结束 curl，真实子进程取消测试已执行。报告记录实际 transport，不自动换传输或模型；更换传输需新建试验，不能用同配置 resume 掩盖变化。该选项不是生产配置，也不证明某传输长期稳定。
 
 
 ## 6. 首批真实语义开发试跑

@@ -10,6 +10,8 @@ import concurrent.futures
 import http.client
 import json
 import os
+import socket
+import ssl
 from pathlib import Path
 import subprocess
 import time
@@ -21,6 +23,21 @@ MODELS = {
     "main": "gemini-3.8-flash",
     "quick": "gemini-3.5-flash-lite",
 }
+
+
+def transport_failure(error: BaseException) -> dict:
+    """只给白名单错误分类和长度，不回显 URL、账号、异常消息或已收到的正文。"""
+    cause = error.reason if isinstance(error, urllib.error.URLError) else error
+    if isinstance(cause, http.client.IncompleteRead):
+        detail = {'kind': 'incomplete-read', 'receivedBytes': len(cause.partial)}
+        if isinstance(cause.expected, int) and cause.expected >= 0:
+            detail['expectedRemainingBytes'] = cause.expected
+        return detail
+    kinds = [(TimeoutError, 'timeout'), (ssl.SSLError, 'tls'), (socket.gaierror, 'dns'),
+             (http.client.RemoteDisconnected, 'remote-disconnected'),
+             (ConnectionResetError, 'connection-reset'), (ConnectionRefusedError, 'connection-refused'),
+             (http.client.HTTPException, 'http-protocol')]
+    return {'kind': next((name for cls, name in kinds if isinstance(cause, cls)), 'transport-other')}
 
 
 def credentials() -> tuple[str, str]:
@@ -59,8 +76,10 @@ def probe(project: str, token: str, tier: str, model: str) -> dict:
                  "x-goog-user-project": project},
     )
     result = {"tier": tier, "model": model, "ok": False}
+    phase = 'request'
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
+            phase = 'response'
             data = json.load(response)
         candidate = (data.get("candidates") or [{}])[0]
         text = "".join(p.get("text", "") for p in candidate.get("content", {}).get("parts", [])
@@ -69,14 +88,14 @@ def probe(project: str, token: str, tier: str, model: str) -> dict:
                       modelVersion=data.get("modelVersion"), finishReason=candidate.get("finishReason"),
                       exactOK=text.strip() == "OK")
         # 单独记录思考 token；不能把仅可见输出 token 误当全部用量或费用。
-        usage = data.get("usageMetadata", {})
-        result["usage"] = {k: usage.get(k, 0) for k in (
+        usage = data.get("usageMetadata")
+        result["usage"] = None if usage is None else {k: usage.get(k) for k in (
             "promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount")}
     except urllib.error.HTTPError as error:
         result.update(error="http", status=error.code)
         error.close()
-    except (urllib.error.URLError, OSError, http.client.HTTPException):
-        result.update(error="transport-or-timeout")
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+        result.update(error="transport-or-timeout", failure={'phase': phase, **transport_failure(error)})
     except (ValueError, TypeError, AttributeError, IndexError):
         result.update(error="invalid-response")
     result["latencyMs"] = round((time.monotonic() - start) * 1000)

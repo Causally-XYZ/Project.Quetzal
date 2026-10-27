@@ -254,6 +254,8 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 开发提案工具也不属于 RPC / agent 工具。真实模型输出只经过内部 normalizeProposal→Archive.accept，不能直接调用管理接口或自行获得 verified；模型语义质量与生产接线仍待验收。
 
+ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 urllib / curl 对照；不是服务配置或 RPC 参数，不改变生产 TypeScript 模型路由。实际传输、失败阶段及未知用量在独立评测报告中保存。
+
 内部 `reviewNext` 复用现有队列执行来源修订 / 依赖重评，由宿主注入模型、灵魂 exclusive 与启用 / 取消状态。提供同语境已有对象候选和定义，仍不按同名合并；旧引文须重新核对当前原文。semantic 开关显式开启后后台调用；无需修改的结果也核对完整输入快照后才记任务完成，不恢复失效依据。它不是模型可直接调用的工具。
 
 | 自适应记忆方法 | 参数与返回 | 当前边界 |

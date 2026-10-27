@@ -33,6 +33,8 @@ const episodes = [
 const previous = resume ? JSON.parse(fs.readFileSync(path.join(real, 'report.json'), 'utf8')) : null;
 if (resume && (previous.dataset !== 'AM-01-development-v1' || previous.model !== model || previous.results.at(-1)?.apiOk !== false || previous.results.at(-1)?.error !== 'transport-or-timeout'))
   throw new Error('只可继续同模型、同开发集的传输失败；语义 / 格式失败请新建实验');
+if (resume && (previous.results.at(-1).transport ?? 'urllib') !== (process.env.QUETZAL_VERTEX_TRANSPORT ?? 'urllib'))
+  throw new Error('传输方式改变须新建实验，不能冒充同配置重试');
 const results: any[] = previous?.results ?? [];
 const retryStep = resume ? results.at(-1).step : 0;
 try {
@@ -58,7 +60,8 @@ try {
       try { response = JSON.parse(String(error.stdout)); } catch { response = { ok: false, error: 'runner-failed', usage: null }; }
     }
     fs.writeFileSync(path.join(real, `response-${id}${suffix}.json`), JSON.stringify(response), { mode: 0o600 });
-    const report: any = { step: id, attempt, model, promptHash, apiOk: response.ok, modelVersion: response.modelVersion, latencyMs: response.latencyMs, usage: response.usage, config: response.config };
+    const report: any = { step: id, attempt, model, promptHash, transport: response.transport, apiOk: response.ok, modelVersion: response.modelVersion,
+      latencyMs: response.latencyMs, usage: response.usage, config: response.config, failure: response.failure };
     try {
       if (!response.ok) throw new Error(response.error);
       const batch = normalizeProposal(response.proposal, context);

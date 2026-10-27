@@ -11,6 +11,14 @@ const packageDir = path.resolve(root, 'node_modules/@langchain/langgraph-checkpo
 const pkg = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
 assert.equal(pkg.version, '1.2.1');
 assert.equal(JSON.parse(fs.readFileSync(path.resolve(root, 'node_modules/@langchain/core/package.json'), 'utf8')).version, '1.1.48');
+const lock = JSON.parse(fs.readFileSync(path.resolve(root, 'package-lock.json'), 'utf8'));
+assert.equal(lock.lockfileVersion, 3);
+for (const [name, entry] of Object.entries(lock.packages)) {
+  if (!name) continue;
+  assert.ok(name.startsWith('node_modules/') && !name.split('/').includes('..'));
+  assert.ok(entry.resolved?.startsWith('https://registry.npmjs.org/') && entry.integrity?.startsWith('sha512-'));
+  assert.equal(JSON.parse(fs.readFileSync(path.resolve(root, name, 'package.json'), 'utf8')).version, entry.version);
+}
 const { MemorySaver, emptyCheckpoint } = await import(pathToFileURL(path.join(packageDir, 'dist/index.js')).href);
 const saver = new MemorySaver();
 const config = { configurable: { thread_id: 'synthetic-agent', checkpoint_ns: 'memory-job' } };
@@ -45,6 +53,7 @@ assert.equal(await saver.getTuple(corrected), undefined);
 assert.equal(await saver.getTuple(staleConfig), undefined);
 
 console.log(JSON.stringify({ schema: 'quetzal-oss-probe-v1', package: pkg.name, version: pkg.version,
+  lockedPackages: Object.keys(lock.packages).length - 1,
   scope: '真实 MemorySaver；非 SQLite、非完整执行器、无模型调用', checks: 5,
   results: ['同任务写入幂等', '检查点保留父版本', '不同 thread 隔离',
     '旧来源结果可保存，宿主仍须做版本门禁', '内存 saver 不跨实例恢复，deleteThread 清理历史'],

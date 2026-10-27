@@ -38,7 +38,7 @@ try {
         });
         pending.push(completion); await completion;
         save(`review-response-${n}.json`, response);
-        const call = { model, modelVersion: response.modelVersion, ok: response.ok, latencyMs: response.latencyMs, usage: response.usage, error: response.error };
+        const call = { model, modelVersion: response.modelVersion, transport: response.transport, ok: response.ok, latencyMs: response.latencyMs, usage: response.usage, error: response.error, failure: response.failure };
         calls.push(call); console.log(JSON.stringify(call));
         if (!response.ok) throw new Error('模型重评失败');
         return response.proposal;

@@ -34,6 +34,8 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 `adaptive-model.ts` 复用模型路由、出站脱敏、实际用量和取消信号；完整输入装不进候选模型窗口时不发请求，不截掉必要依据。它严格拒绝截断、工具调用和非 JSON 输出。当前 ADC 仅由 `tool/adaptive-vertex-smoke.py` / `adaptive-vertex-proposal.py` 用于开发，不被后台读取或复制到其他身体。
 
+开发提案探针默认 urllib，可显式设置 `QUETZAL_VERTEX_TRANSPORT=curl` 对照传输；该变量不影响生产。失败只记录安全类别 / 阶段，缺失用量为 null，SIGTERM 会清理 curl 子进程。边界测试需另跑 `python3 -B tool/test_adaptive_vertex_smoke.py`。开源检查点探针的独立清单 / 完整锁在 `tool/adaptive-checkpoint-probe/`，不进入 runtime 生产依赖，复现方法见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。
+
 Google 适配器将已报告的思考 token 计入 output，每日用量与配置单价估算同步受益；后台 lastModel 还保留可选 reasoning / total。reasoning 是输出子集，不能再次相加，total 不用分项之和覆盖。`test/google-usage.test.ts` 用本机合成 HTTP 验证累计流、JSON、路由 / SQLite 汇总与提案回调；不代替真实语义质量评测。
 
 认识的版本与支持 / 反证规则在 `adaptive-evidence.ts`、`adaptive-graph.ts`；`adaptive-archive.ts` 在灵魂 exclusive 内核对权威文件和发件箱再重建。接受结果后沿用[文件 / Git 自动发布](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)。增量处理目前最多 1000 条记录 / 100 个来源且提示不超过 256 KiB，超限进入有界失败重试。原文编辑可重新整合，旧引文显式失效；忽略 / 删除 / 改成助手来源的派生记录及显式下游从增量提示排除，存档历史保留。另一条尚未处理的编辑不提前进入当前检查点。
