@@ -66,6 +66,11 @@ export function openStore() {
   db.exec("CREATE INDEX IF NOT EXISTS timeline_ts ON timeline(ts, id)");
   prefix = idPrefixOf(config.body);
   migrateIds();
+  // 可变消息标记不能用「最大消息编号」补齐。独立保存版本，包括清空标记；版本 0 是升级时的无作者快照。
+  db.exec('CREATE TABLE IF NOT EXISTS message_modes(id INTEGER PRIMARY KEY, mode TEXT, revision INTEGER NOT NULL, writer TEXT NOT NULL)');
+  if (!db.prepare("SELECT 1 FROM kv WHERE k='store.message-modes'").get()) {
+    db.exec("BEGIN; INSERT OR IGNORE INTO message_modes SELECT id,mode,0,'' FROM messages WHERE mode IS NOT NULL; INSERT INTO kv VALUES('store.message-modes','1'); COMMIT");
+  }
   // 1.0：用量按身体记（每日预算是全网合计）。旧表的主键是 (day, model)：重建为 (day, model, body)，旧行归这具身体
   const ucols = (db.prepare("PRAGMA table_info(usage)").all() as any[]).map((c) => c.name);
   if (!ucols.includes("body")) {
@@ -260,8 +265,46 @@ export function addMessage(role: Role, channel: string, text: string, o: { sessi
 }
 /** 改一条消息的并入方式标记（ambient 的 ignored：她判断不是对她说的）。 */
 export function setMessageMode(id: number, mode: string | null) {
-  db.prepare("UPDATE messages SET mode=? WHERE id=?").run(mode, id);
-  bus.emit("replica", { table: "message.mode", rows: [{ id, mode }] });
+  if (!Number.isSafeInteger(id) || id < 1 || !okMode(mode)) throw new Error('消息标记不合法');
+  let row: MessageMode | undefined;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    if (db.prepare('SELECT 1 FROM messages WHERE id=?').get(id)) {
+      const cur = messageMode(id);
+      const revision = (cur?.revision ?? 0) + 1;
+      if (!Number.isSafeInteger(revision)) throw new Error('消息标记版本耗尽');
+      row = { id, mode, revision, writer: config.body };
+      writeMessageMode(row);
+    }
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  if (row) bus.emit('replica', { table: 'message.mode', rows: [row] });
+}
+
+export interface MessageMode { id: number; mode: string | null; revision: number; writer: string }
+export function messageMode(id: number): MessageMode | undefined {
+  const versioned = db.prepare('SELECT * FROM message_modes WHERE id=?').get(id) as MessageMode | undefined;
+  if (versioned) return versioned;
+  // 新收到的原文也可能自带 ignored，旧协议的无版本清空不能把它复活。
+  const initial = db.prepare('SELECT mode FROM messages WHERE id=? AND mode IS NOT NULL').get(id) as { mode: string } | undefined;
+  return initial ? { id, mode: initial.mode, revision: 0, writer: '' } : undefined;
+}
+/** 每次重连从头分页比较可变状态；不能沿用消息编号的高水位。 */
+export function messageModesAfter(after = 0, limit = 500): MessageMode[] {
+  if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error('消息标记分页参数不合法');
+  return db.prepare('SELECT * FROM message_modes WHERE id>? ORDER BY id LIMIT ?').all(after, limit) as unknown as MessageMode[];
+}
+function writeMessageMode(row: MessageMode) {
+  db.prepare('INSERT INTO message_modes VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET mode=excluded.mode,revision=excluded.revision,writer=excluded.writer')
+    .run(row.id, row.mode, row.revision, row.writer);
+  db.prepare("UPDATE messages SET mode=? WHERE id=? AND mode IS NOT ?").run(row.mode, row.id, row.mode);
+}
+// 因果后续版本优先；并发同版本时 ignored 优先，其余按 writer / mode 排序（包含无作者的升级快照）。
+function newerMessageMode(a: MessageMode, b: MessageMode) {
+  if (a.revision !== b.revision) return a.revision > b.revision;
+  if ((a.mode === 'ignored') !== (b.mode === 'ignored')) return a.mode === 'ignored';
+  if (a.writer !== b.writer) return a.writer > b.writer;
+  return (a.mode ?? '') > (b.mode ?? '');
 }
 /** 全部会话里最近的对话（正序）。 */
 export function recentMessages(limit = 20): MessageRow[] {
@@ -380,16 +423,29 @@ export function applyRemote(table: ReplicaTable, rows: any[], o: { from: string;
         const ok = db.prepare("INSERT OR IGNORE INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body,via) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
           .run(r.id, r.ts, r.role, r.channel, r.text, r.session, r.process ?? null, r.attachments ?? null, r.mode ?? null, r.body, r.via ?? null);
         if (Number(ok.changes)) {
+          // 标记可能先于原文到达；把已知修订应用在同一消息事务里。
+          const mode = messageMode(r.id);
+          if (mode) db.prepare('UPDATE messages SET mode=? WHERE id=?').run(mode.mode, r.id);
           db.prepare("INSERT OR IGNORE INTO sessions(id,title,channel,created,updated,changed) VALUES(?,?,?,?,?,0)").run(r.session, "新的对话", r.channel, r.ts, r.ts);
           db.prepare("UPDATE sessions SET updated=MAX(updated, ?), archived=0 WHERE id=?").run(r.ts, r.session);
-          changed.push(r);
+          changed.push(mode ? { ...r, mode: mode.mode } : r);
         }
       } else if (table === "timeline") {
         if (!okRow("timeline", r, o.from, !!o.catchUp)) { rejected++; continue; }
         if (Number(db.prepare("INSERT OR IGNORE INTO timeline(id,ts,kind,title,detail,body) VALUES(?,?,?,?,?,?)").run(r.id, r.ts, r.kind, r.title, r.detail ?? "null", r.body).changes)) changed.push(r);
       } else if (table === "message.mode") {
-        if (!r || !Number.isSafeInteger(r.id) || !okMode(r.mode)) { rejected++; continue; }
-        if (Number(db.prepare("UPDATE messages SET mode=? WHERE id=? AND COALESCE(mode,'')<>COALESCE(?,'')").run(r.mode ?? null, r.id, r.mode ?? null).changes)) changed.push(r);
+        if (!r || !Number.isSafeInteger(r.id) || r.id < 1 || !okMode(r.mode)) { rejected++; continue; }
+        const cur = messageMode(r.id);
+        if (r.revision === undefined && r.writer === undefined) {
+          // 旧身体没有版本：只接到无版本快照，不得覆盖已知版本；强一致恢复要求全部身体升级。
+          if (!cur) { const legacy = { id: r.id, mode: r.mode ?? null, revision: 0, writer: '' }; writeMessageMode(legacy); changed.push(legacy); }
+          continue;
+        }
+        if (!Number.isSafeInteger(r.revision) || r.revision < 0 ||
+            !(r.revision === 0 && r.writer === '' || r.revision > 0 && isStr(r.writer, 40, 1) && BODY_RE.test(r.writer)) ||
+            (!o.catchUp && (r.revision === 0 || r.writer !== o.from))) { rejected++; continue; }
+        const next: MessageMode = { id: r.id, mode: r.mode ?? null, revision: r.revision, writer: r.writer };
+        if (!cur || newerMessageMode(next, cur)) { writeMessageMode(next); changed.push(next); }
       } else if (table === "sessions") {
         if (!r || !isStr(r.id, 200, 1) || !isStr(r.title, 200) || !isStr(r.channel, 100)) { rejected++; continue; }
         const org = sessionOrganize(r, soon);

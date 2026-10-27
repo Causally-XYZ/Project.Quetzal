@@ -120,14 +120,23 @@ test('AM-11/12/15/20/21：真实双身体聊天、认证查询、集中处理、
     assert.equal((await center.rpc<any[]>('memory.adaptive.jobs')).filter((j) => j.source === sourceId).length, 1);
   });
 
-  await t.test('AM-20：中心离线期间旧来源改为 ignored，重连后不可再查询', { todo: 'M1 未放行：现有 replica 补齐只追新增编号，需要持久消息状态修订协议' }, async () => {
+  await t.test('AM-20：中心离线期间旧来源改为 ignored，重连后不可再查询', async () => {
     const dead = once(center.p, 'exit'); center.p.kill('SIGKILL'); await dead;
     await until(async () => !(await satellite.call<string[]>('connected')).includes('center'));
     await satellite.call('mode', { id: sourceId, mode: 'ignored' });
     center = await spawn('center');
     await until(async () => (await satellite.call<string[]>('connected')).includes('center'));
-    await until(async () => (await center.call<any[]>('messages', { session: 'offline' })).some((m) => m.text.includes('紫色灯塔')));
+    // 必须检查中心数据库实际修订，不能只靠卫星的读取过滤让测试变绿。
+    await until(async () => (await center.call<any[]>('messages', { session: 'january' })).find((m) => m.id === sourceId)?.mode === 'ignored');
+    assert.ok(!(await center.rpc<MemoryPacket>('memory.adaptive.query', { query: '蓝色船屋' })).observations.some((s) => s.id === sourceId));
     assert.ok(!(await satellite.rpc<MemoryPacket>('memory.adaptive.query', { query: '蓝色船屋' })).observations.some((s) => s.id === sourceId));
+    // 清空标记也是持久修订；再次离线、重启后恢复，不被旧 ignored 重放覆盖。
+    const deadAgain = once(center.p, 'exit'); center.p.kill('SIGKILL'); await deadAgain;
+    await until(async () => !(await satellite.call<string[]>('connected')).includes('center'));
+    await satellite.call('mode', { id: sourceId, mode: null });
+    center = await spawn('center');
+    await until(async () => (await satellite.call<string[]>('connected')).includes('center'));
+    await until(async () => (await center.rpc<MemoryPacket>('memory.adaptive.query', { query: '蓝色船屋' })).observations.some((s) => s.id === sourceId));
   });
 
   await t.test('实际网状读取延迟与在线来源失效', async () => {

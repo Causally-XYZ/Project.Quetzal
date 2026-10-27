@@ -13,6 +13,10 @@ export interface MemorySource {
   id: number; revision: number; hash: string; session: string; role: string; channel: string;
   text: string; ts: number; body: string | null; via: string | null;
 }
+export type SourceSnapshot = Omit<MemorySource, 'revision' | 'hash'> & { mode: string | null; attachments: string | null };
+export function sourceHash(agent: string, r: SourceSnapshot): string {
+  return crypto.createHash('sha256').update(JSON.stringify([agent, r.id, r.session, r.role, r.channel, r.text, r.ts, r.body, r.via, r.mode, r.attachments])).digest('hex');
+}
 const eligible = "m.role IN ('user','agent','ambient') AND COALESCE(m.mode,'') <> 'ignored' AND length(COALESCE(m.text,'')) > 0";
 const jobColumns = 'id, source, revision, processor, state, attempts, available, token, lease, error';
 const processorOk = (v: string) => /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v);
@@ -99,7 +103,7 @@ export class AdaptiveStore {
     const r = this.db.prepare(`SELECT m.id,s.revision,m.session,m.role,m.channel,m.text,m.ts,m.body,m.via,m.mode,m.attachments
       FROM messages m JOIN adaptive_sources s ON s.source=m.id WHERE m.id=? AND s.deleted=0 AND ${eligible}`).get(id) as (MemorySource & { mode: string | null; attachments: string | null }) | undefined;
     if (!r || (revision !== undefined && r.revision !== revision)) return;
-    const hash = crypto.createHash('sha256').update(JSON.stringify([this.agent, r.id, r.session, r.role, r.channel, r.text, r.ts, r.body, r.via, r.mode, r.attachments])).digest('hex');
+    const hash = sourceHash(this.agent, r);
     return { id: r.id, revision: r.revision, hash, session: r.session, role: r.role, channel: r.channel, text: r.text, ts: r.ts, body: r.body, via: r.via };
   }
 

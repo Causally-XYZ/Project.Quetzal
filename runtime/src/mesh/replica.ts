@@ -7,7 +7,7 @@
 // 新身体入网时就这样从其他身体补齐全部历史；对话不进 git（DISTRIBUTED.md C5）。
 import type { Mesh, PeerStatus } from "./mesh.ts";
 import { bus } from "../bus.ts";
-import { idVector, rowsAfter, allSessions, applyRemote, ID_RANGE, type ReplicaTable } from "../store.ts";
+import { idVector, rowsAfter, allSessions, messageModesAfter, applyRemote, ID_RANGE, type ReplicaTable } from "../store.ts";
 import { log } from "../log.ts";
 
 const PAGE_BYTES = 4 << 20;
@@ -71,6 +71,26 @@ async function catchUp(mesh: Mesh, peer: string) {
       }
     }
     total += apply("sessions", await mesh.request<unknown>(peer, "replica.sessions", {}, 30_000), peer, true);
+    // 旧消息的 ignored / 清空等是可变状态，必须独立于新增消息编号补齐。
+    // 每次重连重新比较；同版本重放无副作用。旧基座没有此方法，保留原复制能力。
+    try {
+      let after = 0;
+      for (let page = 0; page < 400; page++) {
+        const modes = await mesh.request<unknown>(peer, 'replica.modes', { after }, 30_000);
+        if (!Array.isArray(modes) || modes.length > 500) throw new Error('消息标记分页形状错误');
+        if (!modes.length) break;
+        let cursor = after;
+        for (const row of modes) {
+          if (!row || !Number.isSafeInteger(row.id) || row.id <= cursor) throw new Error('消息标记分页没有递增');
+          cursor = row.id;
+        }
+        total += apply('message.mode', modes, peer, true);
+        after = cursor;
+        if (page === 399) log('mesh', `从 ${peer} 补齐消息标记达到 20 万条上限，当前只拥有局部快照`);
+      }
+    } catch (e) {
+      if (!/没有这个方法/.test((e as Error).message)) throw e;
+    }
     if (total) log("mesh", `从 ${peer} 补齐了 ${total} 条对话、时间线与会话`);
   } catch (e) { log("mesh", `从 ${peer} 补齐失败：${(e as Error).message}`); }
 }
@@ -82,6 +102,7 @@ export function installReplica(mesh: Mesh): () => void {
     return page(p.table as "messages" | "timeline", cleanVector(p.vector));
   });
   mesh.handle("replica.sessions", () => allSessions());
+  mesh.handle('replica.modes', (p: { after: number }) => messageModesAfter(p?.after));
 
   const open = new Set<string>();
   const onPeer = (s: PeerStatus) => {

@@ -97,6 +97,22 @@ test('AM-15：不响应取消的服务也会在读取截止后降级；用户取
   } finally { clearInterval(keepAlive); detach(); local(); }
 });
 
+test('AM-20：远端 ready 仍不能绕过本机已知的忽略或来源快照变化', async () => {
+  const id = store.addMessage('user', '测试', '独有线索青铜罗盘', { session: 'local' });
+  host.processAdaptiveBatch();
+  const old = await host.queryAdaptive('青铜罗盘');
+  assert.ok(old.observations.some((s) => s.id === id));
+  cfg.saveConfig({ adaptiveMemory: { enabled: true, hostBody: 'remote' } });
+  const detach = host.setAdaptiveTransport({ request: async () => ({ ...old, host: 'remote' }) });
+  try {
+    store.setMessageMode(id, 'ignored');
+    assert.ok(!(await host.queryAdaptive('青铜罗盘')).observations.some((s) => s.id === id));
+    store.setMessageMode(id, null);
+    store.db.prepare("UPDATE messages SET text='纠正后的另一段原文' WHERE id=?").run(id);
+    assert.ok(!(await host.queryAdaptive('青铜罗盘')).observations.some((s) => s.id === id));
+  } finally { detach(); local(); }
+});
+
 test('实际 context 准备链路使用记忆材料；失效来源与关闭功能不再注入', async () => {
   const { createTurnContext } = await import('../src/mind/context.ts');
   const messages = [{ role: 'user' as const, content: '港口采风有什么旧线索？' }];

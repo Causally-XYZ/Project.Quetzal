@@ -1,12 +1,12 @@
 // 自适应记忆 M1 宿主：固定身体登记/处理来源，其他身体经认证网状层读取。当前只返回原文观察，不生成认识。
 import fs from 'node:fs';
 import { config, paths, saveConfig } from '../config.ts';
-import { db } from '../store.ts';
+import { db, messageMode } from '../store.ts';
 import { log } from '../log.ts';
 import { identity } from './identity.ts';
 import { retrieve } from './retrieval.ts';
 import { redactSecrets } from '../mind/secrets.ts';
-import { AdaptiveStore, type MemorySource } from './adaptive-store.ts';
+import { AdaptiveStore, sourceHash, type SourceSnapshot, type MemorySource } from './adaptive-store.ts';
 
 export interface MemoryPacket {
   version: 1; agent: string; host: string; generatedAt: number;
@@ -137,7 +137,14 @@ export async function queryAdaptive(query: string, signal?: AbortSignal): Promis
     timed.throwIfAborted();
     if (agent !== identity().id || host !== config.adaptiveMemory.hostBody || !config.adaptiveMemory.enabled) return packet('unavailable');
     if (fs.existsSync(paths.stop)) return packet('stopped');
-    return validatePacket(value, agent, host);
+    const result = validatePacket(value, agent, host);
+    // 中心可能尚未收到本机的来源修改。已知 ignored 或不同快照不能因远端返回 ready 而重新进入上下文。
+    result.observations = result.observations.filter((s) => {
+      if (messageMode(s.id)?.mode === 'ignored') return false;
+      const local = db.prepare('SELECT id,session,role,channel,text,ts,body,via,mode,attachments FROM messages WHERE id=?').get(s.id) as SourceSnapshot | undefined;
+      return !local || local.mode !== 'ignored' && sourceHash(agent, local) === s.hash;
+    });
+    return result;
   } catch {
     signal?.throwIfAborted();
     return packet('unavailable');
