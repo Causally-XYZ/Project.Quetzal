@@ -359,6 +359,16 @@ M1 验收提交 `9d73b205905a2d419cd36a8a3a9638245d3eee4d` 已通过 `git push -
 
 全局架构 / API、runtime 文档、语义 / 组件 / 计划同步更新。M2 仍不放行，本批仅本地提交，不 push，不进入 M3；完整 GOAL 保持 active。
 
+### 4.10 M2 生产 Google 思考用量与后台明细：2026-10-27
+
+输入基线 `04a3f36`，开始前工作区干净。补齐 §4.9 已识别的生产计量缺口：Google 适配器将 thoughtsTokenCount 计入 output，toolUsePromptTokenCount 计入 input；reasoning 作为 output 的子集、total 作为供应商原始报告保留于 ChatResult 与后台 lastModel。SSE / JSON 共用解析，累计快照重复不加倍、缺字段或非法值不覆盖已有值，明确零仍接受；分项合计超出安全整数则拒绝。思考正文继续被排除，不进入回答或记忆提案。
+
+每日 SQLite 聚合、跨身体用量消息与既有预算沿用 input / output，因此新的成功调用包含思考量；不迁移旧日聚合，不把 total 差额推断为思考，不新增逐调用账本。费用依然按配置单价估算，缓存折扣、分层价格及未报告用量的失败调用不在本批解决范围内。提案格式不合格但供应商正常完成时，已报告用量仍被记录。
+
+新增 `google-usage.test.ts` 四项，以本机合成 HTTP 驱动实际适配器 / 路由 / SQLite / 记忆用量回调。连同 providers / adaptive-production 共 **11 项通过，0 失败 / 跳过 / todo**；engine 独立回归 **58 项通过**。第一次构建的类型检查发现新测试的空 schema 不符合提案类型，补齐夹具字段后，四项新增测试复跑通过，`npm run build --prefix runtime` 的 engine / runtime 类型检查与全部打包入口通过。没有新发真实模型请求，不将协议计量测试视为真实语义评测，也未重复无相关变更的双身体性能实验。
+
+全局架构 / API、engine 与 runtime 模块文档及语义现状已更新。依赖列表、构建 / 部署配置经核对，无新依赖、环境变量或入口；现有 tsconfig 与测试通配符覆盖新增测试，灵魂格式 / 数据库 schema / 身体同步协议未变。M2 仍不放行，本批仅本地提交，不 push，不进入 M3；跨语境边界答复与其他语义 / 组件 / 检索门禁继续保留，完整 GOAL 保持 active。
+
 ## 5. 后续阶段记录模板
 
 每一阶段追加以下信息，不覆盖失败历史：

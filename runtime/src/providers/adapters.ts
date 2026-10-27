@@ -231,7 +231,10 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
       if (m.role === "user") for (const i of m.images ?? []) push("user", { inlineData: { mimeType: i.mime, data: i.data } });
     }
   }
-  let text = "", finish = ""; const toolCalls: ToolCall[] = []; const usage = { input: 0, output: 0 };
+  let text = "", finish = ""; const toolCalls: ToolCall[] = []; const usage: ChatResult['usage'] = { input: 0, output: 0 };
+  let promptTokens = 0, candidateTokens = 0, toolPromptTokens = 0;
+  // Gemini 的流用量是累计快照；缺字段不清零，重复快照不累加。非法值不覆盖已知值。
+  const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
   const onChunk = (c: any, live: boolean) => {
     if (c.error) throw streamError(c.error);
     for (const p of c.candidates?.[0]?.content?.parts ?? []) {
@@ -239,7 +242,17 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
       if (p.functionCall) toolCalls.push({ id: newId(), name: p.functionCall.name, args: p.functionCall.args ?? {} });
     }
     if (c.candidates?.[0]?.finishReason) finish = c.candidates[0].finishReason;
-    if (c.usageMetadata) { usage.input = c.usageMetadata.promptTokenCount ?? 0; usage.output = c.usageMetadata.candidatesTokenCount ?? 0; }
+    const m = c.usageMetadata;
+    if (m) {
+      if (count(m.promptTokenCount)) promptTokens = m.promptTokenCount;
+      if (count(m.candidatesTokenCount)) candidateTokens = m.candidatesTokenCount;
+      if (count(m.toolUsePromptTokenCount)) toolPromptTokens = m.toolUsePromptTokenCount;
+      if (count(m.thoughtsTokenCount)) usage.reasoning = m.thoughtsTokenCount;
+      if (count(m.totalTokenCount)) usage.total = m.totalTokenCount;
+      usage.input = promptTokens + toolPromptTokens;
+      usage.output = candidateTokens + (usage.reasoning ?? 0);
+      if (!Number.isSafeInteger(usage.input) || !Number.isSafeInteger(usage.output)) throw new ProviderError('供应商用量超出安全整数范围', 0, true);
+    }
   };
   const j = await sse(`${base(t.baseUrl)}/models/${t.model}:streamGenerateContent?alt=sse`, { "x-goog-api-key": t.apiKey, ...t.headers }, {
     contents, systemInstruction: system ? { parts: [{ text: system }] } : undefined,

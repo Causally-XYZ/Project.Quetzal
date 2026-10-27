@@ -259,7 +259,7 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic 为默认关闭的后台语义试验开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
-| `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic}` | semantic 含 enabled / state，中心另含语义队列、最后模型 / 用量和重评预算；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
+| `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic}` | semantic 含 enabled / state，中心另含语义队列、lastModel `{model,input,output,reasoning?,total?}` 和重评预算；reasoning 已包含于 output，total 为供应商报告，可选字段未报告则省略，lastModel 不是完整调用历史；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
 | `memory.adaptive.query` | `{query: string}`（最多 8000 字符）→ `MemoryPacket` | 经正式身体的认证网状通道转给中心，网络读取 500ms 截止；故障降级为空材料，不触发学习或通知 |
 | `memory.adaptive.jobs` | — → 最近最多 20 条任务 | 当前仅中心本机可见；包含来源、修订、处理器、状态、尝试次数、租约和错误代码，不含正文 |
 | `memory.adaptive.cancel` | `{id: string}` → boolean | 只取消本机中心的 queued/running/failed 任务并审计；同一来源修订和处理器不被补扫自动复活 |

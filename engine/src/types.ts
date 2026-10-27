@@ -14,4 +14,12 @@ export interface ChatRequest {
   onChunk?: () => void; // 收到任何流数据块（用于重置会话时间墙）
   onText?: (text: string) => void; // 流式文字片段
 }
-export interface ChatResult { text: string; toolCalls: ToolCall[]; usage: { input: number; output: number }; model: string; truncated?: boolean } // truncated：输出到了长度上限（max_tokens）被截断
+export interface ChatResult {
+  text: string; toolCalls: ToolCall[];
+  usage: {
+    input: number; output: number; // 输出包含供应商报告的思考用量；不应再次加 reasoning。
+    reasoning?: number; // 输出中的思考子集；未报告时省略，不推断为零。
+    total?: number; // 供应商直接报告的总量，不由 input / output 猜算。
+  };
+  model: string; truncated?: boolean; // truncated：输出到了长度上限（max_tokens）被截断
+}

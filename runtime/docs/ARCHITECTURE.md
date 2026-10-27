@@ -145,7 +145,7 @@ src/
 │   └── ops.ts            网关方法 mcp.* 与 plugins.*（并入 ops.ts）
 ├── providers/
 │   ├── types.ts          统一消息/工具/结果类型
-│   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；模型调用时间墙：90 秒无数据、180 秒无内容，没有绝对上限）
+│   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；Google 输出包含思考用量、可选 reasoning / total 保留供应商报告；模型调用时间墙：90 秒无数据、180 秒无内容，没有绝对上限）
 │   ├── catalog.ts        models.dev 公共目录
 │   ├── quick.ts          快速接入供应商：保存 Key、按目录筛选工具模型、试通与排序；没有通的模型时恢复原配置
 │   ├── registry.ts       草稿保存、版本号、Key 加密；从其他身体导入（逐个校验，API 地址只收 HTTPS 与本机回环，不合格的保留本机原来的，全部整理完才替换）

@@ -88,4 +88,4 @@ SQLite 可选投影保存 meta（格式版本 2、整体 generation）、batches
 
 没有新增守护进程或运行依赖。配置与既有管理 RPC 增加 semantic 字段；main 引入相关库后，构建脚本将完整 Graphiti 许可 / 修改说明嵌入跨平台分发的 main.cjs。当前只做受控后台试验，默认不启用，不能据构建或合成 HTTP 测试宣称 M2 通过。
 
-当前统一供应商类型只暴露 input / output 用量，Google 适配器读取 promptTokenCount / candidatesTokenCount，尚未独立保存 thoughtsTokenCount；生产后台状态不能充当包含思考用量的完整费用报告。ADC 开发报告的思考 / total token 统计与此区分，后续需补齐生产计量。
+统一供应商结果及后台 lastModel 现保留 input / output 和可选 reasoning / total。Google 按 promptTokenCount + toolUsePromptTokenCount 计输入，candidatesTokenCount + thoughtsTokenCount 计输出；reasoning 是后者的子集，total 原样保存供应商总量，缺失或非法字段不覆盖先前累计快照。该映射依据 [Google UsageMetadata](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1/GenerateContentResponse#UsageMetadata)。思考正文不进入回答或记忆提案。每日 SQLite / 身体同步仍只存聚合 input / output / cost，无新 schema；最后模型明细存在既有本机 KV，不是逐调用账本。费用为配置单价估算，未处理缓存折扣、分层价格或未知失败用量，旧记录也不追溯补算；ADC 开发报告仍与生产状态分开。

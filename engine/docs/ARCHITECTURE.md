@@ -30,6 +30,8 @@ FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供
 
 模型类型由 engine 维护，`runtime/src/providers/types.ts` 重导出兼容旧导入路径，供应商配置、Key 与 ProviderError 留在 runtime。
 
+`ChatResult.usage` 保留 input / output，另可返回 reasoning（output 已包含的思考子集）与 total（供应商直接报告的总量）。调用方只汇总 input + output，不能再次加 reasoning；可选字段缺失表示未报告。适配器负责各协议的计数口径，engine 不从总量反推思考量，也不把未报告推断为零。
+
 ## 纯策略与离线研究
 
 `context.ts` 与 `retrieval.ts` 只接收文本、文档、字符预算及显式当前时间；runtime 保留文件读取、日记时间转换、SQLite、灵魂同步与旧路径包装。这两份兼容纯函数保持旧算法的字符视图；生产工具循环使用独立 context-manager 与结构化记忆选择，不应据此称生产仍无动态预算。

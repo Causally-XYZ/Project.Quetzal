@@ -2,10 +2,10 @@
 import { chat } from '../providers/router.ts';
 import { redactSecrets } from '../mind/secrets.ts';
 import { ContextOverflow, estimateTextTokens } from '../../../engine/src/context-manager.ts';
-import type { ChatRequest } from '../providers/types.ts';
+import type { ChatRequest, ChatResult } from '../providers/types.ts';
 import type { proposalPrompt } from './adaptive-proposal.ts';
 
-export interface ProposalUsage { model: string; input: number; output: number }
+export type ProposalUsage = { model: string } & ChatResult['usage'];
 export async function generateAdaptiveProposal(prompt: ReturnType<typeof proposalPrompt>, signal: AbortSignal,
   report?: (usage: ProposalUsage) => void): Promise<unknown> {
   signal.throwIfAborted();
@@ -24,7 +24,7 @@ export async function generateAdaptiveProposal(prompt: ReturnType<typeof proposa
   // 全局主模型顺序及现有故障转移；不按 quick 配置挑选复杂身份抽取模型。
   const result = await chat(request);
   signal.throwIfAborted();
-  report?.({ model: result.model, input: result.usage.input, output: result.usage.output });
+  report?.({ model: result.model, ...result.usage });
   if (result.truncated || result.toolCalls.length || Buffer.byteLength(result.text) > 256 * 1024) throw new Error('认识提案输出不完整或形状不合法');
   try { return JSON.parse(result.text); } catch { throw new Error('认识提案不是完整 JSON'); }
 }

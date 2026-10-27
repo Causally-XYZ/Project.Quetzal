@@ -34,6 +34,8 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 `adaptive-model.ts` 复用模型路由、出站脱敏、实际用量和取消信号；完整输入装不进候选模型窗口时不发请求，不截掉必要依据。它严格拒绝截断、工具调用和非 JSON 输出。当前 ADC 仅由 `tool/adaptive-vertex-smoke.py` / `adaptive-vertex-proposal.py` 用于开发，不被后台读取或复制到其他身体。
 
+Google 适配器将已报告的思考 token 计入 output，每日用量与配置单价估算同步受益；后台 lastModel 还保留可选 reasoning / total。reasoning 是输出子集，不能再次相加，total 不用分项之和覆盖。`test/google-usage.test.ts` 用本机合成 HTTP 验证累计流、JSON、路由 / SQLite 汇总与提案回调；不代替真实语义质量评测。
+
 认识的版本与支持 / 反证规则在 `adaptive-evidence.ts`、`adaptive-graph.ts`；`adaptive-archive.ts` 在灵魂 exclusive 内核对权威文件和发件箱再重建。接受结果后沿用[文件 / Git 自动发布](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)。增量处理目前最多 1000 条记录 / 100 个来源且提示不超过 256 KiB，原文失效或超限进入有界失败重试；尚缺大历史候选选择和失效原文的自动重新整合。每次新整合回执最多资助五次重评，预算在本机 KV 保留；没有可用模型时显示 unconfigured。本机忙碌时等待空闲，连续等待 30 秒后允许处理，模型时间墙 150 秒；性能尚未验收。
 
 **semantic 开关目前只用于后台接线试验**：前台语义读取 / 纠正覆盖尚未完成，开启时新增的 adaptive 来源查询返回 unavailable、不注入旧观察。关闭 semantic 恢复 M1 来源路径。旧记忆路径保持既有行为，这不是全局纠正一致性验收通过。多身体与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
