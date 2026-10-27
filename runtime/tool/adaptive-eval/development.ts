@@ -17,7 +17,7 @@ const thinking = value('thinking', 'default');
 if (!['default', 'low'].includes(thinking) || thinking === 'low' && (kind !== 'live' || model !== 'gemini-3.8-flash')) throw new Error('思考对照仅支持 live 主力模型');
 const thinkingLevel = thinking === 'low' ? 'LOW' as const : undefined;
 const disconnectArgument = value('disconnect-step', ''), disconnectStep = disconnectArgument === '' ? undefined : Number(disconnectArgument);
-if (!['stub', 'live'].includes(kind) || !vertexModels.includes(model) || ![1, 2, 3].includes(count) || !['aliases', 'scope', 'graph', 'realm', 'evidence', 'time-roles'].includes(scenario)) throw new Error('开发模型或步骤不合法');
+if (!['stub', 'live'].includes(kind) || !vertexModels.includes(model) || ![1, 2, 3].includes(count) || !['aliases', 'scope', 'graph', 'realm', 'realm-status', 'evidence', 'time-roles'].includes(scenario)) throw new Error('开发模型或步骤不合法');
 const source = scenario === 'aliases' ? [
   ['2026-01-10T12:00:00Z', '我的编辑叫周宁，工作室里叫他阿舟。我的弟弟叫周宇，家里也叫他阿舟。', '我的编辑和弟弟分别叫什么？他们的昵称相同，能当成一个人吗？请简短回答，不执行其他操作。'],
   ['2026-04-10T12:00:00Z', '昨晚和阿舟吃饭，他说别急着下结论。我决定周末再去港口采风。', '四月饭友与引语说话人现在能确定吗？采风决定是什么？请简短回答，不执行其他操作。'],
@@ -34,6 +34,10 @@ const source = scenario === 'aliases' ? [
   ['2026-01-10T12:00:00Z', '我的同事林岚负责采购。她在小说讨论会上谈到一个辞职的角色。', '林岚本人辞职了吗？请根据已有资料简短回答，不执行其他操作。'],
   ['2026-04-30T12:00:00Z', '补充一件现实的事：林岚亲口告诉我，她截至四月底没有辞职，仍在原岗位。', '根据这次补充，林岚截至四月底辞职了吗？请简短回答，不执行其他操作。'],
   ['2026-06-10T12:00:00Z', '五月六日林岚正式辞职了；此前四月底还没辞职的情况并没有说错。', '截至四月底和五月六日，林岚的任职情况分别怎样？请简短回答，不执行其他操作。'],
+] : scenario === 'realm-status' ? [
+  ['2026-01-10T12:00:00Z', '我的母亲叫许岚，表妹叫秦禾。我写的小说《雾港》里，母亲角色也叫许岚，同事角色叫叶砚。小说里的许岚搬到了南城；这只是小说情节，我没有说现实母亲搬家了。秦禾说小说里的母亲很勇敢。', '现实母亲和小说母亲分别是谁？现实母亲搬家了吗？秦禾评价的是谁？请简短回答，不执行其他操作。'],
+  ['2026-04-01T12:00:00Z', '更正，秦禾之前评价的是小说里的同事叶砚，不是小说母亲许岚。另补充现实的事：现实母亲亲口告诉我，截至三月底她还没有搬家。小说中母亲搬到南城的情节没有改。', '截至三月底，现实母亲搬家了吗？秦禾实际评价谁？小说里谁搬到了南城？请简短回答，不执行其他操作。'],
+  ['2026-06-10T12:00:00Z', '现实母亲五月十二日搬到了南城。三月底还没搬家的说法是对的，并不是更正历史。小说角色和秦禾的评价对象都没有变。', '现实母亲在三月底和五月十二日的搬家情况分别怎样？秦禾评价谁？现实与小说的许岚能合并成一个人吗？请简短回答，不执行其他操作。'],
 ] : scenario === 'realm' ? [
   ['2026-01-10T12:00:00Z', '我的弟弟叫周宇，现实中的父亲叫陆远。我在写小说《潮汐》，里面的父亲角色也叫陆远，叔叔角色叫陆明。小说里的陆远离家了；这只是小说情节，没有说现实父亲离家。', '现实亲属和小说角色分别是谁？现实父亲是否离家了？请简短回答，不执行其他操作。'],
   ['2026-04-10T12:00:00Z', '周宇评价小说里的父亲角色很固执。他是在谈小说，不是在评价我们的现实父亲。', '周宇评价的是谁？这能说明现实父亲很固执或已经离家吗？请简短回答，不执行其他操作。'],
@@ -43,7 +47,7 @@ const source = scenario === 'aliases' ? [
   ['2026-04-10T12:00:00Z', '撤回依据 A。B、C 和独立结论 L 没有变化。', '撤回 A 后 K 是否还有有效支持？L 如何？请简短回答，不执行其他操作。'],
   ['2026-06-10T12:00:00Z', '再撤回依据 C。没有新的依据，也没有修改 L。', '现在还能把 K 当作有依据的结论吗？L 如何？请简短回答，不执行其他操作。'],
 ];
-const track: InputTrack = { id: scenario === 'aliases' ? 'AM-02-multibody-development-v1' : scenario === 'time-roles' ? 'time-roles-development-v1' : scenario === 'scope' ? 'AM-16-scope-development-v1' : scenario === 'realm' ? 'AM-04-realm-development-v1' : scenario === 'evidence' ? 'AM-09-evidence-development-v1' : 'AM-07-graph-development-v1',
+const track: InputTrack = { id: scenario === 'aliases' ? 'AM-02-multibody-development-v1' : scenario === 'time-roles' ? 'time-roles-development-v1' : scenario === 'scope' ? 'AM-16-scope-development-v1' : scenario === 'realm' ? 'AM-04-realm-development-v1' : scenario === 'realm-status' ? 'realm-status-development-v1' : scenario === 'evidence' ? 'AM-09-evidence-development-v1' : 'AM-07-graph-development-v1',
   setup: scenario === 'graph' ? 'and-or-graph' : 'empty', steps: source.slice(0, count).map(([at, text, query], i) => ({
   id: `S${i + 1}`, at, text, query, body: i % 2 ? 'A' : 'B', role: 'user',
   scope: scenario === 'scope' && i > 0 ? i === 1 ? 'denied' : 'other-agent' : 'accessible', speaker: 'owner',

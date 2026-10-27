@@ -252,6 +252,8 @@ test('无认识命中、服务不可用和关闭时，真实对话及故障转�
       for (const request of seen) {
         const policy = request.messages.filter((m: any) => m.role === 'system').map((m: any) => m.content).join('\n');
         assert.equal(policy.split('## 根据资料作判断').length - 1, 1);
+        assert.match(policy, /否定的是陈述或知情，不能缩成“非 P”/);
+        assert.match(policy, /先直接回答问题实际能确定的程度/);
         assert.match(policy, /未提及、未检索到、没有当前有效支持/);
         assert.match(policy, /来源明确否认/); assert.match(policy, /保留说话者、时间范围和推断性质/);
         assert.match(policy, /你自己以前的回答、摘要和重复表述不是独立事实证据/);

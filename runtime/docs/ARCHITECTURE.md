@@ -6,6 +6,8 @@
 
 `mind/prompt.ts` 的公共政策区分资料缺失与有依据的否定，不依赖认识是否命中；故障转移的每个候选继续携带。`memory/adaptive-proposal.ts` 对后台提出同样约束，明确过去否定与后来状态变化可并存。没有增加语义判真模块或额外前台模型调用；工程材料测试与真实语义结果分开记录，见[证据边界试验](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#435-m2-未知与否定的证据边界2026-10-27)。
 
+公共政策补充否定范围的通用短例子：区分“未提供故障信息”和“明确说未故障”，回答开头也必须保持这种确定程度。现有 host HTTP 测试核对零命中、不可用、关闭和故障转移仍携带该规则；实际理解依赖真实语义评测，不能用提示存在代替质量证据。复用原构建 / 测试入口，不改依赖、配置、存档格式或部署。
+
 内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
 
 开发中的自适应记忆见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)，M1 工程验收情况以阶段验证记录为准，语义认识仍待 M2。`memory/adaptive-store.ts` 管来源修订、持久任务、租约与处理回执；`memory/adaptive.ts` 管固定身体后台处理和有界读取；`mesh/adaptive-memory.ts` 复用正式成员认证；`mind/context.ts` 在模型准备阶段注入原文观察。`main.ts` 在非安全模式初始化灵魂后启动宿主，退出时停止，默认配置关闭。发布协议见[存储与恢复](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)：结果接受与任务完成同事务，文件安装和本地 Git 确认分别可恢复；受管存档不进入普通笔记召回。SQLite 数据与任务均在 `QUETZAL_HOME/data/quetzal.db`，没有新增守护进程或依赖。多身体验收使用本机独立进程与网关，不能以两个浏览器标签替代两具身体；桌面 / 移动视口交互留待对应阶段。
