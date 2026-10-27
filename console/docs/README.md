@@ -59,3 +59,5 @@ GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触�
 - **命令沙箱**：服务页显示运行基座报告的 `status.sandbox`（bwrap / proot / none；旧版运行基座没有这一项就不显示），none 时用醒目颜色提醒。
 
 设计与用例见 [ARCHITECTURE.md](ARCHITECTURE.md)；从安装到开始对话的完整用户旅程、「控制」的信息架构与文案原则见 [USER_JOURNEY.md](USER_JOURNEY.md)。
+
+模型编辑器对 Google 协议的已选模型提供「思考强度」：供应商默认 / 低 / 中 / 高；使用原有草稿、保存 / 放弃和版本防覆盖流程，保存后测试才会用新值。切换为其他协议时提示并清除草稿中的该设置，取消不改变草稿。具体模型支持范围由供应商决定；恢复默认即移除字段。测试按钮独立于模型勾选的可访问性节点；配置变化清除旧测试结果，并拒绝迟到的旧结果。`test/model_thinking_test.dart` 覆盖窄屏 / 宽屏选择与完整编辑器的保存、放弃、可访问性和异步结果隔离；沿用 Flutter 内置控件，无新增依赖、资源或部署步骤。

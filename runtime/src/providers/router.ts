@@ -22,8 +22,11 @@ export function routes(): Route[] {
 }
 
 function target(r: Route, keyId: string, session: string): Target {
-  const t: Target = { protocol: r.provider.protocol, baseUrl: r.provider.baseUrl, apiKey: keySecret(r.provider, keyId), model: r.model.name, headers: r.provider.headers, maxTokens: r.model.maxTokens };
-  return applyCompat(r.provider, t, { session }); // 仅对需要的供应商生效（如 OpenCode Go）
+  const t: Target = { protocol: r.provider.protocol, baseUrl: r.provider.baseUrl, apiKey: keySecret(r.provider, keyId), model: r.model.name, headers: r.provider.headers, maxTokens: r.model.maxTokens,
+    ...(r.model.thinkingLevel ? { thinkingLevel: r.model.thinkingLevel } : {}) };
+  const prepared = applyCompat(r.provider, t, { session }); // 仅对需要的供应商生效（如 OpenCode Go）
+  if (prepared.thinkingLevel && prepared.protocol !== 'google-generative-ai') throw new ProviderError('当前协议不能应用 Google 思考等级', 0, true, 'protocol');
+  return prepared;
 }
 
 /** 这条路由的模型能否看图：手动设置 > 公共目录里的输入模态。两处都没有就当不能（不按模型名猜），控制台「模型」页里可以手动打开。 */
@@ -94,7 +97,8 @@ export async function testModel(providerId: string, modelName: string) {
   if (!p || !key) return { ok: false, latencyMs: 0, message: "请先保存供应商并启用至少一个 Key" };
   const t0 = Date.now();
   try {
-    const t = applyCompat(p, { protocol: p.protocol, baseUrl: p.baseUrl, apiKey: keySecret(p, key.id), model: modelName, headers: p.headers, maxTokens: 512 }, { session: crypto.randomUUID() });
+    const model = p.models.find((m) => m.name === modelName);
+    const t = target({ provider: p, model: model ?? { id: modelName, name: modelName, enabled: true, context: 16000, maxTokens: 512, sortOrder: 0 } }, key.id, crypto.randomUUID());
     // 预算留足：推理模型会先用掉一部分 token 思考，32 个 token 往往只够思考、没有输出
     const r = await adapters[t.protocol](t, { messages: [{ role: "user", content: "Reply with OK." }], maxTokens: 512 });
     return { ok: true, latencyMs: Date.now() - t0, message: r.text.slice(0, 80) || "(空回复)" };

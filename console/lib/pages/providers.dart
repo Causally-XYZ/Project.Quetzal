@@ -14,6 +14,25 @@ const protocols = {
   'google-generative-ai': 'Google Gemini',
 };
 
+/// 模型设置沿用编辑器草稿；缺省不向供应商发送思考等级。
+class ModelThinkingField extends StatelessWidget {
+  final String? value;
+  final ValueChanged<String?> onChanged;
+  const ModelThinkingField({super.key, this.value, required this.onChanged});
+  @override
+  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+    key: ValueKey(value), initialValue: value ?? '', isExpanded: true,
+    decoration: const InputDecoration(labelText: '思考强度', helperText: '较低通常更快。需要模型支持，保存后可点“测试”。', helperMaxLines: 3),
+    items: const [
+      DropdownMenuItem(value: '', child: Text('供应商默认')),
+      DropdownMenuItem(value: 'LOW', child: Text('低')),
+      DropdownMenuItem(value: 'MEDIUM', child: Text('中')),
+      DropdownMenuItem(value: 'HIGH', child: Text('高')),
+    ],
+    onChanged: (v) => onChanged(v == '' ? null : v),
+  );
+}
+
 String _uuid() {
   final r = Random.secure();
   final b = List<int>.generate(16, (_) => r.nextInt(256));
@@ -248,11 +267,19 @@ class _ProviderCardState extends State<_ProviderCard> {
   bool onlySelected = false;
   List<Map> candidates = []; // 可选模型：目录 + 供应商接口 + 已配置
   final tests = <String, String>{};
+  int testGeneration = 0;
 
   Map get p => widget.p;
   List get keys => p['keys'] as List;
   List get models => p['models'] as List;
-  void changed() { setState(() {}); widget.onChanged(); }
+  void resetTests() { tests.clear(); testGeneration++; }
+  void changed() { setState(resetTests); widget.onChanged(); }
+
+  @override
+  void didUpdateWidget(covariant _ProviderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.p, p) || oldWidget.dirty != widget.dirty) resetTests();
+  }
 
   @override
   void initState() { super.initState(); _loadCandidates(); }
@@ -346,11 +373,17 @@ class _ProviderCardState extends State<_ProviderCard> {
         TextField(controller: url, decoration: const InputDecoration(labelText: 'API 地址（含版本路径，如 /v1）')),
         DropdownButtonFormField<String>(initialValue: proto, isExpanded: true, decoration: const InputDecoration(labelText: '协议'),
             items: [for (final e in protocols.entries) DropdownMenuItem(value: e.key, child: Text(e.value, overflow: TextOverflow.ellipsis))], onChanged: (v) => set(() => proto = v!)),
+        if (proto != 'google-generative-ai' && models.any((m) => m['thinkingLevel'] != null))
+          const Text('更换协议将清除模型的思考强度设置。'),
         if (keys.any((k) => k['secret'] == null)) const Padding(padding: EdgeInsets.only(top: 8), child: Text('修改 API 地址前需要先移除已保存的 Key，避免旧凭据被发往新地址。', style: TextStyle(fontSize: 12, color: Colors.orange))),
       ]),
       actions: [TextButton(onPressed: () => Navigator.pop(x, false), child: const Text('取消')), FilledButton(onPressed: () => Navigator.pop(x, true), child: const Text('确定'))],
     )));
-    if (ok == true) { p['name'] = name.text.trim(); p['baseUrl'] = url.text.trim(); p['protocol'] = proto; changed(); }
+    if (ok == true) {
+      p['name'] = name.text.trim(); p['baseUrl'] = url.text.trim(); p['protocol'] = proto;
+      if (proto != 'google-generative-ai') { for (final m in models) { m.remove('thinkingLevel'); } }
+      changed();
+    }
   }
 
   @override
@@ -400,22 +433,33 @@ class _ProviderCardState extends State<_ProviderCard> {
             Expanded(child: TextField(decoration: const InputDecoration(hintText: '搜索模型名称或 ID', isDense: true, prefixIcon: Icon(Icons.search)), onChanged: (v) => setState(() => q = v))),
             FilterChip(label: const Text('仅看已选'), selected: onlySelected, onSelected: (v) => setState(() => onlySelected = v)),
           ]),
-          for (final c in shown)
-            CheckboxListTile(
+          for (final c in shown) ...[
+            Row(children: [Expanded(child: CheckboxListTile(
               dense: true, contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.leading,
               value: selected.contains(c['name']), onChanged: (v) => _toggleModel(c, v == true),
               title: Text('${c['label'] ?? c['name']}'),
               subtitle: Text('${c['name']}${c['context'] != null ? ' · ${((c['context'] as num) / 1000).round()}k 上下文' : ''}${tests[c['name']] != null ? '\n${tests[c['name']]}' : ''}', style: const TextStyle(fontSize: 11)),
-              secondary: selected.contains(c['name'])
-                  ? TextButton(
+            )),
+              if (selected.contains(c['name'])) TextButton(
                       onPressed: widget.dirty ? null : () async {
+                        final generation = testGeneration;
                         setState(() => tests[c['name']] = '测试中…');
                         final r = await act(context, () => api.call<Map>('testModel', {'providerId': p['id'], 'model': c['name']}));
-                        if (mounted) setState(() => tests[c['name']] = r == null ? '失败' : r['ok'] == true ? '✓ ${r['latencyMs']}ms：${r['message']}' : '✗ ${r['message']}');
+                        if (mounted && generation == testGeneration) setState(() => tests[c['name']] = r == null ? '失败' : r['ok'] == true ? '✓ ${r['latencyMs']}ms：${r['message']}' : '✗ ${r['message']}');
                       },
-                      child: Text(widget.dirty ? '先保存' : '测试'))
-                  : null,
-            ),
+                      child: Text(widget.dirty ? '先保存' : '测试')),
+            ]),
+            if (p['protocol'] == 'google-generative-ai' && selected.contains(c['name']))
+              Padding(padding: const EdgeInsets.only(left: 40, bottom: 16), child: ModelThinkingField(
+                key: ValueKey('thinking-${c['name']}'),
+                value: models.firstWhere((m) => m['name'] == c['name'])['thinkingLevel'] as String?,
+                onChanged: (v) {
+                  final m = models.firstWhere((m) => m['name'] == c['name']);
+                  if (v == null) { m.remove('thinkingLevel'); } else { m['thinkingLevel'] = v; }
+                  changed();
+                },
+              )),
+          ],
           if (shown.isEmpty) const Text('没有可选模型', style: TextStyle(fontSize: 12)),
           const Divider(),
           TextButton(onPressed: widget.onRemove, child: const Text('删除供应商', style: TextStyle(color: Colors.red))),

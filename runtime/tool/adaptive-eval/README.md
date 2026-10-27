@@ -38,7 +38,7 @@ GCLOUD_BIN="$(command -v gcloud)" npm run pilot:adaptive-multibody --prefix runt
 GCLOUD_BIN="$(command -v gcloud)" npm run pilot:adaptive-multibody --prefix runtime -- --kind=live --model=gemini-3.8-flash --case=realm --steps=3 --thinking=low
 ```
 
-`--thinking=default|low` 缺省 default，保持供应商默认设置。low 只允许 live 主力模型；由 ADC 开发传输明确加入 `thinkingConfig.thinkingLevel=LOW`，所有提案和回答均适用。开发计划、轨迹配置、每次调用及传输回执都记录此差异；原 messages / schema / token 上限不变。不得与默认结果混合评分，正式 fullEvidence 轨迹拒绝此实验覆盖。它不是生产模型配置，也不表示低思考质量合格。既有脚本、类型检查和打包边界不变，无新依赖。
+`--thinking=default|low` 缺省 default，保持供应商默认设置。low 只允许 live 主力模型；由隔离家目录的正常模型配置保存 `thinkingLevel: LOW`，再经正式路由和 Google 适配器生成 `thinkingConfig.thinkingLevel=LOW`，所有提案和回答均适用。ADC 只观察该字段并逐字透传正文。开发计划、轨迹配置、每次调用及传输回执都记录此差异；原 messages / schema / token 上限不变。不得与默认结果混合评分，正式 fullEvidence 轨迹拒绝此实验覆盖。该字段也是控制台可设置的生产模型配置，但开发参数不改使用者的真实配置，也不表示低思考质量合格。既有脚本、类型检查和打包边界不变，无新依赖。
 
 `--case=realm-status` 是独立公开变体：同名现实 / 小说母亲、表妹评价对象纠正，以及现实搬家状态从未知到明确尚未发生、再到后来发生。三步交替身体，原状态的时间范围应保留；期望判断不进入模型请求。它与 realm 原开发案例分开，不改冻结留出数据。
 

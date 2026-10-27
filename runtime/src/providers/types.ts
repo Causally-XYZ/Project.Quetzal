@@ -1,6 +1,8 @@
 // 模型调用层的统一类型。四种协议覆盖几乎所有供应商：OpenAI 兼容、OpenAI Responses、Anthropic、Google。
 export type Protocol = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
 export const PROTOCOLS: Protocol[] = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"];
+export const GOOGLE_THINKING_LEVELS = ['LOW', 'MEDIUM', 'HIGH'] as const;
+export type GoogleThinkingLevel = typeof GOOGLE_THINKING_LEVELS[number];
 
 export interface ProviderKey { id: string; label: string; lastFour: string; enabled: boolean; ciphertext?: string; secret?: string }
 export interface ProviderModel {
@@ -8,6 +10,7 @@ export interface ProviderModel {
   id: string; name: string; enabled: boolean; context: number; maxTokens: number; sortOrder: number;
   cost?: { input: number; output: number }; // 美元 / 百万 token
   vision?: boolean; // 能否看图；未设置时按公共目录里的输入模态，查不到就当不能（见 router.ts 的 canSee）
+  thinkingLevel?: GoogleThinkingLevel; // Google 支持思考等级的模型；缺省不覆盖供应商设置。
 }
 export interface Provider {
   id: string; catalogId: string; name: string; baseUrl: string; protocol: Protocol; enabled: boolean;

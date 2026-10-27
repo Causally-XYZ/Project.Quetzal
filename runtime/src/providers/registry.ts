@@ -6,7 +6,7 @@ import path from "node:path";
 import { paths, markShared } from "../config.ts";
 import { encrypt, decrypt } from "../crypto.ts";
 import { audit } from "../store.ts";
-import { PROTOCOLS, type Provider, type ProviderConfig } from "./types.ts";
+import { PROTOCOLS, GOOGLE_THINKING_LEVELS, type Provider, type ProviderConfig } from "./types.ts";
 
 const file = () => path.join(paths.config, "providers.json");
 let cache: ProviderConfig | undefined;
@@ -77,6 +77,8 @@ function buildProvider(p: Provider, old: Provider | undefined, ids: Set<string>,
     }),
     models: p.models.map((m) => {
       if (names.has(m.name)) throw new ConfigError("INVALID", `${p.name}：模型重复 ${m.name}`); names.add(m.name);
+      if (m.thinkingLevel !== undefined && (p.protocol !== 'google-generative-ai' || !GOOGLE_THINKING_LEVELS.includes(m.thinkingLevel)))
+        throw new ConfigError('INVALID', `${p.name}：思考等级仅支持 Google 协议的 LOW、MEDIUM、HIGH；使用默认设置时请移除此字段`);
       return { ...m, context: Math.max(1000, m.context || 16000), maxTokens: Math.max(256, m.maxTokens || 4096) };
     }),
   };

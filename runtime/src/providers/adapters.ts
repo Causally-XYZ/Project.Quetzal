@@ -4,12 +4,12 @@
 //   - LLM_CONTENT_IDLE_MS：没有收到任何内容事件（SSE 里的 data 事件，不算 Anthropic 的 ping 事件与注释行），防止只发保活不出内容的死流。
 // 供应商不支持流式、直接返回 JSON 时按非流式解析。
 import crypto from "node:crypto";
-import { ProviderError, type ChatRequest, type ChatResult, type Msg, type Protocol, type ToolCall } from "./types.ts";
+import { ProviderError, type ChatRequest, type ChatResult, type Msg, type Protocol, type ToolCall, type GoogleThinkingLevel } from "./types.ts";
 
 export const LLM_IDLE_MS = 90_000;
 export const LLM_CONTENT_IDLE_MS = 180_000;
 
-export interface Target { protocol: Protocol; baseUrl: string; apiKey: string; model: string; headers?: Record<string, string>; maxTokens: number }
+export interface Target { protocol: Protocol; baseUrl: string; apiKey: string; model: string; headers?: Record<string, string>; maxTokens: number; thinkingLevel?: GoogleThinkingLevel }
 
 const base = (u: string) => u.replace(/\/+$/, "");
 const newId = () => "call_" + crypto.randomBytes(6).toString("hex");
@@ -257,6 +257,7 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
   const j = await sse(`${base(t.baseUrl)}/models/${t.model}:streamGenerateContent?alt=sse`, { "x-goog-api-key": t.apiKey, ...t.headers }, {
     contents, systemInstruction: system ? { parts: [{ text: system }] } : undefined,
     generationConfig: { maxOutputTokens: r.maxTokens ?? t.maxTokens, temperature: r.temperature,
+      ...(t.thinkingLevel ? { thinkingConfig: { thinkingLevel: t.thinkingLevel } } : {}),
       ...(r.responseSchema ? { responseMimeType: 'application/json', responseSchema: r.responseSchema } : {}) },
     ...(r.tools?.length ? { tools: [{ functionDeclarations: r.tools.map((f) => ({ ...f, parameters: geminiSchema(f.parameters) })) }] } : {}),
   }, r, (c) => onChunk(c, true));

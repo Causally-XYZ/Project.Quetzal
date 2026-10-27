@@ -4,27 +4,25 @@ import { adcFetch, vertexPlaceholder, vertexModels, type VertexReceipt } from '.
 
 const url = `${vertexPlaceholder}/models/${vertexModels[1]}:streamGenerateContent?alt=sse`;
 const credentials = async () => ({ project: 'synthetic-project', token: 'synthetic-token' });
-test('显式 LOW 开发对照保留原提案和 schema，并在回执标记实际思考设置', async () => {
+test('ADC 只观察已配置的思考等级，原始正文逐字透传', async () => {
   const receipts: VertexReceipt[] = [];
   const request = { contents: [{ role: 'user', parts: [{ text: '合成来源' }] }], generationConfig: {
-    maxOutputTokens: 16384, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT' } } };
+    maxOutputTokens: 16384, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT' }, thinkingConfig: { thinkingLevel: 'LOW' } } };
+  const body = JSON.stringify(request, null, 2);
   const send = adcFetch(async (_input, init) => {
-    assert.deepEqual(JSON.parse(String(init?.body)), { ...request, generationConfig: {
-      ...request.generationConfig, thinkingConfig: { thinkingLevel: 'LOW' } } });
+    assert.equal(init?.body, body);
     return new Response('data: {"modelVersion":"gemini-3.8-flash"}\n\n');
-  }, credentials, (r) => receipts.push(r), 'LOW');
-  await (await send(url, { method: 'POST', body: JSON.stringify(request) })).text();
+  }, credentials, (r) => receipts.push(r));
+  await (await send(url, { method: 'POST', body })).text();
   assert.equal(receipts[0].thinkingLevel, 'LOW');
-  assert.equal(Object.hasOwn(request.generationConfig, 'thinkingConfig'), false);
 });
-test('开发思考对照拒绝冲突、其他模型和未知设置，不尝试认证', async () => {
-  let auth = 0;
-  const send = adcFetch(async () => { throw new Error('不应发送'); }, async () => { auth++; return credentials(); }, () => {}, 'LOW');
-  await assert.rejects(send(url, { method: 'POST', body: JSON.stringify({ generationConfig: { thinkingConfig: { thinkingLevel: 'HIGH' } } }) }));
-  await assert.rejects(send(url.replace('gemini-3.8-flash', 'gemini-4-argon'), { method: 'POST', body: '{}' }));
-  await assert.rejects(send(url, { method: 'POST', body: '{}' }));
-  assert.throws(() => adcFetch(fetch, credentials, () => {}, 'HIGH' as any));
-  assert.equal(auth, 0);
+test('未配置思考等级不补默认值，未知字段值不原样进入安全回执', async () => {
+  const receipts: VertexReceipt[] = [];
+  const send = adcFetch(async () => new Response('data: {}\n\n'), credentials, (r) => receipts.push(r));
+  await (await send(url, { method: 'POST', body: '{}' })).text();
+  await (await send(url, { method: 'POST', body: JSON.stringify({ generationConfig: { thinkingConfig: { thinkingLevel: 'PRIVATE-SENTINEL' } } }) })).text();
+  assert.equal(Object.hasOwn(receipts[0], 'thinkingLevel'), false); assert.equal(receipts[1].thinkingLevel, 'other');
+  assert.ok(!JSON.stringify(receipts).includes('PRIVATE-SENTINEL'));
 });
 test('开发 ADC 认证只注入许可端点，流式响应和原始请求正文保持不变', async () => {
   const receipts: VertexReceipt[] = [], body = '{"contents":[]}', raw = `data: ${JSON.stringify({ modelVersion: vertexModels[1], candidates: [{ finishReason: 'STOP' }], usageMetadata: { totalTokenCount: 7 } })}\n\n`;

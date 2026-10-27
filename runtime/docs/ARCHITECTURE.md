@@ -166,7 +166,7 @@ src/
 │   └── ops.ts            网关方法 mcp.* 与 plugins.*（并入 ops.ts）
 ├── providers/
 │   ├── types.ts          统一消息/工具/结果类型
-│   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；Google 输出包含思考用量、可选 reasoning / total 保留供应商报告；模型调用时间墙：90 秒无数据、180 秒无内容，没有绝对上限）
+│   ├── adapters.ts       四种协议的 HTTP 适配（流式 SSE；Google 按模型配置发送可选 thinkingLevel，输出包含思考用量、可选 reasoning / total 保留供应商报告；模型调用时间墙：90 秒无数据、180 秒无内容，没有绝对上限）
 │   ├── catalog.ts        models.dev 公共目录
 │   ├── quick.ts          快速接入供应商：保存 Key、按目录筛选工具模型、试通与排序；没有通的模型时恢复原配置
 │   ├── registry.ts       草稿保存、版本号、Key 加密；从其他身体导入（逐个校验，API 地址只收 HTTPS 与本机回环，不合格的保留本机原来的，全部整理完才替换）
@@ -234,3 +234,5 @@ adapters/
 
 
 `tool/adaptive-eval/review.ts` 从原始轨迹重建并核对空审核执行回执，生成带冻结断言的审核包；只增修订绑定 packet / receipt / plan / suite 摘要，完整验证前版链。review-cli 的审核者由调用方明确声明，草稿不能自报；每版完整覆盖断言，未评不继承旧通过。评分仅叠加显式清单选中的版本，不改原执行文件、不隐式选择最新、不把纯模型评语记为通过。归档审核采用归档 schema 摘要并核对实际请求；当前执行仍须匹配当前代码和格式。新增开发入口纳入 package / tsconfig，无新依赖、产品 RPC、部署服务或灵魂格式。
+
+`ProviderModel.thinkingLevel` 缺省 / LOW / MEDIUM / HIGH，经 registry 原子校验与既有配置同步；router 为每个候选及 testModel 生成相同 Target，Google adapter 映射到 thinkingConfig。跨协议故障转移不继承前一模型的设置。开发观察器只配置隔离身体、记录实际 Target；ADC 不修改正文，回执未知等级只记固定 other，避免日志带入任意内容。无新增依赖、构建项或部署环境变量，现有导入链和测试 glob 覆盖。

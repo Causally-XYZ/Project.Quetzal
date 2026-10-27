@@ -268,7 +268,7 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 TypeScript ADC 开发传输回执补充成功 / 失败 / 取消终态与阶段计时，响应头前等待不能进一步判定网络或服务端原因；只保存固定分类与数值，不记录端点、认证值、响应头或原始错误。这是仓库外评测证据，不是产品 RPC；现有模型时限、路由、队列重试及控制台配置未变。
 
-公开双身体运行器可显式 `--thinking=low` 对照主力模型的思考强度；覆盖由开发传输执行并登记在计划、逐次调用和传输回执，正式证据轨迹拒绝此覆盖。缺省和生产协议不变，不能将实验结果混入默认配置成绩，详见[开发工具](../runtime/tool/adaptive-eval/README.md#公开多身体开发试跑)。
+公开双身体运行器可显式 `--thinking=low` 对照主力模型的思考强度；设置写入隔离身体的正常模型配置，经正式适配器出站；ADC 不改正文，只登记实际等级。计划、逐次调用和传输回执均保留差异，正式证据轨迹仍拒绝该开发选项。缺省行为不变，不能将实验结果混入默认配置成绩，详见[开发工具](../runtime/tool/adaptive-eval/README.md#公开多身体开发试跑)。
 
 正式评测的 plan / code / receipt 文件为仓库外工具协议，不增加产品 RPC。formal 入口核对干净提交、完整配置与代码字节；每条轨迹使用独立身体，实际请求与来源证据导出到未审核回执。五类材料齐全及工程完成不表示语义通过，reviews 默认空；独立审核另存摘要绑定的只增修订与显式选择清单，不改原回执。导包和评分从原轨迹重新核对证据；仅 --reviews 选中的版本参与评分，纯模型自评不计通过，审核者身份由受信操作方声明而非模型自报。只读评分拒绝配置不完整的草稿计划，详见[工具说明](../runtime/tool/adaptive-eval/README.md#严格计划与实际证据入口)。
 
@@ -363,8 +363,10 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 | `catalog` / `refreshCatalog` | — | 公共模型目录（models.dev） |
 | `providers.quick` | `{catalogId, key}` | 快速接入：按公共目录建（或沿用同一个）供应商并换上这把 Key → 问供应商有哪些模型 → 在目录里挑能调用工具的（稳定版优先、发布日期新的优先），逐个试通，留两个接在全局顺序最后，比主力便宜的那个设为内省模型。返回 `{ok, provider, models, message}`；一个都不通时一切恢复原样（原来的 Key 与模型照常可用），`message` 为原因 |
 | `remoteModels` | `{providerId}` | 从供应商接口拉取模型 ID 列表 |
-| `testModel` | `{providerId, model}` | `{ok, latencyMs, message}` |
+| `testModel` | `{providerId, model}` | `{ok, latencyMs, message}`；已配置模型使用其保存的思考等级 |
 | `moveModel` / `toggleModel` | `{modelId, delta}` / `{modelId}` | 快捷调整全局顺序与启停 |
+
+模型配置的 `providers[].models[].thinkingLevel` 为可选 LOW / MEDIUM / HIGH，仅 `google-generative-ai` 协议可设置；恢复供应商默认须省略该字段，不使用 null 或 default。`saveProviders` 原子拒绝非法等级 / 协议组合，`providers` 返回值及既有导出 / 身体同步保留该字段。Google 适配器发送 `generationConfig.thinkingConfig.thinkingLevel`；故障转移逐候选取值。不保证所有 Google 模型支持同一等级，供应商拒绝时沿用现有错误和路由策略；未新增 RPC、环境变量或灵魂格式。
 
 内部 ChatRequest 增加可选 responseSchema；prepareForModel 的 structuredOutput 标记表示该路由已接入原生约束发送（目前仅 Google 协议），不保证所有模型 / schema 均支持。Google 发送 application/json 与 responseSchema；其他协议若仍收到显式原生约束则拒绝，不默默忽略。记忆提案按候选能力选择原生约束或完整提示协议，普通聊天不变。此为内部模型协议，不新增控制台配置、网关参数、存储格式或环境变量。
 
@@ -377,7 +379,7 @@ interface Provider {
   id: string; catalogId: string; name: string; baseUrl: string; enabled: boolean;
   protocol: "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative-ai";
   keys: { id: string; label: string; lastFour: string; enabled: boolean; secret?: string /* 仅新增时提交 */ }[];
-  models: { id: string; name: string; enabled: boolean; context: number; maxTokens: number; sortOrder: number; vision?: boolean; cost?: { input: number; output: number } }[];
+  models: { id: string; name: string; enabled: boolean; context: number; maxTokens: number; sortOrder: number; vision?: boolean; thinkingLevel?: "LOW" | "MEDIUM" | "HIGH"; cost?: { input: number; output: number } }[];
 }
 interface ProviderConfig { providers: Provider[]; quickModelId?: string }
 ```
