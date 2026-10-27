@@ -178,6 +178,8 @@ packet 包含绑定原回执的全部断言、要求的材料类别、可用 art
 
 ### M3 三基线开发对照
 
+公开八步输入为 [story-development.json](story-development.json)：昵称歧义 → 引语纠正 → 小说素材关联 → 重复提问 → 无关任务 → 新证据修正解释。只含逐步素材和查询，不含预期答案；使用程序入口 `runTrack({track, baseline, ...})`，现有 CLI 的其他三步案例保持不变。真实执行前的判定与配置见[验收文档](../../../docs/engine/ADAPTIVE_MEMORY_ACCEPTANCE.md#m3-小型三基线对照输入待真实执行)。未运行不记为覆盖通过。
+
 `runTrack` 的可选 `baseline` 只支持公开、空库、accessible user 轨迹，不能用于正式证据或受控图。三种模式都将素材经正常 `converse` 摄入，生成回复并保留历史；仅在同步写入时使用合成发言时钟，异步模型与后台等待恢复真实时钟。素材回复及检查点回复的全部调用都计入成本。未设置该参数时保持原有历史导入路径，不能把导入路径关闭学习后的结果称为正常旧 Quetzal。
 
 | baseline | 模型与记忆配置 | 完成检查 |

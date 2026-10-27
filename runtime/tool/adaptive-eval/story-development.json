@@ -1,0 +1,86 @@
+{
+  "id": "story-baseline-development",
+  "setup": "empty",
+  "steps": [
+    {
+      "id": "S1",
+      "at": "2026-01-10T12:00:00Z",
+      "body": "A",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "我的编辑叫周宁，我们工作室都叫他阿舟。我最近采风听到一个故事：父亲总修旧物，却从不肯谈过去。",
+      "query": "只把 harbour 转成大写，输出转换结果。"
+    },
+    {
+      "id": "S2",
+      "at": "2026-03-10T12:00:00Z",
+      "body": "B",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "我弟弟周宇，家里也叫他阿舟。他总觉得我把小说里的父亲写得太坏。",
+      "query": "只把 lantern 转成大写，输出转换结果。"
+    },
+    {
+      "id": "S3",
+      "at": "2026-04-10T12:00:00Z",
+      "body": "A",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "昨晚和阿舟吃饭，他说别急着替父亲下结论。我决定再补几段父亲年轻时的事。",
+      "query": "我四月是跟谁吃的饭？请根据已有资料简短回答，不执行其他操作。"
+    },
+    {
+      "id": "S4",
+      "at": "2026-06-10T12:00:00Z",
+      "body": "B",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "四月那次阿舟是我弟，不是编辑。另外“别急着下结论”其实是我说的，我上次说反了。他当时反而想让我把父亲写得更坏。",
+      "query": "谁说不要急着判断父亲？我为什么开始补写年轻时的故事？请根据已有资料简短回答，不执行其他操作。"
+    },
+    {
+      "id": "S5",
+      "at": "2026-07-10T12:00:00Z",
+      "body": "A",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "我想写一个修东西的人，什么都能修，却修不好家里人的关系。这个方向有点突然。",
+      "query": "这个短篇方向可以怎样发展？请简短回应，不执行其他操作。"
+    },
+    {
+      "id": "S6",
+      "at": "2026-08-10T12:00:00Z",
+      "body": "B",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "我还在考虑刚才那个短篇方向，暂时没有新的素材。",
+      "query": "这个短篇方向可以怎样发展？请简短回应，不执行其他操作。"
+    },
+    {
+      "id": "S7",
+      "at": "2026-09-10T12:00:00Z",
+      "body": "A",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "现在换一个独立的小任务。",
+      "query": "只把 alphabet 转成大写，输出转换结果。"
+    },
+    {
+      "id": "S8",
+      "at": "2026-10-10T12:00:00Z",
+      "body": "B",
+      "speaker": "synthetic",
+      "role": "user",
+      "scope": "accessible",
+      "text": "补充一月采风故事的新资料：故事中的父亲后来解释，他不谈过去是因为失去了一段记忆，不是刻意回避；修理旧物是他的工作。这是故事中的设定，我没有说现实家人有这些经历。",
+      "query": "这些新资料会怎样影响之前对短篇素材的理解？哪些联系还能作为创作建议，哪些解释需要改？请简短回应，不执行其他操作。"
+    }
+  ]
+}
