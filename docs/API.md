@@ -252,6 +252,8 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 语义查询信封现发送 version 2；新版接收器仍接受不带 references 的 version 1。claim 可带 references，每项含 role、mention、引用对象的 realm 与 object（id / revision / name）；对象指向不是事实前提，仍核对全部依赖及来源版本。旧版本查询失败时空降级，不删字段冒充兼容。M1 原文 packet 仍为 version 1。内部存档升为 result-v2 / semantic-v2 并兼容旧记录，详见语义与发布协议；灵魂规范的 Markdown 路径不变。
 
+零命中、unavailable、unsupported 均不表示所问事实为假；否定也须有适用来源与时间。普通对话与后台提案现包含这一提示规则，不新增 API 字段或真值判定保证；公开真实模型仍有失败，见[阶段记录 §4.35](engine/ADAPTIVE_MEMORY_PROGRESS.md#435-m2-未知与否定的证据边界2026-10-27)。
+
 认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。仍为词面检索，不能宣称完整多语言语义召回。
 
 内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。

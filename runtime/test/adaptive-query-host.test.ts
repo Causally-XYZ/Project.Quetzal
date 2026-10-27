@@ -178,3 +178,27 @@ test('中文问题经实际宿主与上下文选中英文改写，只有有效�
   store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(source);
   assert.ok(!(await adaptive.queryAdaptiveSemantic('编辑')).items.some((r) => r.id === claim.id));
 });
+
+test('无认识命中、服务不可用和关闭时，真实对话及故障转移仍带完整证据使用规则', async () => {
+  configure([{ id: 'primary', context: 131072 }, { id: 'fallback', context: 131072 }]);
+  const before = { ...cfg.config.adaptiveMemory };
+  script = async (request) => request.model === 'primary' ? { status: 404 } : { content: '工程替身回答，不能计为语义判断。' };
+  try {
+    for (const state of ['ready', 'unavailable', 'disabled']) {
+      cfg.saveConfig({ adaptiveMemory: { enabled: state !== 'disabled', semantic: true, hostBody: state === 'unavailable' ? 'remote' : 'reader' } });
+      markBusy(true); seen.length = 0;
+      const query = 'quartzspectrometer observation', reading = await adaptive.queryAdaptiveSemantic(query);
+      assert.equal(reading.status, state); assert.deepEqual(reading.items, []);
+      await brain.converse('合成用户', query, '控制台', { conv: `evidence-${state}`, local: true }); markBusy(true);
+      assert.deepEqual(seen.map((r) => r.model), ['primary', 'fallback']);
+      for (const request of seen) {
+        const policy = request.messages.filter((m: any) => m.role === 'system').map((m: any) => m.content).join('\n');
+        assert.equal(policy.split('## 根据资料作判断').length - 1, 1);
+        assert.match(policy, /未提及、未检索到、没有当前有效支持/);
+        assert.match(policy, /来源明确否认/); assert.match(policy, /保留说话者、时间范围和推断性质/);
+        assert.match(policy, /你自己以前的回答、摘要和重复表述不是独立事实证据/);
+      }
+      assert.ok(!plan(`evidence-${state}`).selectedIds.some((id: string) => id.startsWith('memory:adaptive-semantic:')));
+    }
+  } finally { cfg.saveConfig({ adaptiveMemory: before }); script = async () => ({ content: '完成' }); }
+});
