@@ -10,13 +10,14 @@ export interface ReviewPlan {
 }
 export type ReviewResult = { status: 'idle' | 'deferred' | 'cancelled' | 'failed' | 'stale' | 'revised' | 'unchanged'; target?: string };
 
-/** 当前版本闭包、对象候选与来源重建任务键；不以整图 generation 生成新任务。
- * 此原型至多扫描 1000 条当前记录、100 个闭包 / 候选记录与来源；超限显式延后。
+/** 当前 / 历史依赖的当前版本、对象候选与来源重建任务键；不以整图 generation 生成新任务。
+ * 此原型至多扫描 1000 条当前记录、100 个闭包 / 候选记录与来源；单计划历史1000版、引用100000次，超限显式延后。
  */
 export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { plans: ReviewPlan[]; deferred: number } {
   const generation = archive.generation(), records = archive.current();
   if (records.length > 1000) return { plans: [], deferred: records.length };
   const current = new Map(records.map((r) => [r.id, r])), plans: ReviewPlan[] = [];
+  const histories = new Map<string, SemanticRecord[]>();
   let deferred = 0;
   for (const target of records) {
     if (target.state === 'withdrawn') continue;
@@ -31,16 +32,26 @@ export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { p
     const candidates = records.filter((r) => r.kind === 'node' && r.state === 'present' && sameRealm(r.realm, target.realm) &&
       directSpans(r).every((p) => { const s = queue.source(p.source); return s && s.role !== 'agent'; }));
     const closure = new Map<string, SemanticRecord>(), pending = [target, ...candidates];
-    let missing = false;
+    let missing = false, versions = 0, references = 0;
     for (let i = 0; i < pending.length; i++) {
       const r = pending[i]; if (closure.has(r.id)) continue;
       closure.set(r.id, r);
       if (closure.size > 100) { missing = true; break; }
-      for (const ref of recordRefs(r)) {
-        const dependency = current.get(ref.id);
-        if (!dependency || dependency.kind !== ref.kind) { missing = true; continue; }
-        if (!closure.has(dependency.id)) pending.push(dependency);
+      // 当前版本可能已删去失效分支；只沿当前引用会遗失该分支的纠正，模型便可能从旧原文重新建同义记录。
+      // 历史只用来发现依赖身份，送入模型的始终是其当前版本；不恢复旧证明，不改变实际调度依赖。
+      if (!histories.has(r.id)) histories.set(r.id, archive.history(r.id));
+      const history = histories.get(r.id)!; versions += history.length;
+      if (!history.length || versions > 1000) { missing = true; break; }
+      for (const version of history) {
+        for (const ref of recordRefs(version)) {
+          if (++references > 100000) { missing = true; break; }
+          const dependency = current.get(ref.id);
+          if (!dependency || dependency.kind !== ref.kind) { missing = true; continue; }
+          if (!closure.has(dependency.id)) pending.push(dependency);
+        }
+        if (references > 100000) break;
       }
+      if (references > 100000) break;
     }
     const selected = [...closure.values()].sort((a, b) => a.id.localeCompare(b.id));
     const sourceIds = [...new Set(selected.flatMap((r) => directSpans(r).map((s) => s.source)))].sort((a, b) => a - b);
@@ -62,6 +73,7 @@ You may revise the target or introduce necessary new records. Do not revise othe
 Return an empty patch if the evidence is insufficient to make a justified change; the target will retain its existing evidence status. Do not mark a record supported or verified yourself.
 The host lists newer dependency handles as review candidates, not equivalent identities or proof. Withdrawn dependencies cannot be reused as current support.\n`;
     prompt.system += 'Existing same-realm object candidates are included with their source definitions. Consider them before creating a new object, but a matching name alone never proves identity. Do not merge objects or revise a candidate node other than the specified target.\n';
+    prompt.system += 'Context also includes CURRENT versions of dependencies found in historical branches, including withdrawn records and their correction sources. A branch removed by an earlier revision remains subject to those corrections. Do not recreate withdrawn premises under new keys from their old source, or treat historical dependency inclusion as renewed support.\n';
     const data = JSON.parse(prompt.user);
     data.review = { target: targetKey, candidates: candidates.map((r) => `r${selected.findIndex((s) => s.id === r.id) + 1}`), dependencies: stale.map((ref) => ({
       previous: { kind: ref.kind, revision: ref.revision },

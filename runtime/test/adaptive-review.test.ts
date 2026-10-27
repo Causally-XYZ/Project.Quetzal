@@ -35,7 +35,8 @@ function fixture(t: TestContext) {
   const accept = (records: ClaimRecord[], source = 2) => {
     const processor = `setup-${++seq}`; f.queue.scheduleSource(processor, source);
     const job = f.queue.claim(processor)!;
-    const inputs = [1, 2].map((id) => { const s = f.queue.source(id)!; return { id, revision: s.revision, hash: s.hash }; });
+    const inputs = f.db.prepare('SELECT id FROM messages ORDER BY id').all().flatMap((row) => {
+      const s = f.queue.source(Number(row.id)); return s ? [{ id: s.id, revision: s.revision, hash: s.hash }] : []; });
     assert.equal(f.archive.accept(job, inputs, { baseGeneration: f.archive.generation(), records }), true);
   };
   accept([a, b, c]); accept([{ ...a, revision: 2, text: '饭友是弟弟', reasons: [span(2)], supports: [{ id: 'corrected', premises: [span(2)], assumptions: [] }] }]);
@@ -64,6 +65,40 @@ test('纠正安装后未发事件也能重建重评工作；重开队列、改�
   assert.equal(restored.archive.assess().get(f.c.id)?.status, 'unsupported', '下游因果假设不能机械恢复');
   assert.equal(reviewPlans(restored.archive, restored.queue).plans[0].target, f.c.id);
   assert.equal(f.queue.status(before[0].processor).counts.done, 1);
+});
+
+test('替代分支移除后再重评，保留历史分支当前撤回与来源，不能只给原始规则', async (t) => {
+  const f = fixture(t);
+  for (const [id, text] of [[3, '初始规则：K 由 A 与 B 或 C 支持。A、B、C 存在。'], [4, '撤回 A，B 与 C 未变化。'], [5, '再撤回 C，没有新的依据。']] as const) {
+    f.db.prepare("INSERT INTO messages VALUES(?,?,'user','synthetic',?,'rules','alpha',NULL,NULL,NULL)").run(id, id * 1000, text);
+    f.queue.scheduleSource('setup-source', id);
+  }
+  const a = f.claim('依据 A', 3), b = f.claim('依据 B', 3), c = f.claim('依据 C', 3), k = f.claim('结论 K', 3);
+  const ref = (r: ClaimRecord) => ({ kind: 'claim' as const, id: r.id, revision: r.revision });
+  k.supports = [{ id: 'G1', premises: [ref(a), ref(b)], assumptions: [] }, { id: 'G2', premises: [ref(c)], assumptions: [] }];
+  f.accept([a, b, c, k], 3);
+  const withdrawnA: ClaimRecord = { ...a, revision: 2, state: 'withdrawn', reasons: [f.span(4)] };
+  f.accept([withdrawnA], 4);
+  f.accept([{ ...k, revision: 2, supports: [k.supports[1]] }], 4);
+  f.accept([{ ...c, revision: 2, state: 'withdrawn', reasons: [f.span(5)] }], 5);
+  assert.equal(f.archive.assess().get(k.id)?.status, 'unsupported');
+  const plan = reviewPlans(f.archive, f.queue).plans.find((p) => p.target === k.id)!;
+  assert.ok(plan.context.records.some((r) => r.id === a.id && r.revision === 2 && r.state === 'withdrawn'));
+  assert.ok(plan.context.records.some((r) => r.id === b.id));
+  assert.ok(plan.context.sources.some((s) => s.id === 4 && s.text === '撤回 A，B 与 C 未变化。'));
+  const data = JSON.parse(plan.prompt.user);
+  assert.ok(data.records.some((r: any) => r.text === '依据 A' && r.state === 'withdrawn'));
+  assert.ok(data.sources.some((s: any) => s.text === '撤回 A，B 与 C 未变化。'));
+  assert.equal((await reviewNext({ ...f.options, allowed: (id) => id === k.id, generate: f.empty })).status, 'unchanged');
+  assert.equal(f.archive.assess().get(k.id)?.status, 'unsupported');
+  assert.equal(f.archive.history(k.id).length, 2, '仅提供历史依赖的当前状态，不重新安装旧分支');
+  f.accept([{ ...withdrawnA, revision: 3, reasons: [f.span(4)], text: '已撤回依据 A 的补充说明' }], 4);
+  const revised = reviewPlans(f.archive, f.queue).plans.find((p) => p.target === k.id)!;
+  assert.notEqual(revised.processor, plan.processor, '历史分支的当前修订进入任务键');
+  f.db.exec("UPDATE messages SET mode='ignored' WHERE id=4");
+  const hidden = reviewPlans(f.archive, f.queue);
+  assert.ok(!hidden.plans.some((p) => p.target === k.id), '历史纠正不可读时延后，不能省略纠正只送旧规则');
+  assert.ok(hidden.deferred > 0);
 });
 
 test('证据不足可以完成本次检查但不改变认识；无关代次改变不重复检查', async (t) => {
