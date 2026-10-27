@@ -477,7 +477,7 @@ macOS 适配器提供：`sample()` 的电量 / 充电（`pmset -g batt`；「AC 
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日 token / 花费预算（多具身体时按全网合计）用尽后，自主醒来倍率乘以 0.05；不是模型调用的硬上限。最低电量与最高温度用于自主活动抑制和听觉状态判断 |
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
 | `adaptiveMemory.enabled` / `adaptiveMemory.hostBody` | false / "" | M1 实验性来源处理开关和固定记忆身体，全网共用。启用后随 runtime 自动运行，无新增独立进程或环境变量；仍有未完成验收，控制台配置界面尚未提供 |
-| `adaptiveMemory.semantic` | false | 受控后台整合 / 重评试验。仅固定主机执行，使用控制台供应商配置；未完成前台纠正覆盖，开启时 adaptive 查询返回 unavailable、不注入旧观察。界面与完整验收尚未完成 |
+| `adaptiveMemory.semantic` | false | 实验性后台整合 / 重评，仅固定主机执行，使用控制台供应商配置。开启后旧原文观察查询返回 unavailable；前台经独立语义查询取得当前认识，核查来源与版本后注入。普通历史与回查也附本机已知修订；覆盖限制见自适应记忆文档。控制台配置界面与完整验收尚未完成 |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
 | `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `review`，`mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权，四档：`allow` 允许、`review` 交给审核模型（ARCHITECTURE §8.0）、`ask` 每次询问（人工审批）、`deny` 禁止（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码；`deliverable`：生成文件，`deliverable_create` 只写进工作区或交付目录，覆盖已有文件另归 `destructive` 风险类别送审，ARCHITECTURE §5.8）。一个工具按它所属类别中最严的一个检查（`deny` > `ask` > `review` > `allow`）：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；`allow` 之下的风险类别（真实环境命令等）另由审核模型把关（`guard.sentinel.classes`）。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求按 `guard.sentinel.hostMode` 交给审核模型或对方。旧配置里前五类为 `ask` 的，升级后第一次启动改为 `review`，审计里对方明确设为 `ask` 的保留 |
 | `guard.sentinel.enabled` | true | 安全审核开关。关掉时 `review` 档位退回人工审批，`allow` 之下的风险类别不再审核 |

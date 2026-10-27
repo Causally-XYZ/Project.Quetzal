@@ -240,7 +240,7 @@ export function queryAdaptiveLocal(params: { agent: string; query: string }): Me
   if (!config.adaptiveMemory.enabled) return packet('disabled');
   if (fs.existsSync(paths.stop)) return packet('stopped');
   if (!active || !isHost()) return packet('unavailable');
-  // 当前语义开关为后台试验；前台纠正覆盖层尚未接好，不继续输出可能绕过纠正的旧原文观察。
+  // 语义模式使用独立的来源 / 版本核查路径；旧观察接口不可绕过修订核查继续返回原文。
   if (config.adaptiveMemory.semantic) return packet('unavailable');
   const store = localStore(), result = packet('ready');
   if (!params.query.trim()) return result;
