@@ -10,10 +10,15 @@ import type { ObservedCall } from './model-observer.ts';
 import { seedPublicRetrievalCache } from './retrieval-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
 export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number;
-  retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean; thinkingLevel?: 'LOW'; research?: boolean; backgroundRetries?: boolean }
+  retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean; thinkingLevel?: 'LOW'; research?: boolean; backgroundRetries?: boolean;
+  baseline?: 'legacy' | 'raw-fts' | 'adaptive' }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
+  if (options.baseline !== undefined && (!['legacy', 'raw-fts', 'adaptive'].includes(options.baseline) || options.fullEvidence
+    || options.track.setup !== 'empty' || options.track.steps.some((s) => s.role !== 'user' || s.scope !== 'accessible')
+    || (options.baseline !== 'adaptive' && (options.research || options.retrievalCache)))) throw new Error('evaluation-baseline-development-only');
+  const legacy = options.baseline === 'legacy', raw = options.baseline === 'raw-fts';
   if (options.thinkingLevel !== undefined && (options.thinkingLevel !== 'LOW' || options.kind !== 'live'
     || options.model !== 'gemini-3.8-flash' || options.fullEvidence)) throw new Error('evaluation-thinking-experiment-invalid');
   if ((options.research || options.backgroundRetries) && (options.fullEvidence || options.track.setup !== 'empty')) throw new Error('evaluation-research-development-only');
@@ -31,13 +36,15 @@ export async function runTrack(options: TrackOptions) {
   fs.mkdirSync(options.root); // 不复用旧目录，不覆盖失败证据。
   write(options.root, 'input.json', options.track);
   write(options.root, 'execution.json', { schema: 'quetzal-m2-track-development-v1', inputHash: digest(options.track), kind: options.kind,
-    model: options.model, ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}), maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
+    model: options.model, ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}), maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent',
+    baseline: options.baseline ?? null, inputPath: options.baseline ? 'normal-converse-with-synchronous-record-clock' : 'store-with-synchronous-record-clock',
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
     deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
     fullEvidence: !!options.fullEvidence, research: !!options.research, backgroundRetries: !!options.backgroundRetries, retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
     controlledPolicy: controlled ? 'pause-idle-host-before-input; archive-accept-seed-or-withdrawal; resume-normal-publication-and-model-review' : null,
     limits: '开发链路；不等于冻结正式计划或语义通过。denied 检验既有 ignored 来源门禁，不代表新增会话 ACL；受控图输入不计为模型构图能力。' });
   const clients: BodyClient[] = [], bodyNames: string[] = [], keys: Record<string, string> = {};
+  let initialDocuments: string | undefined;
   let sync: Awaited<ReturnType<typeof fakeSync>> | undefined;
   const report: any = { schema: 'quetzal-m2-track-development-result-v1', kind: options.kind, status: 'running', checkpoints: [], shutdown: [] };
   const started = Date.now();
@@ -49,30 +56,41 @@ export async function runTrack(options: TrackOptions) {
   }
   const snapshot = (body: BodyClient) => body.call<any>('snapshot');
   const checkFailures = (state: any) => {
-    if (state.calls.some((c: ObservedCall) => (c.state === 'failed' && (!options.backgroundRetries || c.purpose !== 'proposal')) || c.result?.truncated)
+    const optionalMemory = (c: ObservedCall) => legacy && ['memory-selection', 'memory-learning'].includes(c.purpose) && c.failure?.category !== 'call-budget';
+    if (state.calls.some((c: ObservedCall) => !optionalMemory(c) && ((c.state === 'failed' && (!options.backgroundRetries || c.purpose !== 'proposal')) || c.result?.truncated))
       || state.jobs.some((j: any) => j.error && j.error !== 'source_changed' && !(options.backgroundRetries && j.error === 'processor_failed' && ['queued', 'running'].includes(j.state))) || state.status.error)
       throw new Error('evaluation-background-or-model-failed');
     if (options.kind === 'live' && state.calls.some((c: ObservedCall) => c.state === 'returned' && (!c.transport.length
-      || c.transport.some((t) => t.versions.length !== 1 || t.versions[0] !== options.model || !t.finish.includes('STOP')))))
+      || c.transport.some((t) => t.versions.length !== 1 || t.versions[0] !== options.model || !t.finish.length || (!optionalMemory(c) && !t.finish.includes('STOP'))))))
       throw new Error('evaluation-model-metadata-incomplete');
   };
   async function settled(center: BodyClient, satellite: BodyClient) {
     return until(async () => {
       const state = await snapshot(center); checkFailures(state);
-      const observed = new Set(state.receipts.filter((r: any) => r.processor === 'semantic-v1').map((r: any) => r.source));
+      if (legacy) {
+        const remote = await snapshot(satellite); checkFailures(remote);
+        if ([state, remote].some((s) => s.learningPending || s.calls.some((c: ObservedCall) => c.state === 'running') || s.sync.unpushed)
+          || digest(state.structured) !== digest(remote.structured)
+          || digest(state.messages) !== digest(remote.messages)) return;
+        return { center: state, satellite: remote };
+      }
+      const observed = new Set(state.receipts.filter((r: any) => r.processor === (raw ? 'source-v1' : 'semantic-v1')).map((r: any) => r.source));
       const researched = new Set(state.receipts.filter((r: any) => r.processor === 'research-v1').map((r: any) => r.source));
       // 宿主在来源队列空闲后进入 review 时仍可暂报 idle；必须另核对调用 / 租约，不能提前释放下一步。
       if (state.calls.some((c: ObservedCall) => c.state === 'running') || state.jobs.some((j: any) => j.state === 'running' || j.state === 'queued')
         || state.messages.some((m: any) => m.mode !== 'ignored' && !observed.has(m.id))
         || (options.research && state.messages.some((m: any) => m.mode !== 'ignored' && ['user', 'ambient'].includes(m.role) && !researched.has(m.id)))
-        || state.publications.some((p: any) => p.state !== 'published') || state.status.semantic.state !== (options.research ? 'research-idle' : 'idle') || state.sync.unpushed) return;
+        || state.publications.some((p: any) => p.state !== 'published') || (!raw && state.status.semantic.state !== (options.research ? 'research-idle' : 'idle')) || state.sync.unpushed) return;
       if (options.retrievalCache) {
         const r = state.status.retrieval;
         if (r.error || r.failure || r.errors || r.blocked) throw new Error('evaluation-vector-failed');
         if (r.state !== 'ready' || !r.current || r.pending !== 0 || r.snapshot !== state.retrievalExpected) return;
       }
       const remote = await snapshot(satellite); checkFailures(remote);
+      if (options.baseline && [state, remote].some((s) => s.structured.length
+        || (initialDocuments !== undefined && digest(s.legacyDocuments) !== initialDocuments))) throw new Error('evaluation-baseline-memory-contaminated');
       if (remote.calls.some((c: ObservedCall) => c.state === 'running') || digest(state.records) !== digest(remote.records)
+        || (options.baseline && digest(state.messages) !== digest(remote.messages))
         || state.messages.some((m: any) => !remote.messages.some((r: any) => r.id === m.id))) return;
       return { center: state, satellite: remote };
     }, 'settle');
@@ -93,7 +111,7 @@ export async function runTrack(options: TrackOptions) {
     for (const body of ['center', 'satellite']) {
       clients.push(await startBody(path.join(options.root, body), {
         body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
-        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence, thinkingLevel: options.thinkingLevel, research: options.research,
+        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence, thinkingLevel: options.thinkingLevel, research: options.research, baseline: options.baseline,
       })); bodyNames.push(body);
     }
     let foreign: BodyClient | undefined;
@@ -106,6 +124,12 @@ export async function runTrack(options: TrackOptions) {
     }
     const [center, satellite] = clients;
     await until(async () => (await satellite.call<string[]>('connected')).includes('center') ? true : undefined, 'connection', 25000);
+    if (options.baseline) {
+      const initial = await Promise.all([snapshot(center), snapshot(satellite)]);
+      if (digest(initial[0].legacyDocuments) !== digest(initial[1].legacyDocuments)) throw new Error('evaluation-baseline-memory-contaminated');
+      initialDocuments = digest(initial[0].legacyDocuments);
+      write(options.root, 'baseline-initial.json', initial);
+    }
     report.bodies = clients.map((c, i) => ({ name: bodyNames[i], pid: c.pid, port: c.port }));
     for (const [index, step] of options.track.steps.entries()) {
       const point = `${options.track.id}/${step.id}`, before = Date.now();
@@ -120,7 +144,7 @@ export async function runTrack(options: TrackOptions) {
       const producer = step.scope === 'other-agent' ? foreign! : step.body === 'A' ? center : satellite;
       const consumer = step.body === 'A' ? satellite : center;
       const source = await producer.call<number>('source', { ...step, scope: step.scope === 'other-agent' ? 'accessible' : step.scope,
-        query: undefined, operation: undefined, session: `source-${index + 1}` });
+        query: undefined, operation: undefined, session: `source-${index + 1}` }, options.baseline ? stepTimeoutMs : 15000);
       let isolation: any = { policy: step.scope };
       if (disconnect) {
         const offline = { center: await snapshot(center), satellite: await snapshot(satellite),
@@ -153,7 +177,8 @@ export async function runTrack(options: TrackOptions) {
       const preAnswer = await settled(center, satellite);
       const lexical = options.retrievalCache ? await center.call('lexical', { query: step.query }) : undefined;
       const readingStarted = performance.now();
-      const reading = await consumer.rpc('memory.adaptive.semantic.query', { query: step.query }, stepTimeoutMs);
+      const reading = legacy ? { status: 'not-applicable', reason: 'legacy-normal-context' }
+        : await consumer.rpc(raw ? 'memory.adaptive.query' : 'memory.adaptive.semantic.query', { query: step.query }, stepTimeoutMs);
       const readingElapsedMs = performance.now() - readingStarted;
       const afterReading = options.retrievalCache ? await snapshot(center) : undefined;
       const session = `answer-${index + 1}`, answerStarted = Date.now();

@@ -9,7 +9,7 @@ import type { GoogleThinkingLevel } from '../../src/providers/types.ts';
 
 export interface ObservedCall {
   thinkingLevel?: GoogleThinkingLevel;
-  id: number; phase: string; purpose: 'proposal' | 'conversation'; model: string; start: number;
+  id: number; phase: string; purpose: 'proposal' | 'conversation' | 'memory-selection' | 'memory-learning'; model: string; start: number;
   request: { messages: ChatRequest['messages']; tools: ChatRequest['tools']; maxTokens: number | undefined; responseSchema?: ChatRequest['responseSchema'] };
   state: 'running' | 'returned' | 'failed'; elapsedMs?: number; firstTextMs?: number; firstChunkMs?: number;
   result?: ChatResult; failure?: { category: string; status: number | null; reason?: string; usage: null }; transport: VertexReceipt[];
@@ -38,7 +38,11 @@ export async function observeModel(options: { directory: string; model: string; 
     const call = context.getStore(); if (!call) throw new Error('模型传输缺少调用关联'); call.transport.push(receipt);
   });
   adapters['google-generative-ai'] = (target, request) => {
-    const call: ObservedCall = { id: calls.length + 1, phase, purpose: request.messages[0]?.content.includes('Return exactly one JSON object conforming to this response schema.') ? 'proposal' : 'conversation',
+    const system = request.messages[0]?.content ?? '';
+    const purpose = system.startsWith('你只做记忆选择') ? 'memory-selection'
+      : /^(你为 agent 蒸馏结构化记忆|评审蒸馏经验|基于已验证经验提出一种演化)/u.test(system) ? 'memory-learning'
+      : system.includes('Return exactly one JSON object conforming to this response schema.') ? 'proposal' : 'conversation';
+    const call: ObservedCall = { id: calls.length + 1, phase, purpose,
       model: target.model, start: Date.now(), ...(target.thinkingLevel ? { thinkingLevel: target.thinkingLevel } : {}), request: { messages: structuredClone(request.messages), tools: structuredClone(request.tools), maxTokens: request.maxTokens,
         ...(request.responseSchema ? { responseSchema: structuredClone(request.responseSchema) } : {}) }, state: 'running', transport: [] };
     calls.push(call); save(call.id, 'start', call);
@@ -51,6 +55,8 @@ export async function observeModel(options: { directory: string; model: string; 
           if (call.id === options.stubFailAt) throw new Error('injected-failure');
           // 只验证工程链路；有真实来源的简单提案，不模拟指代推理或纠正成功。
           let text = '这是工程替身回答，不能计为语义通过。';
+          if (call.purpose === 'memory-selection') text = '{"keys":[]}';
+          if (call.purpose === 'memory-learning') text = system.startsWith('评审') ? '{"accepted":false,"evidenceIds":[]}' : '{"items":[]}';
           if (call.purpose === 'proposal') {
             const input = JSON.parse(request.messages.at(-1)!.content), source = input.sources.find((s: any) => s.key === input.current);
             if (input.review && options.stubReviewDelayMs) await setTimeout(options.stubReviewDelayMs, undefined, { signal });

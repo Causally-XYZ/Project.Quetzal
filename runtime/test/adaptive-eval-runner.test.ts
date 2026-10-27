@@ -12,6 +12,48 @@ const input: InputTrack = { id: 'development', setup: 'empty', steps: [
   { id: 'S2', at: '2026-06-10T12:00:00Z', body: 'A', role: 'user', scope: 'accessible', speaker: 'owner',
     text: '后来采风还看到了紫色灯塔。', query: '前面两次采风分别提到了什么？' },
 ] };
+test('开发三基线统一正常对话摄入；原学习完成并跨身体同步，原文臂不混入认识', { timeout: 180000 }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-baseline-test-'));
+  try {
+    for (const baseline of ['legacy', 'raw-fts', 'adaptive'] as const) {
+      const root = path.join(tmp, baseline);
+      const result = await runTrack({ root, track: input, kind: 'stub', model: 'gemini-3.8-flash', baseline, stepTimeoutMs: 30000,
+        ...(baseline === 'legacy' ? { stubFailAt: 3 } : {}) });
+      assert.equal(result.status, 'pipeline-completed-needs-review', JSON.stringify(result));
+      for (const i of [1, 2]) {
+        const cp = JSON.parse(fs.readFileSync(path.join(root, `checkpoint-${i}.json`), 'utf8'));
+        for (const body of ['center', 'satellite']) {
+          const state = cp.postAnswer[body];
+          assert.equal(state.learningPending, 0);
+          assert.ok(state.messages.some((m: any) => m.session === `source-${i}` && m.role === 'agent'), '素材也经过普通回答');
+          assert.equal(state.messages.find((m: any) => m.id === cp.source).ts, Date.parse(input.steps[i - 1].at));
+          assert.equal(state.memoryConfig.brain.memoryLearning, baseline === 'legacy');
+          assert.equal(state.memoryConfig.brain.memorySemantic, baseline === 'legacy');
+          if (baseline === 'legacy') {
+            assert.ok(state.structured.some((r: any) => r.evidence.some((e: any) => e.ref === `message:${cp.source}`)), '原学习实际处理素材来源');
+          } else assert.deepEqual(state.structured, []);
+        }
+        assert.deepEqual(cp.postAnswer.center.structured, cp.postAnswer.satellite.structured);
+        assert.deepEqual(cp.postAnswer.center.messages, cp.postAnswer.satellite.messages, '双向同步包含素材与检查点的回答');
+        if (baseline === 'legacy') {
+          assert.equal(cp.reading.status, 'not-applicable');
+          assert.ok([...cp.postAnswer.center.calls, ...cp.postAnswer.satellite.calls].some((c: any) => c.purpose === 'memory-learning'));
+          const failed = [...cp.postAnswer.center.calls, ...cp.postAnswer.satellite.calls].filter((c: any) => c.state === 'failed');
+          assert.ok(failed.length, '原选择 / 学习降级保留失败证据，不伪装成全成功');
+          assert.ok(failed.every((c: any) => ['memory-selection', 'memory-learning'].includes(c.purpose)));
+        } else {
+          assert.equal(cp.reading.status, 'ready');
+          assert.ok(cp.postAnswer.center.receipts.some((r: any) => r.source === cp.source && r.processor === (baseline === 'raw-fts' ? 'source-v1' : 'semantic-v1')));
+          if (baseline === 'raw-fts') assert.deepEqual(cp.postAnswer.center.records, []);
+        }
+      }
+      assert.ok(result.shutdown.every((s: any) => !s.forced && s.exitCode === 0));
+    }
+    for (const overrides of [{ fullEvidence: true }, { research: true }, { baseline: 'invalid' as any }])
+      await assert.rejects(runTrack({ root: path.join(tmp, 'invalid'), track: input, kind: 'stub', model: 'gemini-3.8-flash', baseline: 'legacy', ...overrides }), /baseline-development-only/);
+    assert.equal(fs.existsSync(path.join(tmp, 'invalid')), false);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+});
 test('思考强度对照不能混入替身、其他模型或正式证据轨迹', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-thinking-boundary-'));
   try {

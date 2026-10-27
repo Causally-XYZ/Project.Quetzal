@@ -77,6 +77,8 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
  */
 const learnedTurns = new WeakMap<Session, { records: ToolRecord[]; usedMemoryKeys: string[]; tags: string[]; phase: EpisodeInput['phase']; answerSources?: Pick<AnswerBasis, 'consistent' | 'sources'> }>();
 let learningTail: Promise<unknown> = Promise.resolve(), learningPending = 0;
+/** 包含尚在100ms启动窗内的学习；只读观测，不改变前台或队列调度。 */
+export const pendingMemoryLearning = () => learningPending;
 /** 自动学习在独立有界队列运行；对话回复不等待蒸馏，STOP 不会恢复该任务。 */
 function learnTurn(s: Session, input: string, reply: string, userSourceRef?: string) {
   if (!config.brain.memoryLearning || s.signal.aborted || stopped() || learningPending >= 16) return;

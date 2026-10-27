@@ -2,6 +2,8 @@
 
 整体原理见仓库根目录的 [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)。本文列出每个文件的职责与约定。
 
+`mind/brain.ts` 的 `pendingMemoryLearning()` 只读返回旧 PRIME 学习的排队 / 执行数，包含延迟启动窗口，不改变对话调度。开发三基线运行器通过现有 snapshot 观测它，等待两身体学习和灵魂同步完成；不增加生产 RPC。三基线配置、正常素材摄入与原文臂隔离见[运行器说明](../tool/adaptive-eval/README.md#m3-三基线开发对照)。
+
 `memory/answer-basis.ts` 管回答消息来源凭据的严格形状、摘要、跨调用合并与失效判断。`mind/context.ts` 在实际准备成功后累计消息读取快照，`brain.ts` 注册当前输入 / 插话来源并随正常最终回答保存；模型返回后和最终发布前通过 adaptive.withCurrentAnswer 重核已记录来源。后者在读取 SAVEPOINT 释放与预算检查后、灵魂 exclusive 退出前执行同步提交，避免核对后的异步空隙；发布错误不回滚已释放的读取快照。AnswerSourcesChanged 中止该输出；正常对话通过 answer-recovery 重建原始输入与绑定的真实补充，撤去当轮模型叙述、工具正文 / 图片、派生摘要和工作状态。只保留最多64项操作索引，带来源的记忆读取可经 context_read 回查；重新收集凭据后才发布。只读工具白名单同时约束定义和实际执行，重复调用编号不能覆盖原记录；共享三轮主请求 / 30秒取消预算，恢复失败不再重开。恢复轮次暂不进入学习；`store.ts` 自动迁移 messages.answerBasis 及其非空部分索引，并在既有复制中校验、保存及补齐空凭据。`adaptive.ts` 在同一快照展开派生回答的消息来源，history / prompt 近况 / context_read / recall 使用统一状态，changed 时不沿用旧正文。仅保证这些已记录消息依赖，不能替代回答语义评测或其他派生材料的完整来源，详见[读取语义](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。无新依赖、环境配置、服务、RPC 或灵魂格式；现有构建 / 测试 glob 纳入新模块。
 
 `mind/prompt.ts` 的公共政策区分资料缺失与有依据的否定，不依赖认识是否命中；故障转移的每个候选继续携带。`memory/adaptive-proposal.ts` 对后台提出同样约束，明确过去否定与后来状态变化可并存。没有增加语义判真模块或额外前台模型调用；工程材料测试与真实语义结果分开记录，见[证据边界试验](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#435-m2-未知与否定的证据边界2026-10-27)。

@@ -9,9 +9,10 @@ import { semanticDigest } from '../../src/memory/adaptive-query.ts';
 if (!process.send || !process.env.QUETZAL_EVAL_BODY) throw new Error('评测身体必须由控制进程启动');
 const settings = JSON.parse(process.env.QUETZAL_EVAL_BODY);
 const cfg = await import('../../src/config.ts'); cfg.loadConfig();
+const legacy = settings.baseline === 'legacy', raw = settings.baseline === 'raw-fts';
 cfg.saveConfig({ body: settings.body, gateway: { port: 0, host: '127.0.0.1', lan: false },
-  soul: { remote: settings.remote, branch: 'main' }, adaptiveMemory: { enabled: !settings.storageOnly, hostBody: 'center', semantic: true, research: settings.research === true },
-  brain: { memorySemantic: false, memoryLearning: false }, guard: { sentinel: { enabled: false } } }, { remote: true });
+  soul: { remote: settings.remote, branch: 'main' }, adaptiveMemory: { enabled: !settings.storageOnly && !legacy, hostBody: 'center', semantic: !legacy && !raw, research: settings.research === true },
+  brain: { memorySemantic: legacy, memoryLearning: legacy }, guard: { sentinel: { enabled: false } } }, { remote: true });
 const store = await import('../../src/store.ts'); store.openStore();
 await (await import('../../src/body/uuid.ts')).ensureBodyUuid();
 const soul = await import('../../src/memory/soul-sync.ts'); await soul.ensureSoul();
@@ -35,6 +36,8 @@ const adaptive = await import('../../src/memory/adaptive.ts');
 if (!settings.vector) adaptive.setAdaptiveComponentPreparer(async () => false);
 const vector = settings.vector ? observeRetrieval() : undefined;
 const brain = await import('../../src/mind/brain.ts');
+const { readStructuredRecords } = await import('../../src/memory/structured.ts');
+const { documents } = await import('../../src/memory/retrieval.ts');
 const { identity } = await import('../../src/memory/identity.ts');
 if (identity().id !== (settings.agent ?? 'x')) throw new Error('评测灵魂身份不匹配');
 const { AdaptiveStore } = await import('../../src/memory/adaptive-store.ts');
@@ -84,12 +87,23 @@ const commands: Record<string, (args: any) => unknown> = {
     // 只在同步写入/广播期间注入记录时钟，避免先广播当前时间、再仅修改本机时间的复制分叉。
     // 没有 await；所有异步后台与传输计时仍用真实时钟。不是用户界面发言时间模拟。
     const original = Date.now;
-    try { Date.now = () => Date.parse(a.at); return store.addMessage(a.role === 'user' ? 'user' : 'agent', '合成历史', a.text,
+    try {
+      Date.now = () => Date.parse(a.at);
+      if (settings.baseline) {
+        // 正常对话同步写入来源；必须先恢复时钟，再等待回复和后台学习。
+        const reply = brain.converse('合成用户', a.text, '合成对照', { conv: a.session });
+        const source = store.db.prepare('SELECT id FROM messages WHERE session=? AND role=? ORDER BY id DESC LIMIT 1').get(a.session, 'user');
+        return reply.then(() => { if (!source) throw new Error('对照来源未写入'); return Number(source.id); });
+      }
+      return store.addMessage(a.role === 'user' ? 'user' : 'agent', '合成历史', a.text,
       { session: a.session, ...(a.scope === 'denied' ? { mode: 'ignored' } : {}) }); }
     finally { Date.now = original; }
   },
   snapshot: () => exclusive(() => ({ ...(settings.fullEvidence ? { history: archive.current().flatMap((r) => archive.history(r.id)),
       evidence: Object.fromEntries(archive.assess()) } : {}), agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
+    ...(settings.baseline ? { learningPending: brain.pendingMemoryLearning(), structured: readStructuredRecords(),
+      legacyDocuments: documents().map(({ source, text }) => ({ source, text })).sort((a, b) => a.source.localeCompare(b.source)),
+      memoryConfig: { adaptive: cfg.config.adaptiveMemory, brain: cfg.config.brain } } : {}),
     ...(vector ? { retrievalCalls: vector.calls,
       retrievalExpected: semanticDigest(archive.candidates().map(({ key, title, text }) => ({ key, title, text }))) } : {}),
     ...(controlled ? { controlled: controlled.snapshot(), held } : {}),
