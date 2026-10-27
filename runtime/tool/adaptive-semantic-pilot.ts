@@ -65,7 +65,8 @@ try {
       const revised = new Set(batch?.records.map((r) => r.id) ?? []);
       report.reviewCandidates = dependentRecords(context.records, context.records.filter((r) => revised.has(r.id)))
         .filter((r) => !revised.has(r.id));
-      report.accepted = batch ? archive.accept(job, context.sources.map((s) => ({ id: s.id, revision: s.revision, hash: s.hash })), batch) : queue.complete(job);
+      const inputs = context.sources.map((s) => ({ id: s.id, revision: s.revision, hash: s.hash }));
+      report.accepted = batch ? archive.accept(job, inputs, batch) : archive.complete(job, inputs, context.generation);
       if (!report.accepted) throw new Error('宿主拒绝安装');
       publishPending(queue, soul, () => true);
       fs.writeFileSync(path.join(real, `state-${id}${suffix}.json`), JSON.stringify({ records: archive.current(), evidence: [...archive.assess()] }), { mode: 0o600 });

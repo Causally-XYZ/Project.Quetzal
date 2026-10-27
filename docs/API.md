@@ -254,6 +254,8 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)尚未�
 
 开发提案工具也不属于 RPC / agent 工具。真实模型输出只经过内部 normalizeProposal→Archive.accept，不能直接调用管理接口或自行获得 verified；模型语义质量与生产接线仍待验收。
 
+内部 `reviewNext` 复用现有队列执行依赖重评，调用者注入模型、灵魂 exclusive 与启用 / 取消状态。它尚未暴露 RPC 或自动启用；无需修改的结果也须核对完整输入快照后才记任务完成。
+
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string}` → 状态 | 固定主机为现有身体名；启用时不能为空。配置经共享分区同步并审计；不自动选择或迁移主机 |

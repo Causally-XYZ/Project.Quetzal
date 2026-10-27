@@ -47,3 +47,12 @@ GCLOUD_BIN="$(command -v gcloud)" node --experimental-strip-types \
 ```
 
 脚本不会修改真实 Quetzal 配置，不要求部署使用者手工运行。当前开发配置显式传入并纳入提示摘要：`maxOutputTokens=16384`、JSON MIME 和 responseSchema；Flash 为 LOW、Argon 为 MEDIUM、Flash Lite 为 MINIMAL 思考档，不传温度（供应商默认）。每轮进程上限 150 秒，无自动重试或换模型。只有已记录的传输失败可显式加 `--resume` 续跑：必须同模型、同输入 / 提示 / 配置摘要，沿用持久任务的重试限制，追加 attempt 文件并保留失败记录；格式或语义失败不能沿用此开关冒充原试验成功。schema 只约束生成形状，仍严格解析 / 归一化；依据见 Google 的[结构化输出说明](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/control-generated-output)。思考档依据官方[配置说明](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/thinking)，不对 Gemini 4 使用已不支持的 thinkingBudget。当前 ADC 仍是开发连接，不冒充生产自动刷新与后台调度已经完成。
+
+依赖重评开发工具为 `runtime/tool/adaptive-review-pilot.ts`。先在仓库外复制一个已停止的合成试跑库（包含 pilot.db 与 soul），保留原试跑，再运行：
+
+```bash
+GCLOUD_BIN="$(command -v gcloud)" node --experimental-strip-types \
+  runtime/tool/adaptive-review-pilot.ts gemini-3.8-flash "$REVIEW_HOME"
+```
+
+该工具调用 `reviewNext`，沿用持久任务与存档安装规则，最多五步；保存独立 review 请求、响应、状态与报告，已有报告拒绝覆盖。150 秒调用截止和子进程取消均保留失败状态，等待子进程退出后才结束报告；不偷偷换模型或手改提案。它会修改副本数据库和安装文件，不执行真实灵魂 Git 发布。`idle` 表示当前没有可领取重评工作，可能仍有证据不足而保持 unsupported 的记录，不能据退出码 0 判定语义通过。该工具不重放原四轮抽取，也不取代完整留出序列、生产后台或真人评测。

@@ -92,6 +92,19 @@ export class AdaptiveStore {
     });
   }
 
+  /** 指定来源上的派生工作复用同一租约 / 取消 / 重试机制；同键终态不会被补扫复活。 */
+  scheduleSource(processor: string, source: number, now = Date.now()): boolean {
+    if (!processorOk(processor) || !Number.isSafeInteger(source) || source < 1) throw new Error('记忆定向调度参数不合法');
+    return this.transaction(() => {
+      this.db.prepare(`INSERT OR IGNORE INTO adaptive_sources(source,revision)
+        SELECT id,1 FROM messages WHERE id=?`).run(source);
+      const current = this.source(source);
+      if (!current) return false;
+      return Number(this.db.prepare(`INSERT OR IGNORE INTO adaptive_jobs(id,source,revision,processor,state,available,created,updated)
+        VALUES(?,?,?,?,'queued',?,?,?)`).run(crypto.randomUUID(), source, current.revision, processor, now, now, now).changes) === 1;
+    });
+  }
+
   claim(processor = SOURCE_PROCESSOR, now = Date.now(), leaseMs = 30_000): MemoryJob | undefined {
     if (!processorOk(processor) || !Number.isSafeInteger(leaseMs) || leaseMs < 1 || leaseMs > 300_000) throw new Error('记忆租约参数不合法');
     return this.transaction(() => {
@@ -116,8 +129,8 @@ export class AdaptiveStore {
   }
 
   /** 回执只表示此来源版本已处理；不代表其正文或任何推论已被确认。 */
-  complete(job: MemoryJob, now = Date.now()): boolean {
-    return this.finish(job, now);
+  complete(job: MemoryJob, now = Date.now(), guard?: () => boolean): boolean {
+    return this.finish(job, now, undefined, guard);
   }
 
   /** 语义处理器经自己的校验后调用；结果与任务完成同事务落盘，文件发布异步重试，不重跑模型。 */
@@ -129,9 +142,10 @@ export class AdaptiveStore {
     return this.finish(job, now, { artifact: JSON.parse(document) as MemoryArtifact, document, install });
   }
 
-  private finish(job: MemoryJob, now: number, output?: { artifact: MemoryArtifact; document: string; install?: (artifact: MemoryArtifact) => boolean }): boolean {
+  private finish(job: MemoryJob, now: number, output?: { artifact: MemoryArtifact; document: string; install?: (artifact: MemoryArtifact) => boolean }, guard?: () => boolean): boolean {
     try { return this.transaction(() => {
       if (!this.owns(job, now) || !this.source(job.source, job.revision)) return false;
+      if (guard && !guard()) return false;
       if (output) {
         if (!output.artifact.inputs.some((i) => i.id === job.source && i.revision === job.revision) ||
             output.artifact.inputs.some((i) => this.source(i.id, i.revision)?.hash !== i.hash)) return false;

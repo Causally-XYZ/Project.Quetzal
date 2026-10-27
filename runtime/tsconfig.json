@@ -17,6 +17,7 @@
     "src",
     "test",
     "adapters",
-    "tool/adaptive-semantic-pilot.ts"
+    "tool/adaptive-semantic-pilot.ts",
+    "tool/adaptive-review-pilot.ts"
   ]
 }

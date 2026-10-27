@@ -95,4 +95,7 @@ export class AdaptiveArchive {
   accept(job: MemoryJob, inputs: ArtifactInput[], batch: SemanticBatch, now = Date.now()): boolean {
     this.refresh(); return this.graph.accept(job, inputs, batch, now);
   }
+  complete(job: MemoryJob, inputs: ArtifactInput[], generation: number, now = Date.now()): boolean {
+    this.refresh(); return this.graph.complete(job, inputs, generation, now);
+  }
 }

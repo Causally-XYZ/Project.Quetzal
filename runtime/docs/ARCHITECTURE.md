@@ -92,6 +92,7 @@ src/
 │   ├── adaptive-store.ts 来源修订、持久任务、租约与回执；与 messages 同事务失效
 │   ├── adaptive-evidence.ts  M2 记录格式、精确出处、证据状态与纠正影响范围计算（未接入后台）
 │   ├── adaptive-proposal.ts  M2 提案提示 / schema、宿主身份与引文规范化（开发试跑）
+│   ├── adaptive-review.ts    M2 旧引用工作发现、持久队列复用与有界模型重评（开发入口）
 │   ├── prompts/adaptive-graphiti.ts 固定上游抽取 / 时间规则的许可副本与适配
 │   ├── adaptive-archive.ts   M2 权威文件核对、重建与备份检查点（未接入后台）
 │   ├── adaptive-graph.ts     M2 有版本 SQLite 投影、事务安装和快照读取（未接入后台）

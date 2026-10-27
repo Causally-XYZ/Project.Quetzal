@@ -62,6 +62,13 @@ export class AdaptiveGraph {
     return this.queue.acceptResult(job, inputs, { schema: SEMANTIC_SCHEMA, data: batch }, now, (artifact) => this.install(artifact));
   }
 
+  /** 模型判断无需修改也必须锁定读取快照，不能把过期的“无需处理”记为完成。 */
+  complete(job: MemoryJob, inputs: ArtifactInput[], generation: number, now = Date.now()): boolean {
+    return this.queue.complete(job, now, () => generation === this.generation() &&
+      inputs.some((i) => i.id === job.source && i.revision === job.revision) &&
+      inputs.every((i) => this.queue.source(i.id, i.revision)?.hash === i.hash));
+  }
+
   private install(artifact: MemoryArtifact, replay = false): boolean {
     const batch = artifact.payload.data; validateBatch(batch);
     if (artifact.payload.schema !== SEMANTIC_SCHEMA || artifact.agent !== this.queue.agent || batch.baseGeneration !== this.generation()) return false;

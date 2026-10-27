@@ -38,7 +38,7 @@ M2 另有 `src/memory/adaptive-evidence.ts` 与 `adaptive-graph.ts`：版本化�
 
 真实语义开发入口为 `tool/adaptive-semantic-pilot.ts` 与 `tool/adaptive-vertex-proposal.py`，使用已有 ADC、仓库外合成数据。提案规范化在 `src/memory/adaptive-proposal.ts`；Graphiti 提示词规则的来源和许可证在 `third_party/graphiti/`。操作及失败边界见[评测登记](../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。该 TypeScript 工具已加入 tsconfig 的类型检查，不进入 main 生产入口。
 
-`adaptive-evidence.ts` 的 `dependentRecords` 提供有界的版本依赖影响计算。提案输入带当前直接下游，开发报告带未修订影响项；目前没有自动补跑这些项的后台任务，也不将它们一律标为撤回。没有新增依赖、环境变量或部署入口，已有类型检查与测试配置覆盖这项变更。
+`adaptive-evidence.ts` 的 `dependentRecords` 提供有界的版本依赖影响计算。`adaptive-review.ts` 从存档中的旧引用发现工作，复用现有队列并检查取消 / 超时 / 来源与代次；`tool/adaptive-review-pilot.ts` 在独立合成库副本上调用真实模型重评。尚未接入 main 定时器，不能将库与开发脚本称为部署完成。没有新增依赖、环境变量或部署入口；tsconfig 已纳入重评开发工具，已有测试模式覆盖新测试。
 
 自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进：多身体输入、一处集中处理，全部在本机模拟验证。M1 已有默认关闭的来源处理骨架，随 runtime 自动启动，固定主机配置为 `adaptiveMemory`，认证管理接口见 [API](../../docs/API.md)。结果发布已具备[持久发件箱和文件 / Git 恢复边界](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)，目前只有合成发布测试，尚无语义处理器产出。离线旧消息状态、编号缺口、进程恢复、开关 / 急停与一万条历史下的查询负载已有专项验证，最终 M1 放行及 push 状态见验证记录；当前只返回带出处的原文观察，没有新增语义模型、图数据库或独立服务。依赖和构建入口沿用现有配置，新测试自动由 `npm test` 的文件模式纳入。验收命令、真实传输 / 假模型边界、已知缺口见[验证记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
 
