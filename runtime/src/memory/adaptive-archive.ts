@@ -92,6 +92,7 @@ export class AdaptiveArchive {
   history(id: string) { this.refresh(); return this.graph.history(id); }
   assess(read?: SourceReader) { this.refresh(); return this.graph.assess(read); }
   supportedClaims(read?: SourceReader) { this.refresh(); return this.graph.supportedClaims(read); }
+  query(query: string, read?: SourceReader) { this.refresh(); return this.graph.query(query, read); }
   readSources(ids: number[], read?: SourceReader) { this.refresh(); return this.graph.readSources(ids, read); }
   accept(job: MemoryJob, inputs: ArtifactInput[], batch: SemanticBatch, now = Date.now()): boolean {
     this.refresh(); return this.graph.accept(job, inputs, batch, now);

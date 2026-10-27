@@ -248,7 +248,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 跨会话自适应记忆按[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)与[M0–M5 计划](engine/ADAPTIVE_MEMORY_PLAN.md)推进。M1 已接入默认关闭的来源处理骨架，不能视为完整语义记忆功能；工程验收与后续边界见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。以下新 RPC 为认证管理者接口，不暴露为 agent 工具，不改变个人确认门禁。
 
-M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接入受控后台。semantic=false 时 query 返回 M1 来源观察；semantic=true 时暂返回 unavailable，待前台纠正覆盖完成后再开放认识材料，不返回图记录或 supported 状态。
+M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接入受控后台。现有网络 query 协议不变：semantic=false 返回 M1 来源观察，semantic=true 仍返回 unavailable，不在 version 1 中混入图记录。集中主机本机前台另经内部 queryAdaptiveSemantic 读取当前 supported 陈述及 ambiguous 提及，带认识版本、语境、性质、时间与来源；最多6项，模型准备前后核查。非主机语义查询仍未接线，不能据此宣称多身体完成；没有新增网关 RPC、配置或灵魂格式。
 
 内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。
 

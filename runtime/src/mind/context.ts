@@ -7,7 +7,7 @@ import type { ChatRequest, Msg } from '../providers/types.ts';
 import type { MemoryStage, MemoryRecord } from '../../../engine/src/memory.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
 import { selectContextMemory } from '../memory/semantic.ts';
-import { queryAdaptive, adaptiveContext, withAdaptiveSources, adaptiveReadingRequired } from '../memory/adaptive.ts';
+import { queryAdaptive, adaptiveContext, withAdaptiveSources, adaptiveReadingRequired, queryAdaptiveSemantic, adaptiveSemanticContext } from '../memory/adaptive.ts';
 import { sourceReadingHeader, type SourceReading } from '../memory/adaptive-reading.ts';
 import { materialSources, materialContext, checkMaterialVersions } from '../memory/adaptive-material.ts';
 import { identity } from '../memory/identity.ts';
@@ -183,9 +183,11 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
         if (fs.existsSync(paths.stop)) throw new Error('急停中，停止上下文准备');
         // 摘要模型等待期间可能接受新的纠正；返回主模型前重核一次，最多重建一次。
         for (let attempt = 0; attempt < 2; attempt++) {
+          const semantic = await queryAdaptiveSemantic(context.query, signal);
           const reading = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal);
-          if (reading.key !== lastReadingKey) manager.invalidateSummaries();
-          lastReadingKey = reading.key;
+          const preparedKey = JSON.stringify([reading.key, semantic]);
+          if (preparedKey !== lastReadingKey) manager.invalidateSummaries();
+          lastReadingKey = preparedKey;
           const inherited = reading.previousValid ? previousSummary : undefined;
           context.state.evidence = reading.messages.filter((m) => m.role === 'tool').slice(-8).map((m) => {
             if (m.role !== 'tool') throw new Error('工具证据类型不一致');
@@ -193,13 +195,14 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
           });
           const plan = await manager.prepare({ messages: reading.messages, tools: request.tools, contextWindow, maxOutputTokens,
             protectedFrom, state: context.state, signal,
-            memory: [...adaptiveContext(adaptive), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...reading.records.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
+            memory: [...adaptiveContext(adaptive), ...adaptiveSemanticContext(semantic), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...reading.records.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
               priority: record.kind === 'fact' || record.preference === 'explicit' ? 2 : 1,
               reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
           });
           signal.throwIfAborted();
           const checked = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal);
-          if (reading.key !== checked.key) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
+          const checkedSemantic = await queryAdaptiveSemantic(context.query, signal);
+          if (reading.key !== checked.key || JSON.stringify(semantic) !== JSON.stringify(checkedSemantic)) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
           context.plan = plan;
           kv.set(`context.plan.${context.conv}`, { turn: id, model, estimate: plan.estimate, selectedIds: plan.selectedIds, skippedMemoryIds: plan.skippedMemoryIds,
             compactedIds: plan.compactedIds, projections: plan.projections, summary: plan.summary ?? inherited,

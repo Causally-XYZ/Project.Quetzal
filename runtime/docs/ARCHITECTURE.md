@@ -6,7 +6,7 @@
 
 开发中的自适应记忆见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)，M1 工程验收情况以阶段验证记录为准，语义认识仍待 M2。`memory/adaptive-store.ts` 管来源修订、持久任务、租约与处理回执；`memory/adaptive.ts` 管固定身体后台处理和有界读取；`mesh/adaptive-memory.ts` 复用正式成员认证；`mind/context.ts` 在模型准备阶段注入原文观察。`main.ts` 在非安全模式初始化灵魂后启动宿主，退出时停止，默认配置关闭。发布协议见[存储与恢复](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)：结果接受与任务完成同事务，文件安装和本地 Git 确认分别可恢复；受管存档不进入普通笔记召回。SQLite 数据与任务均在 `QUETZAL_HOME/data/quetzal.db`，没有新增守护进程或依赖。多身体验收使用本机独立进程与网关，不能以两个浏览器标签替代两具身体；桌面 / 移动视口交互留待对应阶段。
 
-M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原文引用，计算带反证的依赖状态；`memory/adaptive-graph.ts` 将版本投影与任务 / 发件箱同事务安装。见[语义格式与边界](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。默认仍用 source-v1；显式开启 adaptiveMemory.semantic 后后台整合与重评会调用这些库。前台语义查询尚未开放。`adaptive-review.ts` 沿真实依赖优先上游；`adaptive-review-budget.ts` 实现五次调用后的自动冷却续做和跨重启目标计数，由 adaptive.ts 在模型调用前写本机 KV。无需新增服务或 npm 依赖，现有 TypeScript 构建自动包含该模块。
+M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原文引用，计算带反证的依赖状态；`memory/adaptive-graph.ts` 将版本投影与任务 / 发件箱同事务安装。见[语义格式与边界](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。默认仍用 source-v1；显式开启 adaptiveMemory.semantic 后后台整合与重评会调用这些库。集中主机本机前台经 `adaptive-query.ts` 选择当前 supported 陈述与 ambiguous 提及，远端语义协议尚未开放。`adaptive-review.ts` 沿真实依赖优先上游；`adaptive-review-budget.ts` 实现五次调用后的自动冷却续做和跨重启目标计数，由 adaptive.ts 在模型调用前写本机 KV。无需新增服务或 npm 依赖，现有 TypeScript 构建自动包含该模块。
 
 `memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
 
