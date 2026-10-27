@@ -1,7 +1,7 @@
 // M2 语义投影：有版本记录与 M1 发件箱同事务接受；查询不相信持久化的 active 标记。
 // 长期格式由 semantic-v1 payload 定义；本表是可重建的投影，不替代灵魂文件。
 import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
-import { artifactDigest, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
+import { artifactDigest, artifactDocument, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
 import { SEMANTIC_SCHEMA, validateBatch, validateRecord, directSpans, recordRefs, spanCurrent, sameRealm,
   evaluateEvidence, type SemanticBatch, type SemanticRecord, type SourceReader, type ClaimRecord } from './adaptive-evidence.ts';
 
@@ -14,17 +14,26 @@ export class AdaptiveGraph {
     try {
       if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='adaptive_graph_meta'").get()) {
         db.exec(`CREATE TABLE adaptive_graph_meta(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL,generation INTEGER NOT NULL);
-          INSERT INTO adaptive_graph_meta VALUES(1,1,0)`);
+          INSERT INTO adaptive_graph_meta VALUES(1,2,0)`);
       }
       const meta = db.prepare('SELECT version,generation FROM adaptive_graph_meta WHERE singleton=1').get();
-      if (meta?.version !== 1 || !Number.isSafeInteger(meta.generation) || Number(meta.generation) < 0)
+      if (![1, 2].includes(Number(meta?.version)) || !meta || !Number.isSafeInteger(meta.generation) || Number(meta.generation) < 0)
         throw new Error('认识投影版本或代次不支持');
       db.exec(`
         CREATE TABLE IF NOT EXISTS adaptive_graph_batches(artifact TEXT PRIMARY KEY,generation INTEGER NOT NULL UNIQUE,digest TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS adaptive_graph_records(id TEXT NOT NULL,revision INTEGER NOT NULL,kind TEXT NOT NULL,document TEXT NOT NULL,artifact TEXT NOT NULL,
-          PRIMARY KEY(id,revision),FOREIGN KEY(artifact) REFERENCES adaptive_publications(id));
+          PRIMARY KEY(id,revision),FOREIGN KEY(artifact) REFERENCES adaptive_graph_batches(artifact));
         CREATE INDEX IF NOT EXISTS adaptive_graph_artifact ON adaptive_graph_records(artifact);
       `);
+      if (meta.version === 1) {
+        db.exec(`CREATE TABLE adaptive_graph_records_v2(id TEXT NOT NULL,revision INTEGER NOT NULL,kind TEXT NOT NULL,document TEXT NOT NULL,artifact TEXT NOT NULL,
+          PRIMARY KEY(id,revision),FOREIGN KEY(artifact) REFERENCES adaptive_graph_batches(artifact));
+          INSERT INTO adaptive_graph_records_v2 SELECT * FROM adaptive_graph_records;
+          DROP TABLE adaptive_graph_records;
+          ALTER TABLE adaptive_graph_records_v2 RENAME TO adaptive_graph_records;
+          CREATE INDEX adaptive_graph_artifact ON adaptive_graph_records(artifact);
+          UPDATE adaptive_graph_meta SET version=2 WHERE singleton=1`);
+      }
       db.exec('RELEASE adaptive_graph_schema');
     } catch (error) {
       db.exec('ROLLBACK TO adaptive_graph_schema'); db.exec('RELEASE adaptive_graph_schema'); throw error;
@@ -53,7 +62,7 @@ export class AdaptiveGraph {
     return this.queue.acceptResult(job, inputs, { schema: SEMANTIC_SCHEMA, data: batch }, now, (artifact) => this.install(artifact));
   }
 
-  private install(artifact: MemoryArtifact): boolean {
+  private install(artifact: MemoryArtifact, replay = false): boolean {
     const batch = artifact.payload.data; validateBatch(batch);
     if (artifact.payload.schema !== SEMANTIC_SCHEMA || artifact.agent !== this.queue.agent || batch.baseGeneration !== this.generation()) return false;
     const previous = new Map(this.current().map((r) => [r.id, r]));
@@ -67,7 +76,7 @@ export class AdaptiveGraph {
     const source: SourceReader = (id) => this.queue.source(id);
     for (const r of batch.records) {
       for (const span of directSpans(r)) {
-        if (inputHashes.get(span.source) !== span.hash || !spanCurrent(span, source)) return false;
+        if (inputHashes.get(span.source) !== span.hash || (!replay && !spanCurrent(span, source))) return false;
       }
       for (const ref of recordRefs(r)) {
         const target = next.get(ref.id);
@@ -83,7 +92,7 @@ export class AdaptiveGraph {
     const checkInputs = (r: SemanticRecord): boolean => {
       if (visited.has(r.id)) return true;
       visited.add(r.id);
-      if (directSpans(r).some((s) => inputHashes.get(s.source) !== s.hash || !spanCurrent(s, source))) return false;
+      if (directSpans(r).some((s) => inputHashes.get(s.source) !== s.hash || (!replay && !spanCurrent(s, source)))) return false;
       return recordRefs(r).every((ref) => {
         const target = next.get(ref.id);
         // 撤回本身不依赖旧证明继续成立。
@@ -91,11 +100,44 @@ export class AdaptiveGraph {
       });
     };
     if (!batch.records.every(checkInputs)) return false;
+    this.queue.db.prepare('INSERT INTO adaptive_graph_batches VALUES(?,?,?)').run(artifact.id, batch.baseGeneration + 1, artifactDigest(JSON.stringify(artifact)));
     const insert = this.queue.db.prepare('INSERT INTO adaptive_graph_records VALUES(?,?,?,?,?)');
     for (const r of batch.records) insert.run(r.id, r.revision, r.kind, JSON.stringify(r), artifact.id);
-    this.queue.db.prepare('INSERT INTO adaptive_graph_batches VALUES(?,?,?)').run(artifact.id, batch.baseGeneration + 1, artifactDigest(JSON.stringify(artifact)));
     this.queue.db.prepare('UPDATE adaptive_graph_meta SET generation=generation+1 WHERE singleton=1').run();
     return true;
+  }
+
+  /** 从完整权威结果链重建；来源可能已改动 / 尚未复制，由读取时的 hash 门禁决定可用性。
+   * 已见结果的缺失或修改不得静默回退到旧认识。调用者失败时必须停止使用旧投影。
+   */
+  rebuild(artifacts: MemoryArtifact[]): void {
+    const candidates = new Map<string, MemoryArtifact>();
+    let bytes = 0;
+    if (artifacts.length > 10000) throw new Error('认识重建超过工作上限');
+    for (const artifact of artifacts) {
+      const document = artifactDocument(artifact);
+      bytes += Buffer.byteLength(document);
+      if (bytes > 64 * 1024 * 1024) throw new Error('认识重建超过工作上限');
+      if (artifact.agent !== this.queue.agent || artifact.payload.schema !== SEMANTIC_SCHEMA || candidates.has(artifact.id))
+        throw new Error('认识重建结果身份或格式不合法');
+      validateBatch(artifact.payload.data);
+      candidates.set(artifact.id, artifact);
+    }
+    const ordered = [...candidates.values()].sort((a, b) =>
+      (a.payload.data as SemanticBatch).baseGeneration - (b.payload.data as SemanticBatch).baseGeneration);
+    this.queue.db.exec('SAVEPOINT adaptive_graph_rebuild');
+    try {
+      const known = this.queue.db.prepare('SELECT artifact,digest FROM adaptive_graph_batches').all() as { artifact: string; digest: string }[];
+      for (const row of known) {
+        const artifact = candidates.get(row.artifact);
+        if (!artifact || artifactDigest(JSON.stringify(artifact)) !== row.digest) throw new Error('已知认识结果缺失或改变');
+      }
+      this.queue.db.exec('DELETE FROM adaptive_graph_records; DELETE FROM adaptive_graph_batches; UPDATE adaptive_graph_meta SET generation=0 WHERE singleton=1');
+      for (const artifact of ordered) if (!this.install(artifact, true)) throw new Error('认识结果链不完整或版本冲突');
+      this.queue.db.exec('RELEASE adaptive_graph_rebuild');
+    } catch (error) {
+      this.queue.db.exec('ROLLBACK TO adaptive_graph_rebuild'); this.queue.db.exec('RELEASE adaptive_graph_rebuild'); throw error;
+    }
   }
 
   assess(read: SourceReader = (id) => this.queue.source(id)) {

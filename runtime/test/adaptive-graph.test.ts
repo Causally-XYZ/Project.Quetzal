@@ -237,7 +237,7 @@ test('AM-20：一轮读取使用 SQLite 快照，外部连接中途改源只影�
 
 test('AM-12：未知投影版本或缺失元数据拒绝打开，DDL 失败不留下半套表', (t) => {
   const f = fixture(t);
-  f.db.exec('DROP TABLE adaptive_graph_records; DROP TABLE adaptive_graph_batches; UPDATE adaptive_graph_meta SET version=2');
+  f.db.exec('DROP TABLE adaptive_graph_records; DROP TABLE adaptive_graph_batches; UPDATE adaptive_graph_meta SET version=999');
   assert.throws(() => new AdaptiveGraph(f.queue), /版本或代次/);
   assert.equal(f.db.prepare("SELECT 1 FROM sqlite_master WHERE name='adaptive_graph_records'").get(), undefined);
   f.db.exec('DELETE FROM adaptive_graph_meta');

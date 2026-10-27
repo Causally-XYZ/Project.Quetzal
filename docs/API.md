@@ -250,6 +250,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)尚未接入上述 RPC；query 仍只返回 M1 来源观察，不返回图记录或 supported 状态。
 
+内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。
+
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string}` → 状态 | 固定主机为现有身体名；启用时不能为空。配置经共享分区同步并审计；不自动选择或迁移主机 |
