@@ -8,6 +8,8 @@
 
 实现入口为 `runtime/src/memory/adaptive-evidence.ts`、`adaptive-graph.ts` 与权威存档入口 `adaptive-archive.ts`。提案层已改编固定版 Graphiti 的抽取 / 时间提示规则，保留许可证与修改说明；[组件实验](ADAPTIVE_MEMORY_COMPONENTS.md)仍不等于完整上游服务集成。
 
+提案须保留与后续推理相关的通用规则、约束、定义及明确的记录完整性声明，作为各自语境内可独立修订的 reported 陈述。泛指角色不是某个待识别的具体人，不应强造未解身份参与者来阻断规则。假设只表达真正缺少的前提，不重复已经明确给出的规则或完整性；给定材料仍是报告，不因此获得外部事实核实。该提示补充源于 M3 悬疑开发过程的遗漏，真实效果须以重跑核验，不能仅凭提示文本判定已解决。
+
 ## 2. 最小记录
 
 新信封 `payload.schema` 为 `quetzal-adaptive-semantic-v2`（读取仍兼容没有 references 的 v1），`data` 为 `{baseGeneration, records}`。一个批次 1～100 条记录；每条记录共有宿主 UUID v4、连续递增 `revision`、`present / withdrawn`、`realm` 和审计出处 `reasons`。拒绝未知字段，不接受模型自行写入 `active` 或 `verified`。

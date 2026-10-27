@@ -39,7 +39,7 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。内核专项开发与实现现状见 [../../docs/engine/README.md](../../docs/engine/README.md)，包含上下文、记忆、执行循环、工具接口和基线验证。
 
-自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行，M2 代表性原型验收通过且推送已核对，M3 已接入默认关闭的主动研究，真实模型与完整价值尚在验证；全量质量移至 M5。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。 语义模式前台使用 `queryAdaptiveSemantic` 及来源 / 版本核查；旧原文观察接口此时返回 unavailable，不代表语义认识读取不可用。
+自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行，M2 代表性原型验收通过且推送已核对，M3 已接入默认关闭的主动研究，真实模型与完整价值尚在验证；全量质量移至 M5。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。 提案同时保留有来源的领域规则、约束与明确完整性，不能仅抽取人物 / 事件而遗失推理前提；该补充正在 M3 真实案例核验。语义模式前台使用 `queryAdaptiveSemantic` 及来源 / 版本核查；旧原文观察接口此时返回 unavailable，不代表语义认识读取不可用。
 
 `adaptiveMemory.research` 默认 false，复用 `memory.adaptive.configure` 配置。中心在来源整合后、前台空闲时运行 `adaptive-research.ts`：由当前来源提出问题，结合当前认识混合检索与独立原文 FTS，最多做探索、桥接、反证三次检索规划，再决定是否保存最多三条新推测。只研究已整合的 user / ambient 来源，助手回答不作为独立证据；新认识保留精确版本依赖，原文、身份或认识纠正后仍受原失效机制约束。无关的不可重评旧分支不阻塞新的独立研究。研究既不改写已有对象，也不发送通知或新建会话；空结果正常完成，不制造联系。带未核实假设的推测可经 v3 语义查询作为 conditional 讨论线索返回，保留全部前提 / 身份根和假设，不作为下游证明；含反证分支的条件推测暂不主动呈现，旧查询协议保持拒绝新状态。
 
