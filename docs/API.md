@@ -254,6 +254,8 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 零命中、unavailable、unsupported 均不表示所问事实为假；否定也须有适用来源与时间。普通对话与后台提案现包含这一提示规则，不新增 API 字段或真值判定保证；公开真实模型仍有失败，见[阶段记录 §4.35](engine/ADAPTIVE_MEMORY_PROGRESS.md#435-m2-未知与否定的证据边界2026-10-27)。
 
+正常回答的消息行可带 answerBasis（null 或 version 1 对象）：agent、answerHash、consistent 与 sources[{id,hash,reading}]。这是宿主生成的消息来源依赖，随既有消息复制；不新增 RPC，客户端不应将其显示为“事实已验证”。原始历史接口继续保留回答正文；模型使用的历史 / 近况 / context_read / recall 在来源 changed 时返回占位与当前修订。旧消息缺少凭据时明确 unbound；来源文件与其他派生依赖仍有覆盖缺口，完整约定见[读取语义](engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。
+
 认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。仍为词面检索，不能宣称完整多语言语义召回。
 
 内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。

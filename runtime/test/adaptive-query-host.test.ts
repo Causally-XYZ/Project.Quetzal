@@ -202,3 +202,44 @@ test('无认识命中、服务不可用和关闭时，真实对话及故障转�
     }
   } finally { cfg.saveConfig({ adaptiveMemory: before }); script = async () => ({ content: '完成' }); }
 });
+
+test('实际回答保存跨会话来源，后续派生回答继承；纠正后默认历史、回查和召回不沿用旧回答', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const f = fixture('answer-basis-origin'), conv = 'answer-basis-chat';
+  store.ensureSession(conv, '来源凭据');
+  let turn = 0;
+  script = async () => ({ content: ++turn === 1 ? 'STALE_ANSWER_ONE 饭友是编辑。' : turn === 2 ? 'STALE_ANSWER_TWO 沿用此前结论。' : '本轮按当前来源重新判断。' });
+  const ask = async () => { await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true); return joined(seen.at(-1)); };
+  try {
+    await ask();
+    const first = store.sessionMessages(conv).find((m) => m.text.includes('STALE_ANSWER_ONE'))!;
+    assert.ok(first.answerBasis?.consistent); assert.ok(first.answerBasis.sources.some((s) => s.id === f.source));
+    assert.ok((await ask()).includes('STALE_ANSWER_ONE'), '未发生变化的回答仍可作为历史阅读');
+    const second = store.sessionMessages(conv).find((m) => m.text.includes('STALE_ANSWER_TWO'))!;
+    assert.ok(second.answerBasis?.sources.some((s) => s.id === f.source), '不能只绑定上一条助手回答自身');
+    f.correct();
+    const current = await ask();
+    assert.ok(!current.includes('STALE_ANSWER_ONE')); assert.ok(!current.includes('STALE_ANSWER_TWO'));
+    assert.match(current, /饭友是弟弟/); assert.match(current, /不在当前上下文沿用旧回答正文/);
+    assert.equal(store.getSessionMessage(first.id, conv)!.text, first.text, '不改写原始历史');
+    await brain.converse('合成用户', '回顾饭友资料', '控制台', { conv: 'answer-basis-other', local: true }); markBusy(true);
+    assert.ok(!joined(seen.at(-1)).includes('STALE_ANSWER_ONE')); assert.ok(!joined(seen.at(-1)).includes('STALE_ANSWER_TWO'), '其他会话近况也不能旁路');
+    store.saveContextSource('answer-check', conv, JSON.stringify({ messageRef: { id: first.id, conv } }));
+    const ctx = contextHost.createTurnContext('answer-read-turn', conv, [{ role: 'user', content: '回查' }]);
+    try {
+      const read = await contextHost.contextReadChecked('answer-read-turn', 'answer-check');
+      assert.ok(!read.includes('STALE_ANSWER_ONE')); assert.match(read, /饭友是弟弟/);
+      const recalled = await adaptive.searchAdaptiveHistory('STALE_ANSWER_ONE', { kinds: ['chat'], limit: 8 }, undefined, conv);
+      assert.ok(!recalled.includes('STALE_ANSWER_ONE')); assert.match(recalled, /不在当前上下文沿用旧回答正文/);
+      store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source);
+      const hidden = await contextHost.contextReadChecked('answer-read-turn', 'answer-check');
+      assert.ok(!hidden.includes('STALE_ANSWER_ONE'));
+      const before = { ...cfg.config.adaptiveMemory };
+      try {
+        cfg.saveConfig({ adaptiveMemory: { ...before, enabled: false } });
+        const disabled = await ask();
+        assert.ok(!disabled.includes('STALE_ANSWER_ONE')); assert.ok(!disabled.includes('STALE_ANSWER_TWO'));
+      } finally { cfg.saveConfig({ adaptiveMemory: before }); }
+    } finally { ctx.close(); }
+  } finally { script = async () => ({ content: '完成' }); }
+});

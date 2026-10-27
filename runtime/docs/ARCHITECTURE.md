@@ -2,6 +2,8 @@
 
 整体原理见仓库根目录的 [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)。本文列出每个文件的职责与约定。
 
+`memory/answer-basis.ts` 管回答消息来源凭据的严格形状、摘要、跨调用合并与失效判断。`mind/context.ts` 在实际准备成功后累计消息读取快照，`brain.ts` 注册当前输入 / 插话来源并随正常最终回答保存；`store.ts` 自动迁移 messages.answerBasis 及其非空部分索引，并在既有复制中校验、保存及补齐空凭据。`adaptive.ts` 在同一快照展开派生回答的消息来源，history / prompt 近况 / context_read / recall 使用统一状态，changed 时不沿用旧正文。仅保证这些已记录消息依赖，不能替代回答语义评测或其他派生材料的完整来源，详见[读取语义](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。无新依赖、环境配置、服务、RPC 或灵魂格式；现有构建 / 测试 glob 纳入新模块。
+
 `mind/prompt.ts` 的公共政策区分资料缺失与有依据的否定，不依赖认识是否命中；故障转移的每个候选继续携带。`memory/adaptive-proposal.ts` 对后台提出同样约束，明确过去否定与后来状态变化可并存。没有增加语义判真模块或额外前台模型调用；工程材料测试与真实语义结果分开记录，见[证据边界试验](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#435-m2-未知与否定的证据边界2026-10-27)。
 
 内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。

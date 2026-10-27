@@ -29,6 +29,7 @@ import * as goals from "./goals.ts";
 import type { Msg, ChatRequest } from "../providers/types.ts";
 import { adaptiveReadingRequired, withAdaptiveSources } from "../memory/adaptive.ts";
 import { sourceReadingHeader, type SourceReading } from "../memory/adaptive-reading.ts";
+import { ANSWER_CHANGED, ANSWER_UNBOUND } from "../memory/answer-basis.ts";
 import { redactSecrets } from "./secrets.ts";
 
 const now = () => new Date().toLocaleString("zh-CN", { timeZone: config.timezone, dateStyle: "full", timeStyle: "short" });
@@ -132,7 +133,9 @@ function otherSessions(conv = "", budget = 4000, view?: SourceReading, recent = 
       if (!guarded) return [`    ${speaker(m)}：${clip(m.text, 160)}`];
       if (!view!.sources.find((source) => source.id === m.id)?.hash) return [];
       if (m.role === 'ambient' && m.channel === '摘要') return [`    历史摘要 ${m.id} 未绑定来源版本，请回查原文。`];
-      return [`    ${sourceReadingHeader(view!, m.id)}${speaker(m)}：${clip(m.text, 160)}`];
+      const answer = view!.sources.find((s) => s.id === m.id)?.answer;
+      const text = answer?.status === 'changed' ? ANSWER_CHANGED : (answer?.status === 'unbound' ? ANSWER_UNBOUND : '') + m.text;
+      return [`    ${sourceReadingHeader(view!, m.id)}${speaker(m)}：${clip(text, 160)}`];
     });
     if (!texts.length) continue;
     const heading = `- 会话「${s.title}」（id：${s.id}，${s.project && projects.get(s.project) ? `项目「${projects.get(s.project)!.name}」，` : ""}${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}${workspaceNote(s.id)}）：`;

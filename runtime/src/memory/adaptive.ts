@@ -23,6 +23,7 @@ import { prepareNoteReading, MaterialAccessDenied, type NoteReading } from './ad
 import { semanticBasis, semanticDigest, compatibleSemanticBasis, type SemanticBasis, type SemanticSelection } from './adaptive-query.ts';
 import { decodeSemanticPacket, type SemanticQueryPacket } from './adaptive-query-packet.ts';
 import type { SourceReader } from './adaptive-evidence.ts';
+import { parseAnswerBasis, answerBasisStatus, ANSWER_CHANGED, ANSWER_UNBOUND, type AnswerBasis } from './answer-basis.ts';
 
 export interface MemoryPacket {
   version: 1; agent: string; host: string; generatedAt: number;
@@ -200,7 +201,8 @@ function bounded<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
 
 export function adaptiveReadingRequired(): boolean {
   return config.adaptiveMemory.enabled && config.adaptiveMemory.semantic || fs.existsSync(publicationRoot(paths.soul)) ||
-    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='adaptive_graph_meta'").get();
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='adaptive_graph_meta'").get() ||
+    !!db.prepare('SELECT 1 FROM messages WHERE answerBasis IS NOT NULL LIMIT 1').get();
 }
 
 /** 原文工具在同一数据库快照内同时读正文和已知修订；只承诺本机已收到的状态。
@@ -210,7 +212,24 @@ export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceR
   signal?.throwIfAborted();
   if (!adaptiveReadingRequired()) return read(null);
   const result = await withAdaptiveSnapshot((store, archive, visible, check) => {
-    const view = archive.readSources(ids, visible);
+    const expanded = new Set(ids), answers = new Map<number, { text: string; basis?: AnswerBasis }>();
+    for (const id of expanded) {
+      if (expanded.size > 1000) throw new Error('回答来源展开超过工作上限');
+      const row = db.prepare('SELECT role,text,answerBasis FROM messages WHERE id=?').get(id);
+      if (!row || row.role !== 'agent' || !visible(id)) continue;
+      const basis = row.answerBasis ? parseAnswerBasis(JSON.parse(String(row.answerBasis))) : undefined;
+      answers.set(id, { text: String(row.text), basis });
+      // 不展开其他 agent 的凭据；该回答只能作为不可核查的历史记录。
+      if (basis?.agent === store.agent) for (const s of basis.sources) expanded.add(s.id);
+      check();
+    }
+    const view = archive.readSources([...expanded], visible);
+    for (const source of view.sources) {
+      const answer = answers.get(source.id); if (!answer) continue;
+      source.answer = { status: answer.basis ? answerBasisStatus(answer.basis, answer.text, store.agent, view) : 'unbound',
+        sources: answer.basis?.agent === store.agent ? answer.basis.sources.map((s) => s.id) : [] };
+    }
+    if (Buffer.byteLength(JSON.stringify(view)) > 256 * 1024) throw new Error('回答来源读取超过工作上限');
     check();
     return { value: read(view), view };
   }, signal);
@@ -342,7 +361,8 @@ export async function searchAdaptiveHistory(query: string, options: SearchOption
           const current = db.prepare('SELECT text,ts,role,session FROM messages WHERE id=?').get(m.id);
           if (!current || current.text !== m.text || current.ts !== m.ts || current.role !== m.role || current.session !== h.session)
             throw new Error('召回来源已改变，请重新检索');
-          return m;
+          const answer = view.sources.find((s) => s.id === m.id)?.answer;
+          return answer?.status === 'changed' ? { ...m, text: ANSWER_CHANGED } : answer?.status === 'unbound' ? { ...m, text: ANSWER_UNBOUND + m.text } : m;
         });
         parts.push(formatSearchEntries([{ hit: h, context }], (id) => sourceReadingHeader(view, id)));
       } else if (h.kind === 'note') {

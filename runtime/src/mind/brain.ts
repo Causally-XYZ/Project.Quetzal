@@ -11,6 +11,7 @@ import type { Msg } from "../providers/types.ts";
 import { runTurn, type Step, type FinishTool } from "../../../engine/src/index.ts";
 import { createTurnContext, registerHistorySource } from "./context.ts";
 import { processReading, PROCESS_READING_NOTICE } from "./process-reading.ts";
+import { answerDigest, mergeAnswerSources, type AnswerBasis } from "../memory/answer-basis.ts";
 import { learnEpisode, evolveMemory, type EpisodeInput } from "../memory/prime.ts";
 import { readStructuredRecords } from "../memory/structured.ts";
 import type { ToolRecord } from "../../../engine/src/loop.ts";
@@ -58,9 +59,10 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
   }
   if (!s.inbox.length) return false;
   for (const m of s.inbox.splice(0)) {
-    if (m.notice) { messages.push({ role: "user", content: `${NOTICE[m.notice] ?? `提醒（${m.notice}）`}：\n${m.text}` }); continue; }
-    messages.push(await userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}${m.via ? `（经 ${m.via} 这具身体）` : ""}：\n${m.text}`, m.attachments as Attachment[],
-      m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。", s.seen));
+    if (m.notice) { const message: Msg = { role: "user", content: `${NOTICE[m.notice] ?? `提醒（${m.notice}）`}：\n${m.text}` }; messages.push(m.id > 0 ? registerHistorySource(message, m.id, s.conv) : message); continue; }
+    const message = await userMessage(`对方在你工作时${m.mode === "interrupt" ? "打断了你" : "补充了新消息"}${m.via ? `（经 ${m.via} 这具身体）` : ""}：\n${m.text}`, m.attachments as Attachment[],
+      m.mode === "interrupt" ? "请优先回应这条消息，再决定之前的工作是否继续。" : "请注意这条新消息，据此调整：之前的工作可以继续，也可以按新消息改变计划。", s.seen);
+    messages.push(m.id > 0 ? registerHistorySource(message, m.id, s.conv) : message);
   }
   return true;
 }
@@ -72,7 +74,7 @@ async function drain(messages: Msg[], s: Session): Promise<boolean> {
  * 模型 context 元数据限制本次输入视图；每日预算与子 agent 的 maxSteps 不构成本循环的步数终止条件；有持续进展时，时间墙也不限制总时长。
  * 对方在她工作时发来的消息：每次调用模型前并入；「打断」会中止正在进行的模型输出（保留已输出的部分），但不会打断正在执行的工具。
  */
-const learnedTurns = new WeakMap<Session, { records: ToolRecord[]; usedMemoryKeys: string[]; tags: string[]; phase: EpisodeInput['phase'] }>();
+const learnedTurns = new WeakMap<Session, { records: ToolRecord[]; usedMemoryKeys: string[]; tags: string[]; phase: EpisodeInput['phase']; answerSources?: Pick<AnswerBasis, 'consistent' | 'sources'> }>();
 let learningTail: Promise<unknown> = Promise.resolve(), learningPending = 0;
 /** 自动学习在独立有界队列运行；对话回复不等待蒸馏，STOP 不会恢复该任务。 */
 function learnTurn(s: Session, input: string, reply: string, userSourceRef?: string) {
@@ -96,7 +98,7 @@ function learnTurn(s: Session, input: string, reply: string, userSourceRef?: str
 async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>, limit?: number) {
   let n = 0;
   const context = createTurnContext(s.id, s.conv, messages);
-  const tracked = learnedTurns.get(s) ?? { records: [], usedMemoryKeys: [], tags: [], phase: 'unknown' as const };
+  const tracked: NonNullable<ReturnType<typeof learnedTurns.get>> = learnedTurns.get(s) ?? { records: [], usedMemoryKeys: [], tags: [], phase: 'unknown' as const };
   learnedTurns.set(s, tracked);
   try { return await runTurn({
     messages, turn: s, maxOutputTokens: () => config.brain.maxOutputTokens,
@@ -119,7 +121,14 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
     cleanText: stripStamp, redactArgs, summarize,
     recordTool: (record) => { tracked.records.push(record); saveToolCall(record); },
     warning: (message) => log("brain", message),
-  }); } finally { const snapshot = context.snapshot(); tracked.phase = snapshot.phase; tracked.tags = snapshot.tags; tracked.usedMemoryKeys = snapshot.usedMemoryKeys; context.close(); }
+  }); } finally {
+    const snapshot = context.snapshot(); tracked.phase = snapshot.phase; tracked.tags = snapshot.tags; tracked.usedMemoryKeys = snapshot.usedMemoryKeys;
+    if (snapshot.answerSources) {
+      tracked.answerSources = mergeAnswerSources(tracked.answerSources, snapshot.answerSources.sources);
+      if (!snapshot.answerSources.consistent) tracked.answerSources.consistent = false;
+    }
+    context.close();
+  }
 }
 
 const effortOf = (tokens: number, steps: number) => Math.min(0.15, tokens / 2_000_000 + steps * 0.004);
@@ -458,6 +467,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
           : await userMessage(`${from} 通过${channel}对你说${shown ? `（经 ${shown} 这具身体）` : ""}：\n${text}`, o.attachments ?? [],
             "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。之前回复里说过的段落对方都看得到，除非对方要你再说一遍，不要原样再贴。", s.seen),
       ];
+      registerHistorySource(messages.at(-1)!, id, conv);
       let r = await loop(messages, `回应${from}`, false, s);
       while (s.inbox.length) { // 最后一步刚结束时又来了消息：继续处理
         const more = await loop(messages, `回应${from}`, false, s);
@@ -481,7 +491,9 @@ export function converse(from: string, text: string, channel: string, o: Convers
       // 提醒过仍没有一句话：说明这一轮没有回复，而不是留一个看不懂的空回复
       const reply = r.text.trim() || (r.steps.length ? `（我做了 ${r.steps.length} 步，但最后没能把结果说出来。你可以问我一句「结果呢」。）` : "（模型连着几次什么也没输出，我没能回复。你可以再说一次。）");
       const home = s.switchTo ?? conv; // session_new：回复放进新会话
-      const replyId = addMessage("agent", channel, reply, { session: home, process, attachments: s.outbox.splice(0) }); // 这一轮生成的文件（deliverable_create）随回复交给对方
+      const basis = learnedTurns.get(s)?.answerSources;
+      const replyId = addMessage("agent", channel, reply, { session: home, process, attachments: s.outbox.splice(0),
+        ...(basis ? { answerBasis: { version: 1, agent: identity().id, answerHash: answerDigest(reply), ...basis } } : {}) }); // 这一轮生成的文件（deliverable_create）随回复交给对方
       saveContextSource(`message-tools:${replyId}`, home, JSON.stringify((learnedTurns.get(s)?.records ?? []).map((record) => ({ call: record.call, turn: s.id }))));
       s.emit({ kind: "done", reply });
       if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });

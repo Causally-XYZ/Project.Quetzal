@@ -21,6 +21,7 @@ import { prepareSystemReading } from './prompt.ts';
 import { prepareToolReadings, toolReadingKey, type ToolReading } from './tool-reading.ts';
 import { MEMORY_READ_TOOLS, observeReadDocument } from '../memory/read-receipt.ts';
 import { processReading, PROCESS_READING_NOTICE } from './process-reading.ts';
+import { answerSource, mergeAnswerSources, ANSWER_CHANGED, ANSWER_UNBOUND, type AnswerBasis } from '../memory/answer-basis.ts';
 
 interface TurnContext { state: TaskWorkingState; tags: string[]; phase: MemoryStage | 'unknown'; phaseExplicit: boolean; manager: ContextManager; conv: string; shared: boolean; query: string; plan?: ContextPlan } // shared：属于一个真正的会话（工作状态全网同步，见 task-states.ts）
 const turns = new Map<string, TurnContext>();
@@ -31,8 +32,12 @@ export function registerHistorySource(message: Msg, messageId: number, conv: str
 const clean = (message: Msg): string => redactSecrets(JSON.stringify({ ...message, ...('images' in message ? { images: undefined } : {}) }));
 
 interface SummaryBasis { sources: number[]; key: string }
-const readingKey = (view: SourceReading, ids = view.sources.map((s) => s.id)) => crypto.createHash('sha256')
-  .update(JSON.stringify({ generation: view.generation, sources: view.sources.filter((s) => ids.includes(s.id)).sort((a, b) => a.id - b.id) })).digest('hex');
+const readingKey = (view: SourceReading, ids = view.sources.map((s) => s.id)) => {
+  const related = new Set(ids), sources = new Map(view.sources.map((s) => [s.id, s]));
+  for (const id of related) for (const parent of sources.get(id)?.answer?.sources ?? []) related.add(parent);
+  return crypto.createHash('sha256').update(JSON.stringify({ generation: view.generation,
+    sources: view.sources.filter((s) => related.has(s.id)).sort((a, b) => a.id - b.id) })).digest('hex');
+};
 function summaryBasis(value: unknown): SummaryBasis | undefined {
   const b = value as SummaryBasis | null;
   return b && Array.isArray(b.sources) && b.sources.length <= 1000 && b.sources.every((id) => Number.isSafeInteger(id) && id > 0) &&
@@ -40,7 +45,7 @@ function summaryBasis(value: unknown): SummaryBasis | undefined {
 }
 
 /** 原始消息数组保持不变；自己的投影对象保持身份，使摘要缓存和原文编号仍稳定。 */
-async function historyReading(messages: Msg[], conv: string, turn: string, projected: WeakMap<Msg, Msg>, records: MemoryRecord[], previous?: SummaryBasis, signal?: AbortSignal) {
+async function historyReading(messages: Msg[], conv: string, turn: string, projected: WeakMap<Msg, Msg>, records: MemoryRecord[], previous?: SummaryBasis, signal?: AbortSignal, semanticSources: number[] = []) {
   const currentIds = [...new Set(messages.flatMap((m) => { const ref = historySources.get(m); return ref ? [ref.id] : []; }))];
   const union = [...new Set([...currentIds, ...(previous?.sources ?? [])])];
   // 滚动历史不无限积累摘要依赖；超过单次核查预算就放弃继承，重新按当前原文压缩。
@@ -54,9 +59,9 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
     return [row];
   }) : [];
   const tools = prepareToolReadings(toolRecords, turns.get(turn)?.shared ? conv : '');
-  const ids = [...new Set([...historyIds, ...records.flatMap(materialSources), ...system.sources, ...tools.sources])];
+  const ids = [...new Set([...historyIds, ...records.flatMap(materialSources), ...system.sources, ...tools.sources, ...semanticSources])];
   return withAdaptiveSources(ids, (view) => {
-    if (!view) return { messages, records, key: '', basis: undefined, previousValid: true };
+    if (!view) return { messages, records, key: '', basis: undefined, previousValid: true, answerSources: undefined };
     const systemViews = system.render(view);
     const toolViews = tools.render(view, (record) => {
       const ref = `${turn}/tool:${record.call}`;
@@ -71,7 +76,7 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
     const sources = new Map(view.sources.map((s) => [s.id, s]));
     const rows = new Map(ids.map((id) => [id, getSessionMessage(id, conv)]));
     // process 等宿主附注不在语义来源 hash 中，也须纳入派生摘要的失效条件。
-    const keyFor = (sourceIds: number[]) => crypto.createHash('sha256').update(JSON.stringify({ policy: 'history-process-v1', reading: readingKey(view, sourceIds),
+    const keyFor = (sourceIds: number[]) => crypto.createHash('sha256').update(JSON.stringify({ policy: 'history-answer-v1', reading: readingKey(view, sourceIds),
       rows: [...sourceIds].sort((a, b) => a - b).map((id) => [id, rows.get(id)]) })).digest('hex');
     const fresh = messages.map((message) => {
       if (message.role === 'tool' && toolViews.has(toolReadingKey({ call: message.toolCallId, session: turn }))) {
@@ -93,6 +98,7 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
       const row = rows.get(ref.id), source = sources.get(ref.id);
       let content: string;
       if (!row || !source?.hash) content = `【历史消息 ${ref.id} 已不存在或不可访问；不使用原缓存正文】`;
+      else if (!ref.processNote && source.answer?.status === 'changed') content = redactSecrets(sourceReadingHeader(view, ref.id) + ANSWER_CHANGED);
       else if (row.role === 'ambient' && row.channel === '摘要')
         content = `【历史摘要 ${ref.id} 未绑定来源版本；当前上下文按可用原始消息重建，不把旧摘要当作当前依据】`;
       else if (ref.processNote) {
@@ -105,17 +111,17 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
         // 原文变化后不靠字符串替换猜旧格式；改为明确带角色 / 时间的当前资料，完整过程仍可回查。
         const text = JSON.stringify(row) === ref.original ? message.content : `历史消息资料：${JSON.stringify({ id: row.id, ts: row.ts,
           role: row.role, channel: row.channel, text: row.text, attachments: row.attachments })}`;
-        content = redactSecrets(sourceReadingHeader(view, ref.id) + text);
+        content = redactSecrets(sourceReadingHeader(view, ref.id) + (source.answer?.status === 'unbound' ? ANSWER_UNBOUND : '') + text);
       }
       let result = projected.get(message);
       if (!result) { result = { ...message }; projected.set(message, result); historySources.set(result, ref); }
       result.content = content;
       // 失效历史 / 编辑后的附件不能沿用先前视图的图像内容。
-      if ((!row || !source?.hash || JSON.stringify(row) !== ref.original) && 'images' in result) delete result.images;
+      if ((!row || !source?.hash || source.answer?.status === 'changed' || JSON.stringify(row) !== ref.original) && 'images' in result) delete result.images;
       return result;
     });
     const key = crypto.createHash('sha256').update(JSON.stringify([keyFor(ids), checkedRecords, [...systemViews.values()], [...toolViews.values()]])).digest('hex');
-    return { messages: fresh, records: checkedRecords, key, basis: { sources: historyIds, key: keyFor(historyIds) },
+    return { messages: fresh, records: checkedRecords, key, answerSources: view.sources.map(answerSource), basis: { sources: historyIds, key: keyFor(historyIds) },
       previousValid: !!inheritedBasis && keyFor(inheritedBasis.sources) === inheritedBasis.key };
   }, signal);
 }
@@ -140,6 +146,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
   const projected = new WeakMap<Msg, Msg>();
   const versionedSources = new Set<string>();
   let lastReadingKey: string | undefined;
+  let answerSources: Pick<AnswerBasis, 'consistent' | 'sources'> | undefined;
   const sourceRef = (sourceId: string, message: Msg, original?: Msg) => {
     const ref = `${id}/${sourceId}`;
     const history = original && historySources.get(original);
@@ -184,7 +191,8 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
         // 摘要模型等待期间可能接受新的纠正；返回主模型前重核一次，最多重建一次。
         for (let attempt = 0; attempt < 2; attempt++) {
           const semantic = await queryAdaptiveSemantic(context.query, signal);
-          const reading = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal);
+          const semanticSources = [...new Set(semantic.items.flatMap((item) => item.roots.map((s) => s.id)))];
+          const reading = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources);
           const preparedKey = JSON.stringify([reading.key, semantic]);
           if (preparedKey !== lastReadingKey) manager.invalidateSummaries();
           lastReadingKey = preparedKey;
@@ -200,10 +208,11 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
               reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
           });
           signal.throwIfAborted();
-          const checked = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal);
+          const checked = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources);
           const checkedSemantic = await queryAdaptiveSemantic(context.query, signal);
           if (reading.key !== checked.key || JSON.stringify(semantic) !== JSON.stringify(checkedSemantic)) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
           context.plan = plan;
+          if (reading.answerSources) answerSources = mergeAnswerSources(answerSources, reading.answerSources);
           kv.set(`context.plan.${context.conv}`, { turn: id, model, estimate: plan.estimate, selectedIds: plan.selectedIds, skippedMemoryIds: plan.skippedMemoryIds,
             compactedIds: plan.compactedIds, projections: plan.projections, summary: plan.summary ?? inherited,
             adaptiveBasis: plan.summary ? (plan.compactedIds.every((sourceId) => versionedSources.has(sourceId)) ? reading.basis : undefined)
@@ -215,7 +224,8 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
         } finally { bus.off('state', stop); }
       });
     },
-    snapshot() { return { state: structuredClone(context.state), tags: [...context.tags], phase: context.phase, usedMemoryKeys: context.plan?.selectedIds.filter((key) => key.startsWith('memory:')).map((key) => key.slice(7)) ?? [] }; },
+    snapshot() { return { state: structuredClone(context.state), tags: [...context.tags], phase: context.phase, answerSources,
+      usedMemoryKeys: context.plan?.selectedIds.filter((key) => key.startsWith('memory:')).map((key) => key.slice(7)) ?? [] }; },
     close() { turns.delete(id); },
   };
 }
@@ -287,7 +297,9 @@ export function contextRead(id: string, ref: string, offset = 0, limit = 8000, v
       observeReadDocument('context', JSON.stringify([context.conv, `message-tools:${message.id}`]), refs);
       for (const r of toolRefs) observeReadDocument('tool', toolReadingKey({ session: r.turn, call: r.call }), getToolCall(r.call, r.turn));
       if (view && message.process?.length) processNotice = PROCESS_READING_NOTICE;
-      const messageView = view ? { ...message, process: processReading(message.process) } : message;
+      const changed = view?.sources.find((s) => s.id === message.id)?.answer?.status === 'changed';
+      const messageView = view ? { ...message, process: processReading(message.process),
+        ...(changed ? { text: ANSWER_CHANGED, attachments: null } : {}) } : message;
       source = redactSecrets(JSON.stringify({ message: messageView, tools: toolRefs.map((r) => readTool(r.call, r.turn) ?? { call: r.call, missing: '完整本机工具记录已过期' }) }));
     }
   } catch (error) { if (error instanceof Error && !(error instanceof SyntaxError)) throw error; }

@@ -82,7 +82,7 @@ const commands: Record<string, (args: any) => unknown> = {
   },
   snapshot: () => exclusive(() => ({ agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
     ...(controlled ? { controlled: controlled.snapshot(), held } : {}),
-    messages: store.db.prepare('SELECT id,ts,role,text,session,body,mode FROM messages ORDER BY id').all(),
+    messages: store.db.prepare('SELECT id,ts,role,text,session,body,mode,answerBasis FROM messages ORDER BY id').all(),
     receipts: store.db.prepare('SELECT source,processor,revision,completed FROM adaptive_receipts').all(),
     publications: store.db.prepare('SELECT id,digest,state,error FROM adaptive_publications').all(), jobs: queue.jobs(1000),
     status: adaptive.adaptiveStatus(), sync: { unpushed: soul.syncStatus().unpushed }, pid: process.pid })),

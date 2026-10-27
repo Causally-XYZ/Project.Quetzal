@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { paths, config } from "./config.ts";
 import { bus, type TimelineEntry } from "./bus.ts";
+import { parseAnswerBasis, answerDigest, type AnswerBasis } from "./memory/answer-basis.ts";
 
 export let db: DatabaseSync;
 
@@ -51,7 +52,8 @@ export function openStore() {
   db.exec("CREATE INDEX IF NOT EXISTS context_sources_ts ON context_sources(ts)");
   // 对话归属会话，并保存执行过程与附件（旧库补列；此前没有会话的对话归入「最初的对话」）
   const cols = (db.prepare("PRAGMA table_info(messages)").all() as any[]).map((c) => c.name);
-  for (const [c, t] of [["session", "TEXT"], ["process", "TEXT"], ["attachments", "TEXT"], ["mode", "TEXT"]]) if (!cols.includes(c)) db.exec(`ALTER TABLE messages ADD COLUMN ${c} ${t}`);
+  for (const [c, t] of [["session", "TEXT"], ["process", "TEXT"], ["attachments", "TEXT"], ["mode", "TEXT"], ["answerBasis", "TEXT"]]) if (!cols.includes(c)) db.exec(`ALTER TABLE messages ADD COLUMN ${c} ${t}`);
+  db.exec('CREATE INDEX IF NOT EXISTS messages_answer_basis ON messages(id) WHERE answerBasis IS NOT NULL');
   db.exec("CREATE INDEX IF NOT EXISTS messages_session ON messages(session, id)");
   // 1.0：来源身体、按时间排序的索引、会话的标题 / 归档修改时间（多具身体之间以较新的修改为准）
   if (!cols.includes("body")) db.exec("ALTER TABLE messages ADD COLUMN body TEXT");
@@ -172,10 +174,10 @@ export interface SessionInfo {
 }
 export interface Attachment { id: string; name: string; path: string; rel: string; mime: string; size: number; kind: "image" | "text" | "file"; by?: "agent"; source?: string } // rel：相对 uploads 目录；by：她发出的（deliverable_create 生成的文件）；source：她写下它的位置（工作区里的路径，path 是 uploads 里的副本）
 export type Role = "user" | "agent" | "ambient"; // ambient：环境的声音（麦克风听到并识别的话），不是对方发来的消息
-export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null; body?: string | null; via?: string | null } // mode：她工作时发来的消息如何并入（steer / interrupt）；body：在哪具身体上；via：对方的话从哪具身体进来（旧行为空，按 body）
+export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null; body?: string | null; via?: string | null; answerBasis?: AnswerBasis | null } // mode：她工作时发来的消息如何并入（steer / interrupt）；body：在哪具身体上；via：对方的话从哪具身体进来（旧行为空，按 body）
 
 const rowSession = (r: any): SessionInfo => ({ ...r, archived: !!r.archived, pinned: Number(r.pinned ?? 0), project: r.project || null });
-const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? JSON.parse(r.attachments) : null });
+const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? JSON.parse(r.attachments) : null, answerBasis: r.answerBasis ? parseAnswerBasis(JSON.parse(r.answerBasis)) : null });
 
 /** 确保会话存在（固定 id 的会话如「飞书」首次使用时自动创建）。 */
 export function ensureSession(id: string, title: string, channel = "控制台"): SessionInfo {
@@ -255,11 +257,12 @@ function replicateSession(id: string) {
   if (r) bus.emit("replica", { table: "sessions", rows: [r] });
 }
 
-export function addMessage(role: Role, channel: string, text: string, o: { session?: string; process?: unknown[]; attachments?: Attachment[]; mode?: string; via?: string } = {}) {
+export function addMessage(role: Role, channel: string, text: string, o: { session?: string; process?: unknown[]; attachments?: Attachment[]; mode?: string; via?: string; answerBasis?: AnswerBasis } = {}) {
   const ts = Date.now(), session = o.session ?? "first", id = nextId("messages");
-  const row = { id, ts, role, channel, text, session, process: o.process?.length ? JSON.stringify(o.process) : null, attachments: o.attachments?.length ? JSON.stringify(o.attachments) : null, mode: o.mode ?? null, body: config.body, via: o.via ?? null };
-  db.prepare("INSERT INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body,via) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-    .run(row.id, row.ts, row.role, row.channel, row.text, row.session, row.process, row.attachments, row.mode, row.body, row.via);
+  if (o.answerBasis && (role !== "agent" || parseAnswerBasis(o.answerBasis).answerHash !== answerDigest(text))) throw new Error("回答来源凭据与消息不匹配");
+  const row = { id, ts, role, channel, text, session, answerBasis: o.answerBasis ? JSON.stringify(o.answerBasis) : null, process: o.process?.length ? JSON.stringify(o.process) : null, attachments: o.attachments?.length ? JSON.stringify(o.attachments) : null, mode: o.mode ?? null, body: config.body, via: o.via ?? null };
+  db.prepare("INSERT INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body,via,answerBasis) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+    .run(row.id, row.ts, row.role, row.channel, row.text, row.session, row.process, row.attachments, row.mode, row.body, row.via, row.answerBasis);
   db.prepare("UPDATE sessions SET updated=MAX(updated, ?), archived=0 WHERE id=?").run(ts, session); // 有新消息的会话自动回到列表
   bus.emit("replica", { table: "messages", rows: [row] });
   return id;
@@ -382,6 +385,7 @@ function okRow(table: "messages" | "timeline", r: any, from: string, catchUp: bo
   if (!okTs(r.ts)) return false;
   if (table === "messages") {
     return ROLES.has(r.role) && isStr(r.channel, 100) && isStr(r.text, 200_000) && isStr(r.session, 200, 1) && okMode(r.mode) && okVia(r.via)
+      && okJson(r.answerBasis, 256 << 10, (x) => r.role === "agent" && parseAnswerBasis(x).answerHash === answerDigest(r.text))
       && okJson(r.process, 4 << 20, (x) => Array.isArray(x) || (!!x && typeof x === "object")) && okJson(r.attachments, 256 << 10, okAttachments);
   }
   return isStr(r.kind, 40, 1) && isStr(r.title, 4000) && okJson(r.detail ?? "null", 1 << 20, () => true);
@@ -421,8 +425,14 @@ export function applyRemote(table: ReplicaTable, rows: any[], o: { from: string;
     for (const r of rows.slice(0, 1000)) {
       if (table === "messages") {
         if (!okRow("messages", r, o.from, !!o.catchUp)) { rejected++; continue; }
-        const ok = db.prepare("INSERT OR IGNORE INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body,via) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-          .run(r.id, r.ts, r.role, r.channel, r.text, r.session, r.process ?? null, r.attachments ?? null, r.mode ?? null, r.body, r.via ?? null);
+        const ok = db.prepare("INSERT OR IGNORE INTO messages(id,ts,role,channel,text,session,process,attachments,mode,body,via,answerBasis) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+          .run(r.id, r.ts, r.role, r.channel, r.text, r.session, r.process ?? null, r.attachments ?? null, r.mode ?? null, r.body, r.via ?? null, r.answerBasis ?? null);
+        // 旧身体中转可能先丢失新字段；后来从新版补齐时只填空凭据，不覆盖原消息或已有凭据。
+        if (!Number(ok.changes) && r.answerBasis) {
+          const filled = db.prepare('UPDATE messages SET answerBasis=? WHERE id=? AND answerBasis IS NULL AND ts=? AND role=? AND channel=? AND text=? AND session=? AND body=? AND process IS ? AND attachments IS ? AND via IS ?')
+            .run(r.answerBasis, r.id, r.ts, r.role, r.channel, r.text, r.session, r.body, r.process ?? null, r.attachments ?? null, r.via ?? null);
+          if (Number(filled.changes)) { const mode = messageMode(r.id); changed.push(mode ? { ...r, mode: mode.mode } : r); }
+        }
         if (Number(ok.changes)) {
           // 标记可能先于原文到达；把已知修订应用在同一消息事务里。
           const mode = messageMode(r.id);

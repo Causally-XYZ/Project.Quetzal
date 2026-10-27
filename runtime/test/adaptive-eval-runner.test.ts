@@ -35,6 +35,12 @@ test('评测执行链逐步释放并经真实网关回答，记录复制/自动�
       const proposals = cp.postAnswer.center.calls.filter((c: any) => c.purpose === 'proposal');
       assert.ok(proposals.length); assert.ok(proposals.every((c: any) => c.request.responseSchema?.properties?.records));
       assert.ok(calls.every((c: any) => !c.request.responseSchema), '普通回答不继承提案格式');
+      const answer = cp.postAnswer[consumer].messages.findLast((m: any) => m.role === 'agent' && m.answerBasis);
+      assert.ok(answer, '正常网关回答自动保存来源凭据');
+      const basis = JSON.parse(answer.answerBasis);
+      assert.equal(basis.consistent, true); assert.ok(basis.sources.some((s: any) => s.id === cp.source));
+      assert.deepEqual(cp.postAnswer.center.messages.find((m: any) => m.id === answer.id),
+        cp.postAnswer.satellite.messages.find((m: any) => m.id === answer.id), '凭据随真实消息复制，不依赖生成身体的本机缓存');
       assert.ok(cp.postAnswer.center.publications.every((p: any) => p.state === 'published'));
     }
     for (const stop of result.shutdown) { assert.equal(stop.forced, false); assert.equal(stop.exitCode, 0); assert.throws(() => process.kill(stop.pid, 0)); }
@@ -108,6 +114,8 @@ test('受控 AND/OR 图经真实存档撤回、自动传播和对端查询，保
       const answering = cp.postAnswer[cp.answerBody === 'A' ? 'center' : 'satellite'];
       const conversation = answering.calls.findLast((c: any) => c.purpose === 'conversation' && c.phase === cp.point);
       assert.ok(conversation);
+      if (i > 0) assert.ok(conversation.request.messages.some((m: any) => m.content.includes('助手回答的消息来源核查=changed')),
+        '另一身体撤回依据后，实际回答材料识别此前助手回答的来源变化');
       for (const item of cp.reading.items) if (selectedIds.includes(`memory:adaptive-semantic:${item.id}:${item.revision}`))
         assert.ok(conversation.request.messages.some((m: any) => m.content.includes(JSON.stringify(item))), '选中当前认识确实进入模型请求');
       for (const states of [cp.preAnswer, cp.postAnswer]) {
