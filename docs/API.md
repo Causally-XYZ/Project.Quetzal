@@ -246,6 +246,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 **记忆**
 
+规划中的跨会话自适应记忆见[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)与[M0–M5 计划](engine/ADAPTIVE_MEMORY_PLAN.md)。M0 不新增 RPC、工具或配置项，也不改变下面的个人确认和来源门禁；新接口须随实现与测试一起登记。
+
 结构化版本键为 `id@version`。下列 dotted RPC 是认证管理者入口；个人确认和整体结果反馈不暴露为 agent 模型工具。模型侧 `memory_records` / `memory_evolve` 另按当前用户/会话/任务范围限制。
 
 | 方法 | 参数与返回 | 说明 |

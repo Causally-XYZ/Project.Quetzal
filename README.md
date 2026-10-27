@@ -152,6 +152,8 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 | [`website/`](website/docs/README.md) | 官网与文档站 |
 | [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) · [分布式](docs/DISTRIBUTED.md) · [一键上手](docs/ONBOARDING.md) · [论文研究工作区](docs/research/README.md) · [Personal Agent 综述笔记](docs/RESEARCH_PERSONAL_AGENT.md) · [更新日志](CHANGELOG.md) |
 
+开发中：[自适应记忆 M0–M5 计划](docs/engine/ADAPTIVE_MEMORY_PLAN.md)记录跨会话关联、指代歧义、多步推理与持续修正的目标、行为契约和本机多身体验收；[阶段验证记录](docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)区分已验证工作与尚未实现能力。
+
 <br/>
 
 <p align="center"><sub>仅用于学习和研究，只操作自己拥有的设备，不以牟利为目的。<a href="LICENSE">AGPL-3.0</a></sub></p>
