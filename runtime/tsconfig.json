@@ -18,6 +18,7 @@
     "test",
     "adapters",
     "tool/adaptive-semantic-pilot.ts",
-    "tool/adaptive-review-pilot.ts"
+    "tool/adaptive-review-pilot.ts",
+    "tool/adaptive-read-benchmark.ts"
   ]
 }

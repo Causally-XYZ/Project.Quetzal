@@ -4,6 +4,7 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 
 | 命令 | 作用 |
 |---|---|
+| `npm run bench:adaptive-read -- 100 100,500,1000` | 合成认识读取基准；样本数与规模可指定，临时 SQLite / 灵魂文件自动清理，不调用模型 |
 | `npm test` | 单元与集成测试（心脏、记忆与 FTS5 检索、上下文、会话与子 agent、灵魂 git 合并、模型路由、安全、听觉、网关、网状层与平台适配器；具体范围见 `test/*.test.ts` 及 `../engine/test/*.test.ts`） |
 | `npm run build` | engine 独立类型检查 + runtime 类型检查 + esbuild 打包：`dist/main.cjs`、`android.mjs`、`linux.mjs`、`macos.mjs`、`termux.mjs`、`windows.mjs`、`windows-body.mjs`、`windows-supervise.mjs`、`mermaid.mjs`；最后由 `tool/build-srt.mjs` 打包 `dist/srt.mjs` |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
@@ -64,3 +65,5 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 认识传播专项 `test/adaptive-semantic-sync.test.ts` 使用两个独立身体、临时裸 Git 远端和真实网状传输。仅提案为合成，后续由后台发件箱自动提交 / 推送、网状提示自动拉取；离线期间错过提示的身体通过正常 converse 拉取恢复，测试不手工安装或同步认识文件。`SOUL_ALLOW_LOCAL_REMOTE=1` 仅沿用既有测试例外，`TEST_SOUL_REMOTE` 仅测试夹具读取；生产仍要求 SSH。无新增依赖、生产配置或服务；既有测试 glob / 类型检查 / 构建入口覆盖。
 
 `adaptive-semantic-pilot.ts` 缺省运行 aliases 开发案例，可用 `--case=time` 检查模糊时间、后续纠正与无关偏好保留。`tool/adaptive-pilot-cases.ts` 保存公开输入 / 检查点，新目录先写案例摘要；开发报告不含凭据且不计作自动语义评分。新工具模块由现有 pilot import 纳入类型检查，无新依赖、生产环境项、部署入口或 schema 变更。
+
+读取优化的依据和边界见[阶段记录 §4.25](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#425-m2-权威核对下的投影复用与读取规模测试2026-10-27)。基准每次新建 Archive 包装对象，并分别记录首次投影恢复、查询和原文修订读取；首次恢复不表示磁盘冷缓存。开发脚本已加入 package.json / tsconfig，复用 Node 内置模块，无依赖锁、部署配置或数据格式变更。

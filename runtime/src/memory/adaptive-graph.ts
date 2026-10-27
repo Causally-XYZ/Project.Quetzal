@@ -6,6 +6,11 @@ import { SEMANTIC_SCHEMA, validateBatch, validateRecord, directSpans, recordRefs
   evaluateEvidence, type SemanticBatch, type SemanticRecord, type SourceReader, type ClaimRecord } from './adaptive-evidence.ts';
 import { sourceReading } from './adaptive-reading.ts';
 import { selectSemantic, semanticBasis } from './adaptive-query.ts';
+import crypto from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
+
+// 只缓存一次完整重放的见证，不缓存来源可见性或依据状态。连接释放后自动回收。
+const verified = new WeakMap<DatabaseSync, { agent: string; artifacts: string; projection: string }>();
 
 export class AdaptiveGraph {
   readonly queue: AdaptiveStore;
@@ -82,15 +87,16 @@ export class AdaptiveGraph {
       inputs.every((i) => this.queue.source(i.id, i.revision)?.hash === i.hash));
   }
 
-  private install(artifact: MemoryArtifact, replay = false): boolean {
+  private install(artifact: MemoryArtifact, replay = false, replayState?: Map<string, SemanticRecord>): boolean {
     const batch = artifact.payload.data; validateBatch(batch);
     if (artifact.payload.schema !== SEMANTIC_SCHEMA || artifact.agent !== this.queue.agent || batch.baseGeneration !== this.generation()) return false;
-    const previous = new Map(this.current().map((r) => [r.id, r]));
-    const next = new Map(previous);
+    const previous = replayState ?? new Map(this.current().map((r) => [r.id, r]));
+    const patch = new Map<string, SemanticRecord>();
+    const next = (id: string) => patch.get(id) ?? previous.get(id);
     for (const r of batch.records) {
       const old = previous.get(r.id);
       if (r.revision !== (old?.revision ?? 0) + 1 || old && old.kind !== r.kind) return false;
-      next.set(r.id, r);
+      patch.set(r.id, r);
     }
     const inputHashes = new Map(artifact.inputs.map((i) => [i.id, i.hash]));
     const source: SourceReader = (id) => this.queue.source(id);
@@ -99,7 +105,7 @@ export class AdaptiveGraph {
         if (inputHashes.get(span.source) !== span.hash || (!replay && !spanCurrent(span, source))) return false;
       }
       for (const ref of recordRefs(r)) {
-        const target = next.get(ref.id);
+        const target = next(ref.id);
         if (!target || target.kind !== ref.kind) return false;
         if (r.state === 'withdrawn') {
           // 撤回记录可以保留旧依据供回查，但不能捏造不存在的版本。
@@ -114,7 +120,7 @@ export class AdaptiveGraph {
       visited.add(r.id);
       if (directSpans(r).some((s) => inputHashes.get(s.source) !== s.hash || (!replay && !spanCurrent(s, source)))) return false;
       return recordRefs(r).every((ref) => {
-        const target = next.get(ref.id);
+        const target = next(ref.id);
         // 撤回本身不依赖旧证明继续成立。
         return r.state === 'withdrawn' || !!target && checkInputs(target);
       });
@@ -124,7 +130,25 @@ export class AdaptiveGraph {
     const insert = this.queue.db.prepare('INSERT INTO adaptive_graph_records VALUES(?,?,?,?,?)');
     for (const r of batch.records) insert.run(r.id, r.revision, r.kind, JSON.stringify(r), artifact.id);
     this.queue.db.prepare('UPDATE adaptive_graph_meta SET generation=generation+1 WHERE singleton=1').run();
+    if (replayState) for (const r of batch.records) replayState.set(r.id, r);
     return true;
+  }
+
+  /** 对实际投影逐行核对，不能只信 generation / 文件 mtime / SQLite data_version。 */
+  private projectionDigest(): string | undefined {
+    const hash = crypto.createHash('sha256'); let rows = 0, bytes = 0;
+    for (const sql of ['SELECT singleton,version,generation FROM adaptive_graph_meta ORDER BY singleton',
+      'SELECT artifact,generation,digest FROM adaptive_graph_batches ORDER BY generation',
+      'SELECT id,revision,kind,document,artifact FROM adaptive_graph_records ORDER BY id,revision']) {
+      hash.update(sql);
+      for (const row of this.queue.db.prepare(sql).iterate()) {
+        const text = JSON.stringify(row); bytes += Buffer.byteLength(text);
+        // 超出权威结果可能具有的投影规模则不走快路径，由完整重放修复。
+        if (++rows > 1_010_001 || bytes > 128 * 1024 * 1024) return undefined;
+        hash.update(text); hash.update('\n');
+      }
+    }
+    return hash.digest('hex');
   }
 
   /** 从完整权威结果链重建；来源可能已改动 / 尚未复制，由读取时的 hash 门禁决定可用性。
@@ -145,16 +169,27 @@ export class AdaptiveGraph {
     }
     const ordered = [...candidates.values()].sort((a, b) =>
       (a.payload.data as SemanticBatch).baseGeneration - (b.payload.data as SemanticBatch).baseGeneration);
+    const digest = crypto.createHash('sha256');
+    for (const artifact of ordered) digest.update(artifactDigest(JSON.stringify(artifact)));
+    const artifactsDigest = digest.digest('hex');
     this.queue.db.exec('SAVEPOINT adaptive_graph_rebuild');
     try {
+      const cached = verified.get(this.queue.db);
+      if (cached?.agent === this.queue.agent && cached.artifacts === artifactsDigest && cached.projection === this.projectionDigest()) {
+        this.queue.db.exec('RELEASE adaptive_graph_rebuild'); return;
+      }
       const known = this.queue.db.prepare('SELECT artifact,digest FROM adaptive_graph_batches').all() as { artifact: string; digest: string }[];
       for (const row of known) {
         const artifact = candidates.get(row.artifact);
         if (!artifact || artifactDigest(JSON.stringify(artifact)) !== row.digest) throw new Error('已知认识结果缺失或改变');
       }
       this.queue.db.exec('DELETE FROM adaptive_graph_records; DELETE FROM adaptive_graph_batches; UPDATE adaptive_graph_meta SET generation=0 WHERE singleton=1');
-      for (const artifact of ordered) if (!this.install(artifact, true)) throw new Error('认识结果链不完整或版本冲突');
+      const state = new Map<string, SemanticRecord>();
+      for (const artifact of ordered) if (!this.install(artifact, true, state)) throw new Error('认识结果链不完整或版本冲突');
+      const projection = this.projectionDigest();
       this.queue.db.exec('RELEASE adaptive_graph_rebuild');
+      if (projection) verified.set(this.queue.db, { agent: this.queue.agent, artifacts: artifactsDigest, projection });
+      else verified.delete(this.queue.db); // 缓存核对上限不能收紧原有存档格式的接受范围。
     } catch (error) {
       this.queue.db.exec('ROLLBACK TO adaptive_graph_rebuild'); this.queue.db.exec('RELEASE adaptive_graph_rebuild'); throw error;
     }

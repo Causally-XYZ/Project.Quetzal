@@ -8,7 +8,7 @@
 
 M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原文引用，计算带反证的依赖状态；`memory/adaptive-graph.ts` 将版本投影与任务 / 发件箱同事务安装。见[语义格式与边界](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。默认仍用 source-v1；显式开启 adaptiveMemory.semantic 后后台整合与重评会调用这些库。集中主机本机前台经 `adaptive-query.ts` 选择当前 supported 陈述与 ambiguous 提及，其他正式身体经独立语义查询协议接入，接收前检查本机更高版本 / 同版分叉和来源冲突。`adaptive-review.ts` 沿真实依赖优先上游；`adaptive-review-budget.ts` 实现五次调用后的自动冷却续做和跨重启目标计数，由 adaptive.ts 在模型调用前写本机 KV。无需新增服务或 npm 依赖，现有 TypeScript 构建自动包含该模块。
 
-`memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
+`memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再核对实际投影摘要；内容均未变时复用，变化时原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
 
 `memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照。默认历史由 `mind/context.ts` 在模型准备前重建；来源或认识版本变化会清摘要缓存，发送前复核，至多重建一次。无来源版本的持久摘要不继承；`adaptive-material.ts` 在发送前核对旧候选文件及消息来源，工具 memory_records / note_read 同样附当前读取状态；原审核不能充当新证据，不可访问来源的派生正文不输出。recall 文档命中与笔记读取共用准备 / 快照呈现逻辑，旧语义选择器在模型调用前、返回后和缓存命中时核查来源；`mind/prompt.ts` 的 systemMessage 通过对象来源绑定保留跨会话读取能力，context 在同一快照核对近况并纳入准备前后摘要值，quick 内省在每个候选上重新读取；未绑定来源的其他派生资料和远端语义读取仍待接入。
 
@@ -190,3 +190,5 @@ adapters/
 `mesh/soul-sync.ts` 的 installSoulSync 由 startMesh 和多身体夹具共用，监听真实 mesh event 与本机 soul.pushed / sense；停止时清理监听和去抖计时器。替代 main.ts 启动时的全局 wireMesh 绑定。Git 排队、锁、身份守卫与错误重试仍由 memory/soul-sync.ts / soul-repo.ts 管理，协议与灵魂格式不变。
 
 `adaptive-reading.ts` 对 supported claim 的修订 current 同时保留正文、性质、occurred / valid 和来源；只改时间时也能在旧原文各页看见纠正。模型提案对合法但无引用的语境声明不生成记录，仍检查声明出处与实际引用。开发案例 / 预期由 tool/adaptive-pilot-cases.ts 提供，不能作为生产本体或预设主题。
+
+`adaptive-graph.ts` 以连接 WeakMap 保存完整重放见证；重放中传递当前记录映射，避免逐批读取全部旧 JSON。source/evidence 状态不缓存，外层回滚由下次投影摘要核对发现。`tool/adaptive-read-benchmark.ts` / `adaptive-read-workload.ts` 提供仓库外合成负载；`test/adaptive-query-scale.test.ts` 测真实宿主100次读取与损坏降级，未使用模型或浏览器。

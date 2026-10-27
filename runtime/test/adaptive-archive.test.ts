@@ -158,3 +158,50 @@ test('AM-22：真实灵魂 Git 反向提交删除撤回文件时拒绝回流，�
   assert.equal(f.archive.assess().get(f.claim.id)?.status, 'withdrawn');
   assert.deepEqual(f.archive.supportedClaims(), []);
 });
+
+test('完整核对后复用投影不再写表；新文件仍须实际安装，失败整体回滚', (t) => {
+  const f = fixture(t); f.accept(f.claim); f.publish(); f.archive.current();
+  f.queue.db.exec("CREATE TRIGGER no_rewrite BEFORE DELETE ON adaptive_graph_records BEGIN SELECT RAISE(ABORT,'重放注入失败'); END");
+  assert.equal((new AdaptiveArchive(f.queue, f.soul).current()[0] as ClaimRecord).text, f.claim.text);
+  const next = structuredClone(f.artifacts()[0]); next.id = crypto.randomUUID();
+  (next.payload.data as { baseGeneration: number; records: ClaimRecord[] }).baseGeneration = 1;
+  const revised = (next.payload.data as { records: ClaimRecord[] }).records[0]; revised.revision = 2; revised.text = '修订认识';
+  const document = JSON.stringify(next); installPublication(f.soul, f.queue.agent, { id: next.id, document, digest: artifactDigest(document), attempts: 0 });
+  assert.throws(() => f.archive.current(), /重放注入失败/);
+  assert.equal(f.graph.generation(), 1); assert.equal(f.graph.history(f.claim.id).length, 1);
+  f.queue.db.exec('DROP TRIGGER no_rewrite');
+  assert.equal((f.archive.current()[0] as ClaimRecord).text, '修订认识'); assert.equal(f.graph.generation(), 2);
+});
+
+test('不信投影元数据：同代次记录篡改或丢失后从完整权威链重建', (t) => {
+  const f = fixture(t); f.accept(f.claim); f.publish(); f.archive.current();
+  f.queue.db.prepare('UPDATE adaptive_graph_records SET document=? WHERE id=?').run(JSON.stringify({ ...f.claim, text: '伪造的缓存正文' }), f.claim.id);
+  assert.equal((new AdaptiveArchive(f.queue, f.soul).current()[0] as ClaimRecord).text, f.claim.text);
+  f.queue.db.exec('DELETE FROM adaptive_graph_records');
+  assert.equal(f.archive.current().length, 1); assert.equal((f.archive.current()[0] as ClaimRecord).text, f.claim.text);
+  f.queue.db.exec("UPDATE messages SET text='已经改变的来源' WHERE id=1");
+  assert.equal(f.archive.assess().get(f.claim.id)?.status, 'unsupported', '复用投影不能复用来源成立状态');
+});
+
+test('相同大小和 mtime 的权威文件改写也拒绝；恢复原字节后可读', (t) => {
+  const f = fixture(t); f.accept(f.claim); f.publish(); f.archive.current();
+  const file = f.file(f.artifacts()[0]), original = fs.readFileSync(file, 'utf8'), stat = fs.statSync(file);
+  const changed = original.replace('饭友是编辑', '饭友是坏人'); assert.notEqual(changed, original);
+  assert.equal(Buffer.byteLength(changed), Buffer.byteLength(original));
+  fs.writeFileSync(file, changed); fs.utimesSync(file, stat.atime, stat.mtime);
+  assert.throws(() => new AdaptiveArchive(f.queue, f.soul).current(), /不同/);
+  fs.writeFileSync(file, original); fs.utimesSync(file, stat.atime, stat.mtime);
+  assert.equal((f.archive.current()[0] as ClaimRecord).text, f.claim.text);
+});
+
+test('外层事务回滚后不使用先前的投影见证跳过恢复', (t) => {
+  const f = fixture(t); f.accept(f.claim); f.publish(); f.archive.current();
+  const next = structuredClone(f.artifacts()[0]); next.id = crypto.randomUUID();
+  (next.payload.data as { baseGeneration: number; records: ClaimRecord[] }).baseGeneration = 1;
+  const revised = (next.payload.data as { records: ClaimRecord[] }).records[0]; revised.revision = 2; revised.state = 'withdrawn';
+  const document = JSON.stringify(next); installPublication(f.soul, f.queue.agent, { id: next.id, document, digest: artifactDigest(document), attempts: 0 });
+  f.queue.db.exec('SAVEPOINT outer_read'); assert.equal(f.archive.assess().get(f.claim.id)?.status, 'withdrawn');
+  f.queue.db.exec('ROLLBACK TO outer_read; RELEASE outer_read'); assert.equal(f.graph.generation(), 1);
+  assert.equal(new AdaptiveArchive(f.queue, f.soul).assess().get(f.claim.id)?.status, 'withdrawn');
+  assert.equal(f.graph.generation(), 2);
+});
