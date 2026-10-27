@@ -41,7 +41,7 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行、M2 尚未放行。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。
 
-M2 留出数据已冻结50案例 / 60独立轨迹，三次重复计150案例序列；尚未向模型释放。`tool/adaptive-eval/` 保存输入、逐检查点断言、摘要及只读评分器，严格计划与实际独立轨迹证据导出已接线，真实正式执行和独立语义审核仍待完成。评分器拒绝缺失 / 错版本材料，替身和纯模型自评不记为通过；定位有效不等于语义真实，须核查原始执行证据。命令、审核信任边界见[工具说明](../tool/adaptive-eval/README.md)。package.json / tsconfig 已包含开发入口，测试由既有 glob 发现；无需新依赖、环境变量、迁移或部署服务，不打入 main.cjs。
+M2 留出数据已冻结50案例 / 60独立轨迹，三次重复计150案例序列；尚未向模型释放。`tool/adaptive-eval/` 保存输入、逐检查点断言、摘要及只读评分器，严格计划、实际独立轨迹证据导出和只增审核选择已接线，真实正式执行和逐项语义审核仍待完成。评分器拒绝缺失 / 错版本材料，替身和纯模型自评不记为通过；定位有效不等于语义真实，须核查原始执行证据。命令、审核信任边界见[工具说明](../tool/adaptive-eval/README.md)。package.json / tsconfig 已包含开发入口，测试由既有 glob 发现；无需新依赖、环境变量、迁移或部署服务，不打入 main.cjs。
 
 公开多身体开发入口已接入独立进程、真实网关 / WebRTC / 自动灵魂发布和现有模型适配器；历史输入在同步写入时固定合成时间，问题经对端网关回答。每步保留实际输入 / 输出、版本、来源、发布与退出证据，后续问题 / 回答按正常历史继续处理。首次观察到错误保留失败，不开启正式留出；当前支持既有 ignored 来源门禁、独立 agent 的范围负例，以及 --case=graph 的受控 AND/OR 图；受控安装不计为模型构图能力，未实现完整正式回执生成。缺省 stub；显式 live 才调用 ADC 模型。开发预算、源码指纹、数据位置与限制见[工具说明](../tool/adaptive-eval/README.md#公开多身体开发试跑)。新增入口 / 子进程纳入 tsconfig，复用 ws、node-datachannel 及 Node 内置模块，无新依赖或生产部署配置。
 
@@ -100,4 +100,4 @@ adaptive-vector / adaptive-vector-worker 已将固定 E5 的实际近邻接到�
 ADC 开发调用现在保留失败发生的安全阶段与计时，旧记录没有的字段不猜填。生产后台首次失败后的自动退避、再次生成、唯一发布与对端读取已由独立双身体替身测试验证；它不证明真实模型服务已恢复，不改变语义运行器的失败保留规则。详见[开发运行器](../tool/adaptive-eval/README.md#传输失败定位与后台恢复)及阶段记录 §4.43。既有依赖、构建、tsconfig 与测试入口已覆盖，无新增生产部署项。
 
 
-`npm run run:adaptive-eval -- --init/--run` 提供仓库外严格计划与单案例执行，绑定干净提交、代码 / 提示 / schema、固定路由 / 预算、检索与运行环境。各轨迹独立重置；只增原始执行和空 reviews 回执，流程完成不表示语义通过。body 的 fullEvidence 测试设置附带全部认识历史及当前支持状态，仅用于评测材料。新增入口纳入 package.json / tsconfig，依赖列表与锁无需变化，不进入生产 main。真实正式留出和独立审核仍未完成。
+`npm run run:adaptive-eval -- --init/--run` 提供仓库外严格计划与单案例执行，绑定干净提交、代码 / 提示 / schema、固定路由 / 预算、检索与运行环境。各轨迹独立重置；只增原始执行和空 reviews 回执，流程完成不表示语义通过。body 的 fullEvidence 测试设置附带全部认识历史及当前支持状态，仅用于评测材料。新增入口纳入 package.json / tsconfig，依赖列表与锁无需变化，不进入生产 main。审核另经 `review:adaptive-eval -- --packet/--record/--select` 只增存档，评分必须显式 `--reviews` 选择；原轨迹在读取时重新核验，模型自评不计通过。真实正式留出和逐项语义审核仍未完成。

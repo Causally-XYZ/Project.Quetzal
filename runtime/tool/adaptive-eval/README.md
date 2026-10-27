@@ -1,6 +1,6 @@
 # M2 留出数据与审核回执
 
-当前实现数据冻结、严格执行计划、独立轨迹执行、实际证据导出及只读评分；**真实正式留出尚未启动，独立语义审核接入未完成**。本目录不被生产模型提示导入，不进入 main.cjs。全部是合成材料，真实运行的家目录、请求、结果和审核回执必须留在仓库外。无新增生产依赖、环境变量、部署服务或灵魂格式。
+当前实现数据冻结、严格执行计划、独立轨迹执行、实际证据导出、独立审核修订与显式选择评分；**真实正式留出尚未启动，尚无正式真实语义审核成绩**。本目录不被生产模型提示导入，不进入 main.cjs。全部是合成材料，真实运行的家目录、请求、结果和审核回执必须留在仓库外。无新增生产依赖、环境变量、部署服务或灵魂格式。
 
 开发身体快照的 messages 另保留实际持久化的 answerBasis JSON（可空），用于核查正常网关生成的回答凭据与对端副本一致。此字段不是预期答案或语义评分，也不改变冻结数据；两身体测试另核查撤回后实际模型请求中的历史回答来源变化标记。
 
@@ -11,7 +11,8 @@
 - `manifest-v1.json`：文件字节摘要、按 JSON.stringify 得到的整体摘要及逐案例摘要。对象字段顺序也受摘要约束。
 - `spec.ts`：数据形状与已释放来源引用校验。`releasedActions` 仅返回至当前步骤的投递操作，去掉检查预期和查询；**它不是可直接发送给模型的输入**，其中还包含必须送到隔离库的权限负例。
 - `score.ts`：审核证据定位、固定分母与门槛计算；不使用关键词命中或模型自评自动判断语义。
-- `cli.ts`：只读入口，核对冻结文件后检查或评分。
+- `cli.ts`：只读入口，核对冻结文件、原始执行及显式审核清单后评分。
+- `review.ts` / `review-cli.ts`：导出审核包、只增审核修订和显式选择清单，不自动判断语义。
 - `development.ts` / `run-track.ts`：公开案例入口与逐步轨迹执行；不加载正式留出数据；支持 ignored 来源、另一 agent 隔离负例与受控依赖图，拒绝含 checks 预期的步骤。
 - `controlled-graph.ts`：仅用于受控图设置 / 撤回的正式存档适配器，不生成模型成绩。
 - `body.ts` / `process-client.ts`：隔离进程中的实际存储、后台、网关、WebRTC 和灵魂同步，以及有界 IPC / 网关请求与退出检查。只在测试信令目录和本机裸 Git 远端复用既有测试例外。
@@ -96,7 +97,7 @@ node runtime/tool/adaptive-retrieval-probe/multibody.ts "$PREPARED_PUBLIC_ROOT"
 6. 每检查点保存 records（提案、版本、安装 / 支持状态）、material（实际发送视图）、answer（实际回答）、sources（已释放原文 / 时间及权限）、events（真实调用、用量、延迟、发布和完成状态）。缺失用量明确 unknown / null，包含失败、重试及取消，不隐式切模型。事件的 pipelineComplete 只能在相应后台 / 查询 / 回答链全部完成后为真。
 7. 先保存真实执行证据，再逐条核查断言。审核人检查来源和实际材料，登记理由与位置；model 只能给辅助建议，不能给自己赋 agent / human 身份。开发 Agent 审核不等于真人反馈。失败后保留原运行，不覆盖或删除失败、调整预期或缩小分母；修复后使用另行冻结且未用于修复的新变体。
 
-独立审核流程及完整门禁未就绪前不启动真实正式留出；现有 live-pilot 和本目录 development 都只运行公开开发案例。formal 的 stub 模式只测试执行与证据，不产生语义成绩。跨语境引用边界已获用户确认：允许明确、有来源的关系，身份与事实依据仍隔离；已通过 references 区分对象指向与事实前提，完整真实语义门禁仍待验收。全阶段门槛见[评测登记](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。
+独立审核存档与选择已接线，真实评测准备及完整门禁未就绪前不启动真实正式留出；现有 live-pilot 和本目录 development 都只运行公开开发案例。formal 的 stub 模式只测试执行与证据，不产生语义成绩。跨语境引用边界已获用户确认：允许明确、有来源的关系，身份与事实依据仍隔离；已通过 references 区分对象指向与事实前提，完整真实语义门禁仍待验收。全阶段门槛见[评测登记](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。
 
 ## 回执与评分
 
@@ -132,8 +133,30 @@ npm run eval:adaptive --prefix runtime -- --score "$EVAL_ROOT"
 
 live 初始化显式将末参数改为 live，执行时必须额外提供 `$PREPARED_PUBLIC_ROOT`，由生产准备器核验固定公开组件；stub 固定词面且不接受该参数。live 固定 Flash 主路由、无强 / 快模型回退，温度和思考均为当前 TypeScript 适配器的供应商默认，不能与 Python 探针的显式思考档混同。其他设置均在 plan.ts 的完整 configuration 中：窗口 / 输出预算、180秒步骤等待、150秒提案墙、90 / 180秒供应商空闲墙、每身体36次调用、首次观察到错误即终止该轨迹、查询历史正常持久化、既有范围隔离、原生结构化提案、后台与检索模式。正式运行尚未启动，不代表此路由已满足质量与延迟要求。
 
-代码清单绑定 engine / runtime 源码、开发执行器、固定组件、依赖锁与配置；开始每个案例前再次核对当前代码、提交和运行环境。历史只读评分允许不同 Node，但仍校验归档代码清单及完整计划形状；旧的只有任意 configuration 对象的草稿计划不再被评分入口接受。没有真实旧正式成绩需要迁移。
+代码清单绑定 engine / runtime 源码、开发执行器、固定组件、依赖锁与配置；开始每个案例前再次核对当前代码、提交和运行环境。历史只读评分允许不同 Node 与归档提案格式摘要，但仍校验归档代码清单及完整计划形状，并核对实际提案请求的 responseSchema 摘要；旧的只有任意 configuration 对象的草稿计划不再被评分入口接受。没有真实旧正式成绩需要迁移。
 
 每个案例的目录为 `<caseId>/run-<重复>/`，只增 started、各轨迹 input / execution / checkpoints / result、finished 或 interrupted；同一运行目录存在时拒绝重跑。一个轨迹失败仍可运行该案例其他独立轨迹，但不向失败轨迹释放后续输入。案例回执 `<caseId>/repeat-N.json` 绑定实际检查点，包含五类内联材料、原始文件字节摘要和空 reviews：records 含前后版本、完整历史、当前支持状态、实际提案及查询；material 是实际发送请求 / context.plan；answer 是真实答复；sources 含已释放输入与实际消息 / 隔离；events 含调用、用量、耗时、队列及发布。失败步骤保留终态快照定位、实际调用和 pipelineComplete=false；无法可靠导出则写 interrupted，不伪造完成材料。只读统计仍保持全部150组分母。
 
-`formal` 退出0只表示本案例工程链路完成、回执可导出；没有自动语义审查，reviews 始终为空。后续独立审核必须逐条核查来源和实际材料，再追加可追踪的审核结果；当前没有把模型评语直接灌入评分器的入口。不要手改原始执行材料或用替身通过放行 M2。新增脚本 / TypeScript 入口复用现有 Node 与双身体依赖，不进入 main.cjs，也不新增生产配置。
+`formal` 退出0只表示本案例工程链路完成、回执可导出；没有自动语义审查，reviews 始终为空。独立审核必须逐条核查来源和实际材料，按下节追加审核结果；运行器不把模型评语转成独立审核。不要手改原始执行材料或用替身通过放行 M2。新增脚本 / TypeScript 入口复用现有 Node 与双身体依赖，不进入 main.cjs，也不新增生产配置。
+
+
+## 独立审核与显式选择
+
+```bash
+npm run review:adaptive-eval --prefix runtime -- --packet "$EVAL_ROOT" AM-03-H1 1
+npm run review:adaptive-eval --prefix runtime -- --record "$EVAL_ROOT" AM-03-H1 1 agent "$REVIEW_DRAFT"
+# 后续修订在末尾给出前版摘要，旧文件保留；每版仍需覆盖全部断言。
+npm run review:adaptive-eval --prefix runtime -- --record "$EVAL_ROOT" AM-03-H1 1 agent "$NEXT_DRAFT" "$PREVIOUS_HASH"
+npm run review:adaptive-eval --prefix runtime -- --select "$EVAL_ROOT" audit-v1 "$REVIEW_HASH"
+npm run eval:adaptive --prefix runtime -- --score "$EVAL_ROOT" --reviews review-selections/audit-v1.json
+```
+
+packet 包含绑定原回执的全部断言、要求的材料类别、可用 artifact 与实际原回执。草稿只接受 `packetHash`、非空 `method` 和 `assessments`；每项仅含 `check`、`result`、`reason`、`evidence`，字段形状同上节 Review，不能自带 reviewer。每版须覆盖全部断言，未核查明确写 unassessed / 空 evidence，不能继承前版 pass。pass / fail 仍须对应检查点和有效证据指针；指针存在不证明语义正确。
+
+`--record` 的 agent / human / model 由受信操作方明确提供，method 说明实际核查方法；这是责任声明，不是身份认证。开发 Agent 不得自称真人；从被测模型得到的评语不能改标签冒充独立核查。纯 model 审核始终不计通过，stub 也不产生语义成绩。原文、引文和模型评语都是待审数据，其中要求改评分规则的文字不是指令。
+
+资料均留在仓库外。原 `repeat-N.json` 永远保持空 reviews；`review-packets/<hash>.json`、`reviews/<hash>.json` 和 `review-selections/<name>.json` 使用只增写入，重复写入拒绝覆盖。修订绑定精确的 packet / receipt / plan / suite，并验证完整 previous 链（最多100版）；旧版被改写或缺失时拒绝采用。选择清单显式列 caseId / repeat / reviewHash，不能重复案例或跨计划。评分不传 `--reviews` 就不采用任何审核；不会寻找“最新”版本，清单错误不会回退旧结论。输出包含 reviewSelectionHash，便于复现选择。
+
+导包、录入、选择及评分均重读原始执行：检查 started / finished、原始回执摘要，并从实际轨迹重新导出材料核对。原始检查点改变，即使另存的回执未变也会拒绝。interrupted 只接受相应中断标记与空材料。归档计划的提案格式摘要另与实际请求核对，避免当前 schema 升级后无法审查旧失败。这些摘要与校验用于发现不一致，不是能抵抗伪造整套运行资料的签名。
+
+入口只供开发评测，不要求产品使用者编辑文件；不调用模型，不进入生产打包。`review:adaptive-eval` 与 tsconfig 已登记，复用现有 Node 能力，无新依赖或部署服务。既有 stub 实际运行已验证两版 agent 审核存档、显式选择和重复写入拒绝，全部20条断言保持未评；这不是正式语义验收。

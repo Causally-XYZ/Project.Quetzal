@@ -4,11 +4,13 @@ import path from 'node:path';
 import { digest } from './spec.ts';
 import { loadSuite, verifyPlan, type codeSnapshot } from './plan.ts';
 import { scoreSuite, checkpoints } from './score.ts';
+import { selectedReceipt, validateSelection } from './review.ts';
 
 const suite = loadSuite();
-const [mode = '--check', root, ...extra] = process.argv.slice(2);
-if (extra.length || !['--check', '--score'].includes(mode) || mode === '--check' && root || mode === '--score' && !root)
-  throw new Error('用法：--check 或 --score <仓库外评测目录>');
+const [mode = '--check', root, flag, selectionFile, ...extra] = process.argv.slice(2);
+if (extra.length || !['--check', '--score'].includes(mode) || mode === '--check' && (root || flag || selectionFile)
+  || mode === '--score' && (!root || (flag !== undefined || selectionFile !== undefined) && (flag !== '--reviews' || !selectionFile)))
+  throw new Error('用法：--check 或 --score <仓库外评测目录> [--reviews <相对审核清单路径>]');
 if (mode === '--check') {
   const points = suite.cases.flatMap(checkpoints);
   console.log(JSON.stringify({ suite: suite.id, suiteHash: digest(suite), cases: suite.cases.length,
@@ -23,10 +25,7 @@ if (mode === '--check') {
   };
   const code = read('code.json', 1024 * 1024) as ReturnType<typeof codeSnapshot>;
   const plan = verifyPlan(read('plan.json', 64 * 1024), suite, code, false);
-  const result = scoreSuite(suite, digest(plan), (caseId, repeat) => {
-    const name = path.join(caseId, `repeat-${repeat}.json`);
-    if (!fs.existsSync(path.join(directory, name))) return undefined;
-    return read(name, 32 * 1024 * 1024);
-  });
-  console.log(JSON.stringify(result, null, 2)); process.exitCode = result.semanticGate ? 0 : 1;
+  const selection = selectionFile ? validateSelection(read(selectionFile, 64 * 1024), suite, plan) : undefined;
+  const result = scoreSuite(suite, digest(plan), (caseId, repeat) => selectedReceipt(directory, suite.cases.find((c) => c.id === caseId)!, repeat, plan, selection));
+  console.log(JSON.stringify({ ...result, reviewSelectionHash: selection ? digest(selection) : null }, null, 2)); process.exitCode = result.semanticGate ? 0 : 1;
 }

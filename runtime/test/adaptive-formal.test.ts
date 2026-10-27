@@ -9,6 +9,7 @@ import { collectReceipt, inputTrack } from '../tool/adaptive-eval/receipt.ts';
 import { runTrack } from '../tool/adaptive-eval/run-track.ts';
 import { digest, type Case } from '../tool/adaptive-eval/spec.ts';
 import { scoreSuite } from '../tool/adaptive-eval/score.ts';
+import { originalReceipt } from '../tool/adaptive-eval/review.ts';
 
 const entries = [{ file: 'runtime/src/synthetic-fixture.ts', sha256: '1'.repeat(64) }];
 const code = { revision: '0'.repeat(40), codeHash: digest(entries), code: entries };
@@ -27,6 +28,9 @@ test('完整执行计划固定配置、代码和运行环境，缺字段或漂�
   assert.throws(() => verifyPlan(plan, suite, { ...code, codeHash: 'f'.repeat(64) }));
   const historic = structuredClone(plan); historic.configuration.runtime.node = '22.0.0';
   assert.deepEqual(verifyPlan(historic, suite, code, false), historic, '只读评分可在不同 Node 上核对既有计划');
+  historic.configuration.prompt.schemaHash = 'f'.repeat(64);
+  assert.deepEqual(verifyPlan(historic, suite, code, false), historic, '历史审核使用归档格式摘要，不用当前版本代替');
+  assert.throws(() => verifyPlan(historic, suite, code));
 });
 
 test('证据读取拒绝路径逃逸与超限，新文件禁止覆盖', () => {
@@ -42,7 +46,8 @@ test('证据读取拒绝路径逃逸与超限，新文件禁止覆盖', () => {
 });
 
 test('两条独立真实身体轨迹导出完整材料但未审核；损坏或缺失完成证据不能误计成功', { timeout: 90000 }, async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-formal-evidence-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-formal-evidence-'));
+  const root = path.join(parent, 'AM-03-H1', 'run-1'); fs.mkdirSync(root, { recursive: true });
   const c: Case = { id: 'AM-03-H1', family: 'AM-03', variant: 1, tracks: ['blue', 'purple'].map((name, i) => ({
     id: name, setup: 'empty', steps: [{ id: 'S1', at: '2026-05-10T12:00:00Z', body: 'B', speaker: 'owner', role: 'user', scope: 'accessible',
       text: i ? '公开隔离样例：紫色灯塔有人画画。' : '公开隔离样例：蓝色船屋有人修钟。', query: i ? '紫色灯塔有什么？' : '蓝色船屋有什么？',
@@ -77,5 +82,15 @@ test('两条独立真实身体轨迹导出完整材料但未审核；损坏或�
     assert.deepEqual(failure.reviews, []);
     fs.writeFileSync(file, original);
     assert.throws(() => collectReceipt(root, c, 0, plan));
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    saveNew(path.join(parent, c.id, 'repeat-1.json'), receipt);
+    saveNew(path.join(root, 'started.json'), { planHash: digest(plan), caseId: c.id, repeat: 1, at: Date.now() });
+    saveNew(path.join(root, 'finished.json'), { status: receipt.status, receiptHash: digest(receipt), reviews: 0 });
+    assert.deepEqual(originalReceipt(parent, c, 1, plan), JSON.parse(JSON.stringify(receipt)), '回执按 JSON 持久化；未定义的可选字段不参与文件比较');
+    const wrongSchema = structuredClone(plan); wrongSchema.configuration.prompt.schemaHash = 'f'.repeat(64);
+    assert.throws(() => collectReceipt(root, c, 1, wrongSchema), '实际提案请求必须符合归档格式摘要');
+    const checkpoint = path.join(root, 'blue', 'checkpoint-1.json');
+    const tampered = JSON.parse(fs.readFileSync(checkpoint, 'utf8')); tampered.answer = '改写的回答';
+    fs.writeFileSync(checkpoint, JSON.stringify(tampered));
+    assert.throws(() => originalReceipt(parent, c, 1, plan), '即使审核回执摘要未变，原始执行材料变化也必须拒绝');
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
 });

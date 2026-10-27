@@ -56,6 +56,11 @@ export function verifyPlan(plan: unknown, suite: Suite, code: ReturnType<typeof 
     const runtime = (plan as ExecutionPlan)?.configuration?.runtime;
     if (!runtime || !/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(runtime.node) || !/^[a-z0-9]{1,20}$/.test(runtime.platform) || !/^[a-z0-9]{1,20}$/.test(runtime.arch))
       throw new Error('执行计划运行环境缺失');
+    const schemaHash = (plan as ExecutionPlan)?.configuration?.prompt?.schemaHash;
+    if (!/^[a-f0-9]{64}$/.test(schemaHash ?? '')) throw new Error('归档提案格式摘要缺失');
+    // 历史评分绑定归档格式；不能因当前提案格式升级就无法审查旧失败。
+    // 原始调用的实际 responseSchema 还会在 collectReceipt 中核对此摘要。
+    expected.configuration.prompt.schemaHash = schemaHash;
     expected.configuration.runtime = runtime;
   }
   if (digest(plan) !== digest(expected)) throw new Error('执行计划、配置或代码不匹配');

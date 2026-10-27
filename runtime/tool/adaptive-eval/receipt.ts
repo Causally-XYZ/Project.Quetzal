@@ -54,7 +54,9 @@ export function collectReceipt(root: string, c: Case, repeat: number, plan: Exec
       const origin = { file: `${track.id}/${filename}`, sha256: raw.sha256 };
       const calls = ['center', 'satellite'].flatMap((body) => cp.postAnswer[body].calls
         .filter((x: any) => x.phase === point).map((x: any) => ({ ...x, body })));
-      if (!calls.some((x: any) => x.purpose === 'conversation') || calls.some((x: any) => x.state !== 'returned' || x.result?.truncated)
+      if (!calls.some((x: any) => x.purpose === 'conversation') || calls.some((x: any) => x.state !== 'returned' || x.result?.truncated
+          || x.purpose === 'proposal' && digest(x.request.responseSchema ?? null) !== plan.configuration.prompt.schemaHash
+          || x.purpose === 'conversation' && x.request.responseSchema !== undefined)
         || cp.answerBody !== (step.body === 'A' ? 'B' : 'A') || cp.isolation?.policy !== step.scope)
         throw new Error('检查点调用或输入范围不匹配');
       const sourceBodies = step.scope === 'other-agent' ? [cp.isolation.foreign] : [cp.preAnswer.center, cp.preAnswer.satellite];

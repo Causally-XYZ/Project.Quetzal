@@ -227,3 +227,6 @@ adapters/
 
 
 `tool/adaptive-eval/plan.ts` 复用冻结清单校验，绑定干净提交和完整执行配置；formal.ts 只按指定案例 / 重复顺序执行独立 runTrack，不给模型预期断言。receipt.ts 从已核验的原始 input / execution / result / checkpoint 导出五类材料，绑定文件字节摘要，缺失完成证据拒绝计 complete，语义 reviews 保持空。body 的可选 fullEvidence 在既有 exclusive 中获取完整认识历史和当前支持评估，仅在评测开启；生产模块不变。评分 CLI 同样核对完整归档计划，不用字段存在代替执行 / 语义证明。
+
+
+`tool/adaptive-eval/review.ts` 从原始轨迹重建并核对空审核执行回执，生成带冻结断言的审核包；只增修订绑定 packet / receipt / plan / suite 摘要，完整验证前版链。review-cli 的审核者由调用方明确声明，草稿不能自报；每版完整覆盖断言，未评不继承旧通过。评分仅叠加显式清单选中的版本，不改原执行文件、不隐式选择最新、不把纯模型评语记为通过。归档审核采用归档 schema 摘要并核对实际请求；当前执行仍须匹配当前代码和格式。新增开发入口纳入 package / tsconfig，无新依赖、产品 RPC、部署服务或灵魂格式。

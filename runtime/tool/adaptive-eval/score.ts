@@ -28,7 +28,7 @@ const defined = (data: unknown, pointer: string) => {
 };
 export function checkpoints(c: Case) { return c.tracks.flatMap((t) => t.steps.map((s) => ({ id: `${t.id}/${s.id}`, checks: s.checks }))); }
 
-function validateReceipt(value: unknown, c: Case, repeat: number, suiteHash: string, planHash: string): Receipt {
+export function validateReceipt(value: unknown, c: Case, repeat: number, suiteHash: string, planHash: string): Receipt {
   fields(value, ['schema', 'suiteHash', 'planHash', 'caseId', 'repeat', 'kind', 'status', 'artifacts', 'reviews']);
   const r = value as Receipt;
   if (r.schema !== 'quetzal-m2-receipt-v1' || r.suiteHash !== suiteHash || r.planHash !== planHash || r.caseId !== c.id || r.repeat !== repeat
