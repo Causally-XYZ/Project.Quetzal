@@ -197,6 +197,8 @@ adapters/
 
 `mesh/soul-sync.ts` 的 installSoulSync 由 startMesh 和多身体夹具共用，监听真实 mesh event 与本机 soul.pushed / sense；停止时清理监听和去抖计时器。替代 main.ts 启动时的全局 wireMesh 绑定。Git 排队、锁、身份守卫与错误重试仍由 memory/soul-sync.ts / soul-repo.ts 管理，协议与灵魂格式不变。
 
+多身体开发运行器的显式向量模式复用中心默认准备器，不注入近邻。retrieval-observer 只预热摘要绑定的公开文件、观察真实 query；检查点核对 worker.snapshot 与 archive 当前候选摘要。卫星 mesh 停止 / 重连由测试 IPC 控制，离线来源与 unavailable 查询先落盘，再等待实际复制、处理和发布。生产 API、配置和灵魂格式均不改变；正式语义评分与浏览器验收仍单独进行。
+
 `adaptive-reading.ts` 对 supported claim 的修订 current 同时保留正文、性质、occurred / valid 和来源；只改时间时也能在旧原文各页看见纠正。模型提案对合法但无引用的语境声明不生成记录，仍检查声明出处与实际引用。开发案例 / 预期由 tool/adaptive-pilot-cases.ts 提供，不能作为生产本体或预设主题。
 
 `adaptive-graph.ts` 以连接 WeakMap 保存完整重放见证；重放中传递当前记录映射，避免逐批读取全部旧 JSON。source/evidence 状态不缓存，外层回滚由下次投影摘要核对发现。`tool/adaptive-read-benchmark.ts` / `adaptive-read-workload.ts` 提供仓库外合成负载；`test/adaptive-query-scale.test.ts` 测真实宿主100次读取与损坏降级，未使用模型或浏览器。

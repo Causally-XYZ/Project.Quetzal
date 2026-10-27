@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { observeModel, type ObservedCall } from './model-observer.ts';
 import { ControlledGraph } from './controlled-graph.ts';
+import { observeRetrieval } from './retrieval-observer.ts';
+import { semanticDigest } from '../../src/memory/adaptive-query.ts';
 
 if (!process.send || !process.env.QUETZAL_EVAL_BODY) throw new Error('评测身体必须由控制进程启动');
 const settings = JSON.parse(process.env.QUETZAL_EVAL_BODY);
@@ -30,7 +32,8 @@ const uninstall = [
   (await import('../../src/mesh/soul-sync.ts')).installSoulSync(mesh),
 ];
 const adaptive = await import('../../src/memory/adaptive.ts');
-adaptive.setAdaptiveComponentPreparer(async () => false); // 此夹具不测试组件部署，不启动网络安装。
+if (!settings.vector) adaptive.setAdaptiveComponentPreparer(async () => false);
+const vector = settings.vector ? observeRetrieval() : undefined;
 const brain = await import('../../src/mind/brain.ts');
 const { identity } = await import('../../src/memory/identity.ts');
 if (identity().id !== (settings.agent ?? 'x')) throw new Error('评测灵魂身份不匹配');
@@ -47,7 +50,7 @@ async function shutdown() {
   if (shutting) return; shutting = true;
   observer.abort();
   await Promise.allSettled(store.db.prepare('SELECT id FROM sessions').all().map((s) => brain.stopTurn(String(s.id), { local: true })));
-  await adaptive.stopAdaptiveMemory(); await observer.close();
+  await adaptive.stopAdaptiveMemory(); await observer.close(); vector?.close();
   for (const fn of uninstall) fn();
   mesh.stop(); await gateway.close(); await soul.idle();
   fs.writeFileSync(path.join(cfg.paths.home, 'shutdown-evidence.json'), JSON.stringify({ calls: observer.calls,
@@ -56,6 +59,10 @@ async function shutdown() {
 }
 const commands: Record<string, (args: any) => unknown> = {
   connected: () => mesh.connected(),
+  connection: (a) => {
+    if (settings.storageOnly || settings.body !== 'satellite' || typeof a.online !== 'boolean') throw new Error();
+    if (a.online) mesh.start(); else mesh.stop(); return true;
+  },
   phase: (a) => { if (!/^[a-zA-Z0-9._/-]{1,100}$/.test(a.value)) throw new Error(); observer.setPhase(a.value); return true; },
   controlledHold: async () => {
     if (!controlled || held || adaptive.adaptiveStatus().semantic.state !== 'idle' || observer.calls.some((c) => c.state === 'running')) throw new Error();
@@ -82,12 +89,15 @@ const commands: Record<string, (args: any) => unknown> = {
     finally { Date.now = original; }
   },
   snapshot: () => exclusive(() => ({ agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
+    ...(vector ? { retrievalCalls: vector.calls,
+      retrievalExpected: semanticDigest(archive.candidates().map(({ key, title, text }) => ({ key, title, text }))) } : {}),
     ...(controlled ? { controlled: controlled.snapshot(), held } : {}),
     messages: store.db.prepare('SELECT id,ts,role,text,session,body,mode,answerBasis FROM messages ORDER BY id').all(),
     receipts: store.db.prepare('SELECT source,processor,revision,completed FROM adaptive_receipts').all(),
     publications: store.db.prepare('SELECT id,digest,state,error FROM adaptive_publications').all(), jobs: queue.jobs(1000),
     status: adaptive.adaptiveStatus(), sync: { unpushed: soul.syncStatus().unpushed }, pid: process.pid })),
   plan: (a) => store.kv.get(`context.plan.${a.session}`, null),
+  lexical: (a) => exclusive(() => archive.query(a.query)),
   probeScope: async (a) => {
     if (settings.storageOnly || settings.body !== 'satellite' || a.foreignAgent !== 'isolated-evaluation') throw new Error();
     // 正对照必须成功。失联、超时、未知方法等错误不能冒充跨 agent 拒绝。

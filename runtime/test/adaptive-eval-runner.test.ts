@@ -57,6 +57,9 @@ test('未知权限/缺失图声明和预期答案不启动执行；模型失败�
       (t: any) => { t.steps[0].checks = [{ requirement: '不许传入答案' }]; },
     ]) { const track = structuredClone(input); change(track); await assert.rejects(runTrack({ root: path.join(tmp, 'unsupported'), track, kind: 'stub', model: 'gemini-3.8-flash' }), /not-supported/); }
     assert.equal(fs.existsSync(path.join(tmp, 'unsupported')), false);
+    for (const disconnectStep of [0, 2, 3, 1.5]) await assert.rejects(runTrack({ root: path.join(tmp, 'unsupported'), track: input,
+      kind: 'stub', model: 'gemini-3.8-flash', disconnectStep }), /disconnect-invalid/);
+    assert.equal(fs.existsSync(path.join(tmp, 'unsupported')), false);
     const root = path.join(tmp, 'failed'), result = await runTrack({ root, track: input, kind: 'stub', model: 'gemini-3.8-flash', stubFailAt: 1, stepTimeoutMs: 15000 });
     assert.equal(result.status, 'failed'); assert.equal(result.checkpoints.length, 0);
     const state = JSON.parse(fs.readFileSync(path.join(root, 'final-body-1.json'), 'utf8'));

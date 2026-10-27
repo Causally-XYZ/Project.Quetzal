@@ -13,6 +13,8 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 
 测试夹具清理临时 `QUETZAL_HOME` 前，须先结束模型服务 / MCP 连接并关闭 SQLite `store.db`，再删除目录。Windows 不允许删除仍由数据库打开的文件；清理失败同样属于测试失败，不能以忽略 EPERM 或跳过用例替代释放资源。
 
+多身体开发入口可加 `--retrieval-cache` 启用真实中心向量路径、`--disconnect-step` 模拟卫星断线期间的输入。公开缓存只按固定摘要复制，准备、索引、查询、自动发布仍走生产链路。另有 `tool/adaptive-retrieval-probe/multibody.ts` 执行改述 / 撤回工程断言，生成模型为替身；具体参数、证据和边界见[运行器说明](../tool/adaptive-eval/README.md#显式真实向量与断线补做)。这些开发工具不进入 main，不新增生产依赖或配置。
+
 自适应读取启用时，新对话回答自动保存消息来源凭据并随消息复制。来源被纠正 / 编辑 / 排除后，默认历史、跨会话近况、context_read、recall 不再沿用旧回答正文；原始历史保留。SQLite 可空列自动迁移，无需人工操作，旧身体丢失的字段可由新版补齐，缺失时明确未核查。凭据只表示消息依赖一致性，不证明回答正确或覆盖文件与外部工具。工程测试为 answer-basis / answer-basis-store / adaptive-query-host，以及独立身体运行器的真实网关 / 复制断言；无新依赖或启动配置，现有 package / tsconfig 已覆盖。
 
 运行时依赖 `@modelcontextprotocol/client`（锁定 2.3.1，Apache-2.0）：官方 MCP 协议实现，stdio、Streamable HTTP、旧版 SSE 传输与 OAuth 客户端（`auth()`）都来自它，支持现代 / legacy 协商；远程与插件没有新增依赖（出站检查用 Node 内置 http / https，git 仓库用系统的 git）；没有引入服务端框架或将 SDK 放进 engine。

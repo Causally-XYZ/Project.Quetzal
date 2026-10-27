@@ -9,9 +9,11 @@ import { digest } from './spec.ts';
 import { vertexModels } from '../adaptive-vertex-transport.ts';
 
 const args = process.argv.slice(2);
-if (args.some((a) => !/^--(kind|model|steps|case)=/.test(a)) || new Set(args.map((a) => a.split('=')[0])).size !== args.length) throw new Error('开发试跑参数不合法');
+if (args.some((a) => !/^--(kind|model|steps|case|retrieval-cache|disconnect-step)=/.test(a)) || new Set(args.map((a) => a.split('=')[0])).size !== args.length) throw new Error('开发试跑参数不合法');
 const value = (key: string, fallback: string) => args.find((a) => a.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback;
 const kind = value('kind', 'stub'), model = value('model', vertexModels[1]), count = Number(value('steps', '3')), scenario = value('case', 'aliases');
+const retrievalCache = value('retrieval-cache', '') || undefined;
+const disconnectArgument = value('disconnect-step', ''), disconnectStep = disconnectArgument === '' ? undefined : Number(disconnectArgument);
 if (!['stub', 'live'].includes(kind) || !vertexModels.includes(model) || ![1, 2, 3].includes(count) || !['aliases', 'scope', 'graph', 'realm', 'evidence'].includes(scenario)) throw new Error('开发模型或步骤不合法');
 const source = scenario === 'aliases' ? [
   ['2026-01-10T12:00:00Z', '我的编辑叫周宁，工作室里叫他阿舟。我的弟弟叫周宇，家里也叫他阿舟。', '我的编辑和弟弟分别叫什么？他们的昵称相同，能当成一个人吗？请简短回答，不执行其他操作。'],
@@ -49,9 +51,10 @@ const code = [...new Set(files)].sort().map((file) => ({ file, sha256: digest(fs
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-multibody-development-'));
 fs.writeFileSync(path.join(root, 'development-plan.json'), JSON.stringify({ schema: 'quetzal-multibody-development-plan-v1',
   revision: git('rev-parse', 'HEAD'), dirty: !!git('status', '--porcelain'), code, codeHash: digest(code), inputHash: digest(track),
-  model, kind, scenario, steps: count, maxCallsPerBody: 36, stepTimeoutMs: 180000, retrieval: 'lexical-only-component-preparation-disabled',
+  model, kind, scenario, steps: count, maxCallsPerBody: 36, stepTimeoutMs: 180000,
+  retrieval: retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: disconnectStep ?? null,
   limits: '公开开发资料；非正式留出、性能基线或真人试用。各次失败保留独立目录。' }, null, 2), { flag: 'wx' });
 console.log(JSON.stringify({ root, kind, model, scenario, steps: count }));
-const result = await runTrack({ root: path.join(root, 'track'), track, kind: kind as 'live' | 'stub', model });
+const result = await runTrack({ root: path.join(root, 'track'), track, kind: kind as 'live' | 'stub', model, retrievalCache, disconnectStep });
 console.log(JSON.stringify({ root, status: result.status, checkpoints: result.checkpoints.length, elapsedMs: result.elapsedMs }));
 process.exitCode = result.status === 'pipeline-completed-needs-review' ? 0 : 1;

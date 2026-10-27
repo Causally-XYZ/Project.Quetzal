@@ -16,6 +16,7 @@
 - `controlled-graph.ts`：仅用于受控图设置 / 撤回的正式存档适配器，不生成模型成绩。
 - `body.ts` / `process-client.ts`：隔离进程中的实际存储、后台、网关、WebRTC 和灵魂同步，以及有界 IPC / 网关请求与退出检查。只在测试信令目录和本机裸 Git 远端复用既有测试例外。
 - `model-observer.ts`：完整适配器输入 / 输出、实际模型、用量与错误的旁路记录；live 使用既有 ADC 传输，stub 明确为工程替身。
+- `retrieval-observer.ts`：显式向量模式的公开缓存预热与真实调用旁路；不替换推理、候选、查询结果或生产准备器。
 
 从仓库根目录执行：
 
@@ -43,6 +44,21 @@ GCLOUD_BIN="$(command -v gcloud)" npm run pilot:adaptive-multibody --prefix runt
 每步保存回答前 / 后的记录、来源、任务、自动发布、调用材料、实际回答和 context.plan；调用开始 / 结束各写独立只增文件。真实调用还检查实际 modelVersion 与 STOP，未知用量不填零。完成状态仅表示流程完成，未做自动语义审核，也未生成正式评分回执。其他历史召回仍可用，因此回答正确不证明新图是唯一原因。退出先中止请求、等待后台 / 模型、关闭网关 / mesh / 数据库并写 shutdown-evidence；父进程核对实际退出，必要时强制终止并将试跑判失败。旧运行目录不可覆盖。
 
 stub 模型只按当前来源输出简单带引文认识；依赖重评返回空补丁，不伪造语义纠正，回答明确为工程替身；它不模拟别名推理或纠正。相关测试验证真实独立进程、复制时间、未来输入不泄漏、自动 Git 发布、网关材料与失败收尾，不能据此放行语义目标。
+
+### 显式真实向量与断线补做
+
+缺省明确停用组件准备，保留原词面工程夹具。指定 `--retrieval-cache="$PREPARED_PUBLIC_ROOT"` 后，中心按生产路径自动准备和加载固定向量组件；该外部目录须为公开组件实验的父目录，含 component/model 与 npm-cache。只复制锁中 SHA512 匹配的公开 npm 内容块及摘要核验后的五个模型文件，不复制 node_modules、完成标记、npm 配置或用户资料。真实 npm ci 仍由中心运行，允许访问固定公开下载端点；这些结果不代表全冷下载速度。其他身体也保留正常生产开关判断，必须没有本机组件目录或向量调用。
+
+此模式每个检查点除了等待生成 / 发布 / 复制，还等待中心索引摘要与当前权威候选完全一致且 pending=0；记录实际向量 queryHash、候选 key、耗时和降级状态，保存同快照词面对照及真实网关读取。旁路只观察原方法，不把查询或预期结果塞进向量。最终仍要检查认识是否进入真实模型材料；向量命中不等于语义正确。
+
+可加 `--disconnect-step=3`（只能指向存在的 B 身体 accessible 输入）：停止卫星真实 mesh，确认两端断开，再写该条来源。保存 offline-N.json，核查中心尚无此来源、卫星查询明确 unavailable；恢复 mesh 后由正常消息补齐、中心后台、自动发布和索引继续处理。该操作是测试注入，不增加产品 RPC，也不是整个身体进程崩溃或磁盘恢复验收。
+
+```bash
+# 公开别名案例：显式真实模型 + 真实向量，第三次输入在卫星断线时写入
+GCLOUD_BIN="$(command -v gcloud)" npm run pilot:adaptive-multibody --prefix runtime -- --kind=live --case=aliases --retrieval-cache="$PREPARED_PUBLIC_ROOT" --disconnect-step=3
+# 生成模型替身，真实向量 / 网关 / 复制：改述召回、依据撤回、断线补做及正常退出断言
+node runtime/tool/adaptive-retrieval-probe/multibody.ts "$PREPARED_PUBLIC_ROOT"
+```
 
 范围开发案例可用 `--case=scope --kind=stub`，显式改为 live 才调用模型。`denied` 从首次写入就设置现有 `mode=ignored`，原文仍实际存在并复制到两端，排除发生在正常来源 / 查询门禁；不先发送给模型再要求它忽略。它只检验既有“不可用于当前认识”的排除规则，不等同新增逐会话 ACL 或物理删除。审计快照可以保留该原文，用于证明负例确实存在，但不能拼入模型材料。
 

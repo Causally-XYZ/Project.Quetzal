@@ -7,8 +7,10 @@ import { loadNodeKey } from '../../src/mesh/identity.ts';
 import { startBody, type BodyClient } from './process-client.ts';
 import { digest, type Track } from './spec.ts';
 import type { ObservedCall } from './model-observer.ts';
+import { seedPublicRetrievalCache } from './retrieval-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
-export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number }
+export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number;
+  retrievalCache?: string; disconnectStep?: number }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
@@ -20,12 +22,16 @@ export async function runTrack(options: TrackOptions) {
     throw new Error('evaluation-track-not-supported');
   const stepTimeoutMs = options.stepTimeoutMs ?? 180000, maxCalls = options.maxCalls ?? 36;
   if (!Number.isSafeInteger(stepTimeoutMs) || stepTimeoutMs < 1000 || stepTimeoutMs > 300000) throw new Error('evaluation-timeout-invalid');
+  if (options.disconnectStep !== undefined && (!Number.isSafeInteger(options.disconnectStep) || options.disconnectStep < 1
+    || options.disconnectStep > options.track.steps.length || options.track.steps[options.disconnectStep - 1].scope !== 'accessible'
+    || options.track.steps[options.disconnectStep - 1].body !== 'B')) throw new Error('evaluation-disconnect-invalid');
   fs.mkdirSync(options.root); // 不复用旧目录，不覆盖失败证据。
   write(options.root, 'input.json', options.track);
   write(options.root, 'execution.json', { schema: 'quetzal-m2-track-development-v1', inputHash: digest(options.track), kind: options.kind,
     model: options.model, maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
     deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
+    retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
     controlledPolicy: controlled ? 'pause-idle-host-before-input; archive-accept-seed-or-withdrawal; resume-normal-publication-and-model-review' : null,
     limits: '开发链路；不等于冻结正式计划或语义通过。denied 检验既有 ignored 来源门禁，不代表新增会话 ACL；受控图输入不计为模型构图能力。' });
   const clients: BodyClient[] = [], bodyNames: string[] = [], keys: Record<string, string> = {};
@@ -55,6 +61,11 @@ export async function runTrack(options: TrackOptions) {
       if (state.calls.some((c: ObservedCall) => c.state === 'running') || state.jobs.some((j: any) => j.state === 'running' || j.state === 'queued')
         || state.messages.some((m: any) => m.mode !== 'ignored' && !observed.has(m.id))
         || state.publications.some((p: any) => p.state !== 'published') || state.status.semantic.state !== 'idle' || state.sync.unpushed) return;
+      if (options.retrievalCache) {
+        const r = state.status.retrieval;
+        if (r.error || r.failure || r.errors || r.blocked) throw new Error('evaluation-vector-failed');
+        if (r.state !== 'ready' || !r.current || r.pending !== 0 || r.snapshot !== state.retrievalExpected) return;
+      }
       const remote = await snapshot(satellite); checkFailures(remote);
       if (remote.calls.some((c: ObservedCall) => c.state === 'running') || digest(state.records) !== digest(remote.records)
         || state.messages.some((m: any) => !remote.messages.some((r: any) => r.id === m.id))) return;
@@ -73,10 +84,11 @@ export async function runTrack(options: TrackOptions) {
       git(seed, 'add', 'agent.json'); git(seed, 'commit', '-m', '合成评测初始灵魂'); git(seed, 'push', remote, 'main');
     };
     seedSoul(remote, seed, 'x');
+    if (options.retrievalCache) write(options.root, 'retrieval-cache.json', await seedPublicRetrievalCache(path.join(options.root, 'center'), options.retrievalCache));
     for (const body of ['center', 'satellite']) {
       clients.push(await startBody(path.join(options.root, body), {
         body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
-        stubReviewDelayMs: options.stubReviewDelayMs, controlled,
+        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache,
       })); bodyNames.push(body);
     }
     let foreign: BodyClient | undefined;
@@ -94,11 +106,27 @@ export async function runTrack(options: TrackOptions) {
       const point = `${options.track.id}/${step.id}`, before = Date.now();
       await Promise.all(clients.map((c) => c.call('phase', { value: point })));
       if (controlled) { await settled(center, satellite); await center.call('controlledHold'); }
+      const disconnect = options.disconnectStep === index + 1;
+      if (disconnect) {
+        await satellite.call('connection', { online: false });
+        await until(async () => (await center.call<string[]>('connected')).length === 0
+          && (await satellite.call<string[]>('connected')).length === 0 ? true : undefined, 'disconnect');
+      }
       const producer = step.scope === 'other-agent' ? foreign! : step.body === 'A' ? center : satellite;
       const consumer = step.body === 'A' ? satellite : center;
       const source = await producer.call<number>('source', { ...step, scope: step.scope === 'other-agent' ? 'accessible' : step.scope,
         query: undefined, operation: undefined, session: `source-${index + 1}` });
       let isolation: any = { policy: step.scope };
+      if (disconnect) {
+        const offline = { center: await snapshot(center), satellite: await snapshot(satellite),
+          reading: await satellite.rpc('memory.adaptive.semantic.query', { query: step.query }) };
+        write(options.root, `offline-${index + 1}.json`, offline);
+        if (offline.center.messages.some((m: any) => m.id === source) || !offline.satellite.messages.some((m: any) => m.id === source)
+          || offline.reading.status !== 'unavailable') throw new Error('evaluation-offline-invalid');
+        await satellite.call('connection', { online: true });
+        await until(async () => (await satellite.call<string[]>('connected')).includes('center') ? true : undefined, 'reconnection', 25000);
+        isolation = { ...isolation, disconnected: true, offlineHash: digest(offline) };
+      }
       if (step.scope === 'other-agent') {
         const state = await snapshot(foreign!);
         if (state.agent !== 'isolated-evaluation' || state.calls.length || !(state.messages.some((m: any) => m.id === source && m.text === step.text)))
@@ -118,7 +146,11 @@ export async function runTrack(options: TrackOptions) {
         await center.call('controlledResume');
       }
       const preAnswer = await settled(center, satellite);
+      const lexical = options.retrievalCache ? await center.call('lexical', { query: step.query }) : undefined;
+      const readingStarted = performance.now();
       const reading = await consumer.rpc('memory.adaptive.semantic.query', { query: step.query }, stepTimeoutMs);
+      const readingElapsedMs = performance.now() - readingStarted;
+      const afterReading = options.retrievalCache ? await snapshot(center) : undefined;
       const session = `answer-${index + 1}`, answerStarted = Date.now();
       const answer = await consumer.rpc('chat.send', { conv: session, text: step.query }, stepTimeoutMs);
       const answerElapsedMs = Date.now() - answerStarted, plan = await consumer.call('plan', { session });
@@ -129,6 +161,7 @@ export async function runTrack(options: TrackOptions) {
         throw new Error('evaluation-foreign-source-leaked');
       const checkpoint = { point, source, producer: step.scope === 'other-agent' ? 'foreign' : step.body, answerBody: step.body === 'A' ? 'B' : 'A',
         isolation, ...(controlled ? { control } : {}), preAnswer, reading, postAnswer, answer, plan,
+        ...(options.retrievalCache ? { lexical, readingElapsedMs, retrievalReading: afterReading.retrievalCalls.slice(preAnswer.center.retrievalCalls.length) } : {}),
         elapsedMs: Date.now() - before, answerElapsedMs };
       write(options.root, `checkpoint-${index + 1}.json`, checkpoint);
       report.checkpoints.push({ point, source, file: `checkpoint-${index + 1}.json`, sha256: digest(checkpoint), elapsedMs: checkpoint.elapsedMs, answerElapsedMs });
