@@ -1,0 +1,83 @@
+# 自适应记忆：开源组件契约实验与测试模型
+
+状态：M2 进行中。本页记录已执行的边界实验和下一步适配方向，**不是完整组件选型或 M2 放行**。关联：[计划](ADAPTIVE_MEMORY_PLAN.md)、[契约](ADAPTIVE_MEMORY_CONTRACT.md)、[验收](ADAPTIVE_MEMORY_ACCEPTANCE.md)、[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)。
+
+## 1. 固定候选与验证边界
+
+2026-10-27 从官方仓库取得以下源码，检查实际实现与许可证；上游后续升级必须重新跑契约实验。实验不使用真人记忆，不向上游项目的服务发送资料。
+
+| 候选 | 固定源码 / 包 | 许可证 | 本批执行范围 |
+|---|---|---|---|
+| Graphiti | [2b5db9e](https://github.com/getzep/graphiti/tree/2b5db9e139b2627c3ba18ff55f9181569b0d8224)，pyproject 0.31.2 | Apache-2.0 | 原样执行标准库去重辅助模块；合成人物对象，无数据库 / 向量 / LLM |
+| A-MEM | [ceffb860](https://github.com/agiresearch/A-mem/tree/ceffb860f0712bbae97b184d440df62bc910ca8d)，agentic-memory 0.0.1 | MIT | 原样执行 MemoryNote 和指定 update / delete / process_memory 方法 AST；检索器与 LLM 用明确的故障注入替身 |
+| LangGraphJS | [7ab1b8d8](https://github.com/langchain-ai/langgraphjs/tree/7ab1b8d840c068c2593fea4683899508d93e6b33)；checkpoint 1.2.1、checkpoint-sqlite 1.1.0 | MIT | 已审读检查点与 SQLite saver；可执行探针针对 npm checkpoint 1.2.1 的真实 MemorySaver，执行结果单独记录 |
+
+Graphiti 的默认依赖包括 Neo4j 驱动、Pydantic、模型 SDK、NumPy、重试与遥测组件，另有 FalkorDB / 嵌入式数据库选项；A-MEM 默认依赖 Chroma、sentence-transformers、LiteLLM、scikit-learn 等。LangGraph 的 SQLite saver 另需 better-sqlite3 原生依赖。**本批没有把这些依赖加入 runtime**，也没有借包名声称其完整服务可部署。当前只有源码 clone 和检查点临时 npm 安装；没有启动图数据库。
+
+后续选型仍需补齐：真实语义质量、完整依赖锁、取消与超时传播、索引 / 导出 / 重建、运行成本及自动部署恢复。若复用上游代码或提示词，必须随副本保留许可证、版权、固定源链接和修改说明；目前提交的是实验工具，没有复制上游实现。
+
+## 2. 已复现的契约差异
+
+[Python 探针](../../runtime/tool/adaptive-oss-probe.py)先核对上游 HEAD 和待执行文件与对应 Git blob 完全相同，再运行以下六组断言。断言通过表示**成功复现所述行为**，不等于该行为满足 Quetzal 契约。
+
+1. Graphiti 候选里恰好一个同名“阿舟”时，确定性路径把新对象归到旧对象，并用新对象的非空属性覆盖旧属性。这个路径不经过后面的 LLM 消歧；不能将名称匹配直接作为 C03 身份合并依据。
+2. 候选里已有两个同名对象时，确定性路径把提及留给后续 LLM；本实验没有执行 LLM。其 NodeDuplicate 输出最终选择一个候选或新对象，不直接表达 Mention 的多候选分布。
+3. 名称模糊归一化仅保留 ASCII，中文进入 unresolved 路径。这个结论只覆盖该辅助函数，**不表示 Graphiti 整体不支持中文或语义检索**。
+4. A-MEM 的 update 修改现有笔记；调用后 evolution_history 不自动追加旧版本。不能以字段名存在推断其已有完整修订历史。
+5. A-MEM 的 update 先删检索记录再重建；在 add_document 注入异常后，内存内容已经改变，检索记录已删。实验验证的是该方法的调用顺序，不声称实际 Chroma 服务发生过崩溃。
+6. A-MEM 的 process_memory 直接采用假 LLM 给出的标签、邻居上下文和连接；连接可以指向不存在的笔记。删除原笔记后，另一笔记里的引用仍保留。C01 / C05 / C06 的引用、版本和依赖校验不能委托给这一默认路径。
+
+可核查源码：[Graphiti dedup_helpers.py](https://github.com/getzep/graphiti/blob/2b5db9e139b2627c3ba18ff55f9181569b0d8224/graphiti_core/utils/maintenance/dedup_helpers.py)、[node_operations.py](https://github.com/getzep/graphiti/blob/2b5db9e139b2627c3ba18ff55f9181569b0d8224/graphiti_core/utils/maintenance/node_operations.py)、[A-MEM memory_system.py](https://github.com/agiresearch/A-mem/blob/ceffb860f0712bbae97b184d440df62bc910ca8d/agentic_memory/memory_system.py)。
+
+检查点探针已编写以下断言：同 task/index 的普通写入幂等、父检查点与旧版本保留、thread 隔离、旧来源结果是否仍能 put、内存 saver 生命周期及 deleteThread。**因临时依赖下载未完成，本批只过语法检查，尚未执行这些断言**，不能据此报告检查点实验通过。也未运行完整 LangGraph 图、SQLite saver 或跨进程恢复；检查点本身不负责 Quetzal 的来源修订门禁。
+
+## 3. 适配方向与未决项
+
+这些实验支持原契约中的职责划分，无需更改已对齐的产品目标：
+
+- 借用抽取、时态判断、候选检索和邻居关联方法，先输出**提案**。名称归并、上下文改写不能直接修改权威记忆。Graphiti 默认实体抽取还排除代词与抽象主题，需要分别保留 Mention 层与开放主题层，不能靠改一个实体类型列表解决全部需求。
+- Quetzal 持有 Source / Mention / Claim / Support 的稳定标识、版本与依据；用 M1 的持久任务、结果发件箱与发布协议约束安装，避免另建一套互相竞争的任务权威。
+- A-MEM 的邻居演化适合作为关联提案的候选实现；Graphiti 的时态抽取与检索适合作为候选材料处理器。具体复用范围须用真实模型与 C03 / C04 / C06 案例确定，当前不提前宣布采用或弃用整套框架。
+- LangGraph 如能改善 M3 多步研究的暂停 / 续做，可放在单个 Quetzal Job 内部；它的检查点不能代替宿主租约、来源版本与取消门禁。是否引入须与现有任务机制做实际对照。
+
+尚未实现：语义 payload、指代修订持久化、AND / OR 依赖失效、真实模型抽取与反证。以上探针只为选型与适配提供证据，不构成这些功能的实现。
+
+## 4. 复跑组件探针
+
+在仓库外准备 clone 父目录，目录名分别为 `graphiti`、`a-mem`、`langgraphjs`，checkout 表中的完整提交。以下命令只展示可复现方式；应用部署后不要求使用者执行它们。
+
+```bash
+python3 runtime/tool/adaptive-oss-probe.py "$OSS_ROOT"
+
+# 独立临时目录；固定直接依赖，不执行安装脚本；不会修改 runtime/package-lock.json
+npm install --prefix "$CHECKPOINT_PROBE" --ignore-scripts --no-audit --no-fund \
+  --fetch-timeout=30000 --fetch-retries=1 \
+  @langchain/langgraph-checkpoint@1.2.1 @langchain/core@1.1.48
+node runtime/tool/adaptive-oss-checkpoint.mjs "$CHECKPOINT_PROBE"
+```
+
+Python 探针用标准库，实际验证 Python 3.14；构造 AST 使用 3.12+ 的 type_params 字段。JS 探针实际环境 Node 24，等待 npm 安装完成后再运行。此处只有直接包版本固定，临时安装的传递依赖锁尚未成为生产供应链锁；正式采用时必须补齐，不能把临时 probe 环境当交付依赖清单。
+
+## 5. 已授权的真实测试模型
+
+部署者指定本机已有 GCP ADC，2026-10-27 已实际调用三档模型。测试分工如下，模型名只作为评测配置，不与通用 agent 的人格或身份绑定：
+
+| 档位 | 模型 ID | 计划职责 |
+|---|---|---|
+| 强模型 | `gemini-4-argon` | 困难歧义、多步研究与复杂纠正的候选处理 |
+| 主力模型 | `gemini-3.8-flash` | 常规增量抽取、候选关联与语义任务 |
+| 轻量快模型 | `gemini-3.5-flash-lite` | 简单分类、筛选等可独立评测的小任务 |
+
+这是用户指定分工，不是已验证哪档足以完成某项任务。正式质量评测必须记录实际模型版本、调用配置和完整 token 用量（含思考），不把强模型的自评当独立真值。不因失败悄悄换模型并仍记原模型成绩。
+
+已核对官方 [Argon 指南](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-argon)、[Flash 模型页](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash)、[Flash-Lite 模型页](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash-lite)与 [ADC](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/start/gcp-auth)。本次用 global GenerateContent 接口，仅请求短回复，不涉及 Argon 长输出 continuation。
+
+[连通性脚本](../../runtime/tool/adaptive-vertex-smoke.py)调用已有 gcloud 取得 ADC 访问令牌，只留在进程内存；不会把短期 bearer 写成固定 API Key、复制 ADC 到其他身体或写入仓库。`GCLOUD_BIN` 指向已有工具，`GOOGLE_CLOUD_PROJECT` 可指定项目，否则只读 gcloud 管理的 ADC quota project（尊重 `CLOUDSDK_CONFIG`）。本探针拒绝 `GOOGLE_APPLICATION_CREDENTIALS` 文件覆盖，避免将另一份文件的项目与 gcloud 令牌混用；完整 SDK ADC 接入另行实现。不改变现有账号或执行登录。报告只有模型、版本、结果、延迟和用量，不含项目名、账号或凭据。
+
+```bash
+python3 runtime/tool/adaptive-vertex-smoke.py
+# 失败边界检查：不联网、不读凭据，不属于 npm test 的 TypeScript 文件模式
+python3 -B runtime/tool/test_adaptive_vertex_smoke.py
+```
+
+真实请求有费用。每款仅一次短请求不构成性能分布；失败报告保留逐模型状态，模型或版本不符返回非零。HTTP 分块中断按传输失败记录，不能吞掉失败或打印供应商原始错误。当前 runtime 供应商入口仍为 API Key 机制，**本探针没有把 ADC 接入生产路由**；自动刷新、宿主接入与多身体凭据边界须在真实语义处理接线时实现和测试。

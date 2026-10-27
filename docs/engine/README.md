@@ -23,10 +23,11 @@ Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。真实模�
 | [模块地图](MODULE_MAP.md) | 内核在哪里、入口与调用链、外围模块边界、依赖与构建 |
 | [执行与调度](EXECUTION.md) | 对话、醒来、做梦、工具循环、并发、子 agent、时间墙与停止 |
 | [当前替代工程](MEMORY_REPLACEMENT.md) | 生产接线、配置、确认／反馈、验证与边界 |
-| [自适应记忆实施计划](ADAPTIVE_MEMORY_PLAN.md) | M0–M5 目标、集中计算、多身体本机模拟、开源借鉴和阶段门禁；M1 来源骨架进行中，尚未放行 |
+| [自适应记忆实施计划](ADAPTIVE_MEMORY_PLAN.md) | M0–M5 目标、集中计算、多身体本机模拟、开源借鉴和阶段门禁；M1 已验收并推送，M2 进行中 |
 | [自适应记忆行为契约](ADAPTIVE_MEMORY_CONTRACT.md) | 来源、指代歧义、多主题、时间、证据依赖、修正、权限和降级的目标行为 |
 | [自适应记忆验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md) | 跨月纠正案例、语义 / 工程断言、评测指标和本机多身体验收规则 |
 | [自适应记忆阶段验证](ADAPTIVE_MEMORY_PROGRESS.md) | 逐阶段执行证据、未验证项和放行状态 |
+| [自适应记忆组件实验](ADAPTIVE_MEMORY_COMPONENTS.md) | 固定开源版本的行为探针、适配边界与三档 Gemini ADC 连通性；不代表语义门禁通过 |
 | [动态上下文](DYNAMIC_CONTEXT.md) | 引擎窗口预算、摘要、原文引用与取消 |
 | [结构化记忆](STRUCTURED_MEMORY.md) | 私有持久化、来源校验与生产学习 |
 | [PRIME 内核](PRIME_CORE.md) | 资格门禁、语义选择、版本和演化契约 |

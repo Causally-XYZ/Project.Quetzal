@@ -154,6 +154,8 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 开发中：[自适应记忆 M0–M5 计划](docs/engine/ADAPTIVE_MEMORY_PLAN.md)记录跨会话关联、指代歧义、多步推理与持续修正的目标、行为契约和本机多身体验收；[阶段验证记录](docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)区分已验证工作与尚未实现能力。每个里程碑验收通过并成功推送工作分支后，才进入下一阶段；阶段内可只做本地提交。
 
+M1 已验收并推送，M2 正进行[开源组件契约实验与真实模型连接](docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)；当前原文来源链路不等于已完成指代修正或多步推理。
+
 <br/>
 
 <p align="center"><sub>仅用于学习和研究，只操作自己拥有的设备，不以牟利为目的。<a href="LICENSE">AGPL-3.0</a></sub></p>
