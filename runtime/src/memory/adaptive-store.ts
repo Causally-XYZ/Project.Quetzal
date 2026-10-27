@@ -21,6 +21,7 @@ export function sourceHash(agent: string, r: SourceSnapshot): string {
 const eligible = "m.role IN ('user','agent','ambient') AND COALESCE(m.mode,'') <> 'ignored' AND length(COALESCE(m.text,'')) > 0";
 const jobColumns = 'id, source, revision, processor, state, attempts, available, token, lease, error';
 const processorOk = (v: string) => /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v);
+const INSTALL_REJECTED = Symbol('adaptive_install_rejected');
 export interface Publication { id: string; document: string; digest: string; attempts: number }
 
 export class AdaptiveStore {
@@ -120,28 +121,30 @@ export class AdaptiveStore {
   }
 
   /** 语义处理器经自己的校验后调用；结果与任务完成同事务落盘，文件发布异步重试，不重跑模型。 */
-  acceptResult(job: MemoryJob, inputs: ArtifactInput[], payload: ArtifactPayload, now = Date.now()): boolean {
+  acceptResult(job: MemoryJob, inputs: ArtifactInput[], payload: ArtifactPayload, now = Date.now(), install?: (artifact: MemoryArtifact) => boolean): boolean {
     const artifact: MemoryArtifact = { format: ARTIFACT_FORMAT, id: job.id, agent: this.agent, processor: job.processor,
       createdAt: now, inputs, payload };
     // 先序列化一次冻结结果，防止调用方之后修改对象改变已接受内容。
     const document = artifactDocument(artifact);
-    return this.finish(job, now, { artifact: JSON.parse(document) as MemoryArtifact, document });
+    return this.finish(job, now, { artifact: JSON.parse(document) as MemoryArtifact, document, install });
   }
 
-  private finish(job: MemoryJob, now: number, output?: { artifact: MemoryArtifact; document: string }): boolean {
-    return this.transaction(() => {
+  private finish(job: MemoryJob, now: number, output?: { artifact: MemoryArtifact; document: string; install?: (artifact: MemoryArtifact) => boolean }): boolean {
+    try { return this.transaction(() => {
       if (!this.owns(job, now) || !this.source(job.source, job.revision)) return false;
       if (output) {
         if (!output.artifact.inputs.some((i) => i.id === job.source && i.revision === job.revision) ||
             output.artifact.inputs.some((i) => this.source(i.id, i.revision)?.hash !== i.hash)) return false;
         this.db.prepare("INSERT INTO adaptive_publications(id,document,digest,state,available,created) VALUES(?,?,?,'pending',?,?)")
           .run(job.id, output.document, artifactDigest(output.document), now, now);
+        // 语义投影与任务 / 发件箱使用同一事务。拒绝或异常必须连同已写发件箱整体回滚。
+        if (output.install && !output.install(output.artifact)) throw INSTALL_REJECTED;
       }
       this.db.prepare(`INSERT INTO adaptive_receipts VALUES(?,?,?,?) ON CONFLICT(source,processor)
         DO UPDATE SET revision=excluded.revision,completed=excluded.completed`).run(job.source, job.processor, job.revision, now);
       this.db.prepare("UPDATE adaptive_jobs SET state='done',token=NULL,lease=0,error=NULL,updated=? WHERE id=?").run(now, job.id);
       return true;
-    });
+    }); } catch (error) { if (error === INSTALL_REJECTED) return false; throw error; }
   }
 
   pendingPublications(now = Date.now(), limit = 5): Publication[] {

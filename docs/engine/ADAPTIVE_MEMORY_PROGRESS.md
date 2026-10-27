@@ -221,6 +221,32 @@ M1 验收提交 `9d73b205905a2d419cd36a8a3a9638245d3eee4d` 已通过 `git push -
 
 本批没有生产源码改动，验证范围为实际组件微实验、模型短请求、工具失败边界、脚本语法、文档链接 / 围栏与 Git diff；没有重复执行 M1 的完整构建和跨身体回归，不用本批检查代替后续接线后的回归。文档 / 工具检查通过后作为阶段内逻辑变更本地提交，提交号可由本节 Git 历史定位。
 
+### 4.4 M2 认识版本与依赖计算内核：2026-10-27
+
+输入基线 `e62fdb8`。新增[语义数据结构与边界](ADAPTIVE_MEMORY_SEMANTICS.md)，实现 `adaptive-evidence.ts`、`adaptive-graph.ts`，并扩展 `AdaptiveStore.acceptResult` 的可信宿主安装回调。本批是 M2 内部工程检查点，尚未接入生产后台 / 模型 / 查询，没有 M2 放行或 push。
+
+实际实现：
+
+- 对象、提及、认识保留独立 ID 与连续版本；精确引用原文片段 / hash，世界语境隔离，拒绝多余可信级别字段，分离原文时间、事件时间和有效期。
+- 支持 / 反证均由 AND 前提组构成，支持组之间 OR；旧版本引用失效，局部纠正不机械替换全部昵称，保留独立充分依据与无关结论。
+- 正向无根循环不能自证，重复根来源去重；反证使用交替上下界，使相互反驳 / 自我反驳保持 indeterminate。有假设的支持保留 conditional，不当作无条件结论。
+- 可选投影和任务 / 发件箱同事务接受，过期整体代次拒写；安装器部分写入后返回拒绝或异常都回滚。初始化 schema 失败回滚，未知版本 / 损坏元数据拒绝，不留下半套新表。
+- 快照读取和来源缓存防止一轮混用不同版本；访问过滤不泄露隐藏依据正文，也不因隐藏反证而复活已知受反驳结论。计算超过工作上限抛错，不返回部分可信状态。
+
+验证边界：测试中的记录由测试代码明确构造；错误人物绑定是故意注入，以验证纠正后的机械失效，不代表真实模型识别 / 修正已经通过。原文 / 模型提案的语义对应关系不能由结构校验保证。日期测试只验证格式、边界和不修改消息时间，不代表自然语言日期解析完成。
+
+执行结果：
+
+- `node --experimental-strip-types --test runtime/test/adaptive-graph.test.ts`：最终 **15 项通过**。覆盖 AM-01 的同名 / 模糊指代 / 后续纠正，AM-04/16 语境与 agent 隔离，AM-07 AND / OR / 反证版本与循环，AM-09 自述不增信，AM-12/20 事务 / 重开 / 来源失效 / 快照。部分用例只覆盖对应验收场景的底层规则，不替代完整验收。
+- 初次类型检查发现验证器的箭头 `never` 函数未触发预期的 unknown 类型收窄；改用函数声明，未放宽格式验证。此后单独 runtime 类型检查通过。
+- 最终综合回归：`node --experimental-strip-types --test runtime/test/adaptive-graph.test.ts runtime/test/adaptive-mesh.test.ts runtime/test/replica.test.ts runtime/test/replica-modes.test.ts runtime/test/message-mode.test.ts runtime/test/adaptive-memory.test.ts runtime/test/recall.test.ts runtime/test/retrieval.test.ts runtime/test/adaptive-store.test.ts runtime/test/adaptive-publication.test.ts`，**76 项全部通过，0 失败 / 跳过 / todo**，约 48 秒。
+- 上述包含真实本机双进程、WebRTC / WebSocket、SIGKILL 与恢复；语义模型仍为替身。10000 条 source-v1 历史，空闲 / 后台增量各 100 次查询 P95 为 26.41 / 17.06ms，300 条增量处理 P95 450ms。它验证 M1 回归，不能作为新图计算或真实模型性能。
+- `npm run build --prefix runtime` 通过 engine / runtime 类型检查和全部既有打包入口。新库被类型检查，未被 main 引入，因此构建通过不等于生产接线完成。
+
+依赖 / 部署核对：没有新增依赖、环境变量、服务或 RPC；现有 TypeScript include 和 `test/*.test.ts` 已覆盖新增文件，构建产物按原规则忽略。全局 README / 架构 / API 与 runtime 模块文档同步标明未接线边界；灵魂规范保持 v14，投影格式版本与 M1 队列 schema 独立。
+
+仍须完成：模型提案规范化与稳定身份 / 语境分配、冻结真实语义评测变体 / 阈值、三档 ADC 模型的语义质量验证、开源组件完整选择和接入、灵魂存档重建与外部删除 / 修改失效、后台处理与查询纠正覆盖、权限接线和图负载评测。不能把 SQLite 重开当作灵魂恢复，不能让旧来源观察绕过已知纠正。M2 不放行，GOAL 继续 active；本批只做本地逻辑提交。
+
 ## 5. 后续阶段记录模板
 
 每一阶段追加以下信息，不覆盖失败历史：

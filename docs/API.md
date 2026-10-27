@@ -248,6 +248,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 跨会话自适应记忆按[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)与[M0–M5 计划](engine/ADAPTIVE_MEMORY_PLAN.md)推进。M1 已接入默认关闭的来源处理骨架，不能视为完整语义记忆功能；工程验收与后续边界见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。以下新 RPC 为认证管理者接口，不暴露为 agent 工具，不改变个人确认门禁。
 
+M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)尚未接入上述 RPC；query 仍只返回 M1 来源观察，不返回图记录或 supported 状态。
+
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string}` → 状态 | 固定主机为现有身体名；启用时不能为空。配置经共享分区同步并审计；不自动选择或迁移主机 |

@@ -32,6 +32,8 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 M2 的开源契约探针与指定 Gemini 模型 ADC 连通性工具位于 `tool/adaptive-oss-probe.py`、`tool/adaptive-oss-checkpoint.mjs`、`tool/adaptive-vertex-smoke.py`。用法、固定版本、真实 / 替身边界及执行结果见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。它们是开发验证工具，不由生产后台启动；本批没有新增 runtime 依赖或修改模型路由，ADC 连接成功不代表语义记忆已实现。
 
+M2 另有 `src/memory/adaptive-evidence.ts` 与 `adaptive-graph.ts`：版本化记录、支持 / 反证依赖与事务安装，详见[语义数据结构](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。目前仅测试调用，不自动启用语义处理；真实模型理解和灵魂投影重建仍待完成。
+
 自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进：多身体输入、一处集中处理，全部在本机模拟验证。M1 已有默认关闭的来源处理骨架，随 runtime 自动启动，固定主机配置为 `adaptiveMemory`，认证管理接口见 [API](../../docs/API.md)。结果发布已具备[持久发件箱和文件 / Git 恢复边界](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)，目前只有合成发布测试，尚无语义处理器产出。离线旧消息状态、编号缺口、进程恢复、开关 / 急停与一万条历史下的查询负载已有专项验证，最终 M1 放行及 push 状态见验证记录；当前只返回带出处的原文观察，没有新增语义模型、图数据库或独立服务。依赖和构建入口沿用现有配置，新测试自动由 `npm test` 的文件模式纳入。验收命令、真实传输 / 假模型边界、已知缺口见[验证记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
 
 发布前真实模型验收可在显式隔离的 `QUETZAL_HOME` 中运行 `node --experimental-strip-types tool/verify-memory-real.ts`。须先建立 `.release-verification` 标记并配置模型；只用合成资料，结果写本机，不复制真实人格或记忆。此检查会产生真实API费用，推理quick模型验收使用2400选择输出tokens、30秒语义选择与4096摘要生成tokens／60秒摘要预算，并为学习使用4096输出tokens与120秒模型会话预算；不是默认5秒延迟通过或长期收益证明。
