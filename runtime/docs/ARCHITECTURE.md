@@ -200,3 +200,5 @@ adapters/
 `tool/adaptive-live-pilot.ts` 用公开合成消息驱动实际后台及 converse，记录每轮图状态、前台输入和回答；开发 ADC 传输包装器只替换保留域名的认证与端点，流和请求正文保持现有适配器格式。该入口加入 package.json / tsconfig，复用 Node 和 Python 标准库及已有 gcloud，无新增生产依赖、服务、配置、RPC 或存储格式。生产后台仍读取控制台供应商配置。
 
 `adaptive-query.ts` 对可见 / 全局共同有效的支持记录再调用既有 evaluateEvidence，取得一致的支持组与根来源。以这些组中的精确原文引文补充词面匹配，沿 claim / mention 当前版本有界遍历，不索引审计原因、反证或整条消息。无新依赖 / 持久索引 / 配置，现有构建自动纳入；工作量和支持链测试见 adaptive-query.test.ts，实际发送上下文与规模读取由 query-host / query-scale 测试验证。
+
+`tool/adaptive-eval/controlled-graph.ts` 仅用于 AM-07 受控输入：先暂停空闲中心，复制当前控制消息，用正式 archive.accept 完成 semantic-v1 任务及受控初始图 / 撤回版本，然后恢复正常发布与依赖重评。控制消息不再次抽取，查询 / 回答仍按正常历史处理；后台模型结果不由运行器改写。control 文件先于后台恢复保存，快照包含五条受控认识的当前状态与版本历史，另保存实际网关语义查询。只在声明受控模式的测试子进程开放内部 IPC，不新增产品 RPC、配置、依赖或灵魂格式；现有 tsconfig import 链和测试 glob 已包含。

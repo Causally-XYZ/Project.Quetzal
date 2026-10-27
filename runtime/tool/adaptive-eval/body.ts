@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { observeModel, type ObservedCall } from './model-observer.ts';
+import { ControlledGraph } from './controlled-graph.ts';
 
 if (!process.send || !process.env.QUETZAL_EVAL_BODY) throw new Error('评测身体必须由控制进程启动');
 const settings = JSON.parse(process.env.QUETZAL_EVAL_BODY);
@@ -14,7 +15,7 @@ await (await import('../../src/body/uuid.ts')).ensureBodyUuid();
 const soul = await import('../../src/memory/soul-sync.ts'); await soul.ensureSoul();
 const observer = settings.storageOnly ? { calls: [] as ObservedCall[], setPhase: (_value: string) => {}, abort: () => {}, close: async () => {} }
   : await observeModel({ directory: path.join(cfg.paths.home, 'eval-calls'), model: settings.model,
-    kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt });
+    kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt, stubReviewDelayMs: settings.stubReviewDelayMs });
 cfg.saveConfig({ sharedRev: { providers: 1 } }, { remote: true });
 const { Mesh } = await import('../../src/mesh/mesh.ts');
 const { loadNodeKey } = await import('../../src/mesh/identity.ts');
@@ -36,6 +37,8 @@ const { AdaptiveStore } = await import('../../src/memory/adaptive-store.ts');
 const { AdaptiveArchive } = await import('../../src/memory/adaptive-archive.ts');
 const { exclusive } = await import('../../src/memory/memory.ts');
 const queue = new AdaptiveStore(store.db, identity().id), archive = new AdaptiveArchive(queue, cfg.paths.soul);
+const controlled = settings.controlled && settings.body === 'center' ? new ControlledGraph(queue, archive) : undefined;
+let held = false;
 const gateway = (await import('../../src/gateway.ts')).startGateway(false); await gateway.ready;
 if (!settings.storageOnly) { adaptive.startAdaptiveMemory(); mesh.start(); }
 let shutting = false;
@@ -53,6 +56,18 @@ async function shutdown() {
 const commands: Record<string, (args: any) => unknown> = {
   connected: () => mesh.connected(),
   phase: (a) => { if (!/^[a-zA-Z0-9._/-]{1,100}$/.test(a.value)) throw new Error(); observer.setPhase(a.value); return true; },
+  controlledHold: async () => {
+    if (!controlled || held || adaptive.adaptiveStatus().semantic.state !== 'idle' || observer.calls.some((c) => c.state === 'running')) throw new Error();
+    await adaptive.stopAdaptiveMemory(); held = true; return true;
+  },
+  controlledApply: (a) => {
+    if (!controlled || !held) throw new Error();
+    return exclusive(() => controlled.apply(a.source, a.operation));
+  },
+  controlledResume: () => {
+    if (!controlled || !held) throw new Error();
+    held = false; adaptive.startAdaptiveMemory(); return true;
+  },
   source: (a) => {
     if (!['user', 'assistant-summary'].includes(a.role) || !['accessible', 'denied'].includes(a.scope) || a.operation
       || typeof a.text !== 'string' || !a.text || a.text.length > 8000 || !Number.isFinite(Date.parse(a.at))
@@ -66,6 +81,7 @@ const commands: Record<string, (args: any) => unknown> = {
     finally { Date.now = original; }
   },
   snapshot: () => exclusive(() => ({ agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
+    ...(controlled ? { controlled: controlled.snapshot(), held } : {}),
     messages: store.db.prepare('SELECT id,ts,role,text,session,body,mode FROM messages ORDER BY id').all(),
     receipts: store.db.prepare('SELECT source,processor,revision,completed FROM adaptive_receipts').all(),
     publications: store.db.prepare('SELECT id,digest,state,error FROM adaptive_publications').all(), jobs: queue.jobs(1000),

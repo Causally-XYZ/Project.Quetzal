@@ -8,13 +8,15 @@ import { startBody, type BodyClient } from './process-client.ts';
 import { digest, type Track } from './spec.ts';
 import type { ObservedCall } from './model-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
-export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number }
+export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
-  // 受控图需要专门执行端；不把未实现操作默默转换成普通输入。
-  if (options.track.setup !== 'empty' || !options.track.steps.length || options.track.steps.length > 8
-    || options.track.steps.some((s) => !['accessible', 'denied', 'other-agent'].includes(s.scope) || s.operation || Object.hasOwn(s, 'checks')))
+  const controlled = options.track.setup === 'and-or-graph';
+  if (!['empty', 'and-or-graph'].includes(options.track.setup) || !options.track.steps.length || options.track.steps.length > (controlled ? 3 : 8)
+    || options.track.steps.some((s, i) => !['accessible', 'denied', 'other-agent'].includes(s.scope) || Object.hasOwn(s, 'checks')
+      || (controlled ? s.scope !== 'accessible' || s.role !== 'user' || (i === 0 ? !!s.operation || !/K (?:表示|指)[^，。]+/u.test(s.text)
+        : !s.operation || s.operation.type !== 'withdraw-premise' || s.operation.target !== (i === 1 ? 'A' : 'C')) : !!s.operation)))
     throw new Error('evaluation-track-not-supported');
   const stepTimeoutMs = options.stepTimeoutMs ?? 180000, maxCalls = options.maxCalls ?? 36;
   if (!Number.isSafeInteger(stepTimeoutMs) || stepTimeoutMs < 1000 || stepTimeoutMs > 300000) throw new Error('evaluation-timeout-invalid');
@@ -24,7 +26,8 @@ export async function runTrack(options: TrackOptions) {
     model: options.model, maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
     deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
-    limits: '开发链路；不等于冻结正式计划或语义通过。denied 检验既有 ignored 来源门禁，不代表新增会话 ACL；受控依赖图尚不支持。' });
+    controlledPolicy: controlled ? 'pause-idle-host-before-input; archive-accept-seed-or-withdrawal; resume-normal-publication-and-model-review' : null,
+    limits: '开发链路；不等于冻结正式计划或语义通过。denied 检验既有 ignored 来源门禁，不代表新增会话 ACL；受控图输入不计为模型构图能力。' });
   const clients: BodyClient[] = [], bodyNames: string[] = [], keys: Record<string, string> = {};
   let sync: Awaited<ReturnType<typeof fakeSync>> | undefined;
   const report: any = { schema: 'quetzal-m2-track-development-result-v1', kind: options.kind, status: 'running', checkpoints: [], shutdown: [] };
@@ -48,10 +51,13 @@ export async function runTrack(options: TrackOptions) {
     return until(async () => {
       const state = await snapshot(center); checkFailures(state);
       const observed = new Set(state.receipts.filter((r: any) => r.processor === 'semantic-v1').map((r: any) => r.source));
-      if (state.messages.some((m: any) => m.mode !== 'ignored' && !observed.has(m.id))
+      // 宿主在来源队列空闲后进入 review 时仍可暂报 idle；必须另核对调用 / 租约，不能提前释放下一步。
+      if (state.calls.some((c: ObservedCall) => c.state === 'running') || state.jobs.some((j: any) => j.state === 'running' || j.state === 'queued')
+        || state.messages.some((m: any) => m.mode !== 'ignored' && !observed.has(m.id))
         || state.publications.some((p: any) => p.state !== 'published') || state.status.semantic.state !== 'idle' || state.sync.unpushed) return;
       const remote = await snapshot(satellite); checkFailures(remote);
-      if (digest(state.records) !== digest(remote.records) || state.messages.some((m: any) => !remote.messages.some((r: any) => r.id === m.id))) return;
+      if (remote.calls.some((c: ObservedCall) => c.state === 'running') || digest(state.records) !== digest(remote.records)
+        || state.messages.some((m: any) => !remote.messages.some((r: any) => r.id === m.id))) return;
       return { center: state, satellite: remote };
     }, 'settle');
   }
@@ -70,6 +76,7 @@ export async function runTrack(options: TrackOptions) {
     for (const body of ['center', 'satellite']) {
       clients.push(await startBody(path.join(options.root, body), {
         body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
+        stubReviewDelayMs: options.stubReviewDelayMs, controlled,
       })); bodyNames.push(body);
     }
     let foreign: BodyClient | undefined;
@@ -86,10 +93,11 @@ export async function runTrack(options: TrackOptions) {
     for (const [index, step] of options.track.steps.entries()) {
       const point = `${options.track.id}/${step.id}`, before = Date.now();
       await Promise.all(clients.map((c) => c.call('phase', { value: point })));
+      if (controlled) { await settled(center, satellite); await center.call('controlledHold'); }
       const producer = step.scope === 'other-agent' ? foreign! : step.body === 'A' ? center : satellite;
       const consumer = step.body === 'A' ? satellite : center;
       const source = await producer.call<number>('source', { ...step, scope: step.scope === 'other-agent' ? 'accessible' : step.scope,
-        query: undefined, session: `source-${index + 1}` });
+        query: undefined, operation: undefined, session: `source-${index + 1}` });
       let isolation: any = { policy: step.scope };
       if (step.scope === 'other-agent') {
         const state = await snapshot(foreign!);
@@ -102,7 +110,15 @@ export async function runTrack(options: TrackOptions) {
         return [a, b].every((s) => s.messages.some((m: any) => m.id === source && m.text === step.text && m.ts === Date.parse(step.at)
           && (step.scope !== 'denied' || m.mode === 'ignored'))) ? true : undefined;
       }, 'replication');
+      let control: unknown;
+      if (controlled) {
+        control = await center.call('controlledApply', { source, operation: step.operation });
+        // 先落盘真实安装证据，再恢复后台；后续模型失败也不会丢失撤回现场。
+        write(options.root, `controlled-${index + 1}.json`, control);
+        await center.call('controlledResume');
+      }
       const preAnswer = await settled(center, satellite);
+      const reading = await consumer.rpc('memory.adaptive.semantic.query', { query: step.query }, stepTimeoutMs);
       const session = `answer-${index + 1}`, answerStarted = Date.now();
       const answer = await consumer.rpc('chat.send', { conv: session, text: step.query }, stepTimeoutMs);
       const answerElapsedMs = Date.now() - answerStarted, plan = await consumer.call('plan', { session });
@@ -112,7 +128,7 @@ export async function runTrack(options: TrackOptions) {
         s.messages.some((m: any) => m.body === 'foreign') || s.calls.some((c: ObservedCall) => JSON.stringify(c.request).includes(step.text)))))
         throw new Error('evaluation-foreign-source-leaked');
       const checkpoint = { point, source, producer: step.scope === 'other-agent' ? 'foreign' : step.body, answerBody: step.body === 'A' ? 'B' : 'A',
-        isolation, preAnswer, postAnswer, answer, plan,
+        isolation, ...(controlled ? { control } : {}), preAnswer, reading, postAnswer, answer, plan,
         elapsedMs: Date.now() - before, answerElapsedMs };
       write(options.root, `checkpoint-${index + 1}.json`, checkpoint);
       report.checkpoints.push({ point, source, file: `checkpoint-${index + 1}.json`, sha256: digest(checkpoint), elapsedMs: checkpoint.elapsedMs, answerElapsedMs });

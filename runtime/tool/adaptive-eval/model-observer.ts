@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { setTimeout } from 'node:timers/promises';
 import { adcFetch, loadAdc, vertexPlaceholder, vertexModels, type VertexReceipt } from '../adaptive-vertex-transport.ts';
 import type { ChatRequest, ChatResult } from '../../src/providers/types.ts';
 
@@ -11,10 +12,12 @@ export interface ObservedCall {
   state: 'running' | 'returned' | 'failed'; elapsedMs?: number; firstTextMs?: number; firstChunkMs?: number;
   result?: ChatResult; failure?: { category: string; status: number | null; usage: null }; transport: VertexReceipt[];
 }
-export async function observeModel(options: { directory: string; model: string; kind: 'live' | 'stub'; maxCalls: number; stubFailAt?: number }) {
+export async function observeModel(options: { directory: string; model: string; kind: 'live' | 'stub'; maxCalls: number; stubFailAt?: number; stubReviewDelayMs?: number }) {
   if (!vertexModels.includes(options.model) || !Number.isSafeInteger(options.maxCalls) || options.maxCalls < 1 || options.maxCalls > 100)
     throw new Error('评测模型或调用预算不合法');
   if (options.stubFailAt && options.kind !== 'stub') throw new Error('故障注入只允许替身');
+  if (options.stubReviewDelayMs !== undefined && (options.kind !== 'stub' || !Number.isSafeInteger(options.stubReviewDelayMs)
+    || options.stubReviewDelayMs < 0 || options.stubReviewDelayMs > 10000)) throw new Error('重评延迟注入只允许有界替身');
   fs.mkdirSync(options.directory, { recursive: true });
   const registry = await import('../../src/providers/registry.ts');
   registry.saveProviders({ providers: [{ id: 'evaluation', catalogId: 'custom', name: '合成评测', baseUrl: vertexPlaceholder,
@@ -44,9 +47,10 @@ export async function observeModel(options: { directory: string; model: string; 
           let text = '这是工程替身回答，不能计为语义通过。';
           if (call.purpose === 'proposal') {
             const input = JSON.parse(request.messages.at(-1)!.content), source = input.sources.find((s: any) => s.key === input.current);
+            if (input.review && options.stubReviewDelayMs) await setTimeout(options.stubReviewDelayMs, undefined, { signal });
             const quote = { kind: 'source', source: source.key, text: source.text, occurrence: 0 };
             const time = { text: '', earliest: null, latest: null };
-            text = JSON.stringify({ contexts: [], records: [{ key: 'p1', replace: null, kind: 'claim', state: 'present', realm: 'real', reasons: [quote],
+            text = JSON.stringify({ contexts: [], records: input.review ? [] : [{ key: 'p1', replace: null, kind: 'claim', state: 'present', realm: 'real', reasons: [quote],
               text: source.text, nature: 'reported', participants: [], occurred: time, valid: time, supports: [{ id: 'direct', premises: [quote], assumptions: [] }], counters: [] }] });
           }
           request.onChunk?.(); request.onText?.(text);
