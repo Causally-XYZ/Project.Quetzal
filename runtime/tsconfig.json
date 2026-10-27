@@ -16,6 +16,7 @@
   "include": [
     "src",
     "test",
-    "adapters"
+    "adapters",
+    "tool/adaptive-semantic-pilot.ts"
   ]
 }

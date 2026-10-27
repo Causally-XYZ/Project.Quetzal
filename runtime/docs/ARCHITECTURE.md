@@ -10,6 +10,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；宿主接线时须持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
 
+`memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。本机开发工具顺序调用真实模型和已有存储，不代表宿主后台已接线。
+
 执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
 ```
@@ -89,6 +91,8 @@ src/
 │   ├── structured.ts     notes/QuetzalMemory版本读写、来源/状态校验、scope与条件门禁、旧材料标注映射、归档回滚，原私有正文不脱敏
 │   ├── adaptive-store.ts 来源修订、持久任务、租约与回执；与 messages 同事务失效
 │   ├── adaptive-evidence.ts  M2 记录格式、精确出处、支持 / 反证依赖计算（未接入后台）
+│   ├── adaptive-proposal.ts  M2 提案提示 / schema、宿主身份与引文规范化（开发试跑）
+│   ├── prompts/adaptive-graphiti.ts 固定上游抽取 / 时间规则的许可副本与适配
 │   ├── adaptive-archive.ts   M2 权威文件核对、重建与备份检查点（未接入后台）
 │   ├── adaptive-graph.ts     M2 有版本 SQLite 投影、事务安装和快照读取（未接入后台）
 │   ├── adaptive-artifact.ts  有版本结果信封与来源引用，不确认语义

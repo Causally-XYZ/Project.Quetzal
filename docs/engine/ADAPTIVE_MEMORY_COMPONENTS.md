@@ -12,9 +12,9 @@
 | A-MEM | [ceffb860](https://github.com/agiresearch/A-mem/tree/ceffb860f0712bbae97b184d440df62bc910ca8d)，agentic-memory 0.0.1 | MIT | 原样执行 MemoryNote 和指定 update / delete / process_memory 方法 AST；检索器与 LLM 用明确的故障注入替身 |
 | LangGraphJS | [7ab1b8d8](https://github.com/langchain-ai/langgraphjs/tree/7ab1b8d840c068c2593fea4683899508d93e6b33)；checkpoint 1.2.1、checkpoint-sqlite 1.1.0 | MIT | 已审读检查点与 SQLite saver；可执行探针针对 npm checkpoint 1.2.1 的真实 MemorySaver，执行结果单独记录 |
 
-Graphiti 的默认依赖包括 Neo4j 驱动、Pydantic、模型 SDK、NumPy、重试与遥测组件，另有 FalkorDB / 嵌入式数据库选项；A-MEM 默认依赖 Chroma、sentence-transformers、LiteLLM、scikit-learn 等。LangGraph 的 SQLite saver 另需 better-sqlite3 原生依赖。**本批没有把这些依赖加入 runtime**，也没有借包名声称其完整服务可部署。当前只有源码 clone 和检查点临时 npm 安装；没有启动图数据库。
+Graphiti 的默认依赖包括 Neo4j 驱动、Pydantic、模型 SDK、NumPy、重试与遥测组件，另有 FalkorDB / 嵌入式数据库选项；A-MEM 默认依赖 Chroma、sentence-transformers、LiteLLM、scikit-learn 等。LangGraph 的 SQLite saver 另需 better-sqlite3 原生依赖。**本批没有把这些依赖加入 runtime**，也没有借包名声称其完整服务可部署。除源码 clone 和检查点临时 npm 安装外，后续已有提示词规则副本；没有启动图数据库。
 
-后续选型仍需补齐：真实语义质量、完整依赖锁、取消与超时传播、索引 / 导出 / 重建、运行成本及自动部署恢复。若复用上游代码或提示词，必须随副本保留许可证、版权、固定源链接和修改说明；目前提交的是实验工具，没有复制上游实现。
+后续选型仍需补齐：真实语义质量、完整依赖锁、取消与超时传播、索引 / 导出 / 重建、运行成本及自动部署恢复。若复用上游代码或提示词，必须随副本保留许可证、版权、固定源链接和修改说明；最初批次只提交实验工具；后续 M2 开发批次已将抽取 / 时间提示规则改编到 `runtime/src/memory/prompts/adaptive-graphiti.ts`，并附 Apache-2.0 LICENSE、版权和修改说明，详见[提示词副本说明](../../runtime/third_party/graphiti/NOTICE.md)。这不是完整 Graphiti 服务集成。
 
 ## 2. 已复现的契约差异
 
@@ -81,3 +81,12 @@ python3 -B runtime/tool/test_adaptive_vertex_smoke.py
 ```
 
 真实请求有费用。每款仅一次短请求不构成性能分布；失败报告保留逐模型状态，模型或版本不符返回非零。HTTP 分块中断按传输失败记录，不能吞掉失败或打印供应商原始错误。当前 runtime 供应商入口仍为 API Key 机制，**本探针没有把 ADC 接入生产路由**；自动刷新、宿主接入与多身体凭据边界须在真实语义处理接线时实现和测试。
+
+
+## 6. 首批真实语义开发试跑
+
+提案格式、主机校验和正式评测口径见[语义评测登记](ADAPTIVE_MEMORY_EVAL.md)。AM-01 开发集已经通过三档模型实际执行；每轮先生成提案，再进入同一 AdaptiveStore / Archive 的事务、文件和证据计算。它不包含最终回答、真实多身体传输、UI 或后台调度，不替代 M2 门禁。
+
+开发阶段的错误包括：缺必填 replace、引用形状与句柄不符、思考耗尽输出预算、HTTP 传输中断、跨语境合法关系被过严规则拦截，以及结构合法但语义语境混同。已修正接口描述、增加 responseSchema、显式设定思考档，保留所有失败，未手动修改输出。真实配置与完整结果见阶段记录；不同开发版本不能当成公平模型排行榜。
+
+目前的选型证据支持继续使用 Flash 作为主力候选；轻量模型不直接负责复杂身份 / 语境修订。Argon 的失败中有宿主表达力问题，不能将拒绝安装简单归因为模型理解错误。仍需完成跨语境引用边界、纠正后受影响认识重评、所有场景留出集，以及完整后台接线再决定最终组合。

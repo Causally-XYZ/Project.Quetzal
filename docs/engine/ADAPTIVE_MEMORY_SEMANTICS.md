@@ -1,12 +1,12 @@
 # 自适应记忆：认识版本与证据依赖
 
-状态：M2 阶段内的存储 / 计算库，已用人工构造的合成记录验证，尚未接入语义模型、后台处理器或前台查询。不是 M2 放行记录。目标见[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)，结果传输与发布见[存储协议](ADAPTIVE_MEMORY_STORAGE.md)，实际测试见[阶段记录](ADAPTIVE_MEMORY_PROGRESS.md)。
+状态：M2 阶段内的存储 / 计算库，已用人工构造的合成记录验证，提案层已有独立真实模型开发调用，尚未接入宿主后台处理器或前台查询。不是 M2 放行记录。目标见[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)，结果传输与发布见[存储协议](ADAPTIVE_MEMORY_STORAGE.md)，实际测试见[阶段记录](ADAPTIVE_MEMORY_PROGRESS.md)。
 
 ## 1. 为什么把这些规则留在宿主
 
 模型负责提出“这句话可能指谁”“哪些证据共同支持这条认识”“新话纠正了什么”。宿主负责身份、版本、精确出处、事务、依赖计算和访问过滤。格式正确不能证明模型读懂了原文，也不能证明推论逻辑有效；后者必须通过真实语义评测。
 
-实现入口为 `runtime/src/memory/adaptive-evidence.ts`、`adaptive-graph.ts` 与权威存档入口 `adaptive-archive.ts`。本批没有复制开源实现；[组件实验](ADAPTIVE_MEMORY_COMPONENTS.md)仍是独立的选型证据，不能据本库宣布完成开源组件接入。
+实现入口为 `runtime/src/memory/adaptive-evidence.ts`、`adaptive-graph.ts` 与权威存档入口 `adaptive-archive.ts`。提案层已改编固定版 Graphiti 的抽取 / 时间提示规则，保留许可证与修改说明；[组件实验](ADAPTIVE_MEMORY_COMPONENTS.md)仍不等于完整上游服务集成。
 
 ## 2. 最小记录
 
@@ -20,7 +20,7 @@
 
 `realm={world,context}`：world 为 real / fiction / hypothetical / unknown；context 是宿主维护的语境标识，不用模型随意拼写的标签当世界身份。具体语境识别与标识分配尚待接线。不同语境的对象不能直接互相代入；跨语境比较应另行明确表达，不能靠复用同名节点暗中连接。
 
-出处为 `{kind:'source',source,hash,start,end,quote}`，位置按 JavaScript UTF-16 偏移，必须与当前来源 hash、原文切片完全一致，边界不得劈开代理对。模型端未来可提供原文引用，但最终位置应由宿主对齐；重复引文不能任意挑选。当前库并未实现该模型提案规范化器。
+出处为 `{kind:'source',source,hash,start,end,quote}`，位置按 JavaScript UTF-16 偏移，必须与当前来源 hash、原文切片完全一致，边界不得劈开代理对。模型端未来可提供原文引用，但最终位置应由宿主对齐；重复引文不能任意挑选。目前已有 `adaptive-proposal.ts` 规范化器，严格检查重复引文定位、宿主 ID / 版本和当前句柄，见[评测与提案接口](ADAPTIVE_MEMORY_EVAL.md)。
 
 记录引用为 `{kind,id,revision}`，不能只指向“最新”。一句话可以有多个 mention，也可以为多条 claim、多组依据提供材料；本批不把一句话限制到一个主题。对象名称、标签和文字内容本身都不是充分证据。
 
@@ -72,7 +72,7 @@ SQLite 可选投影保存 meta（格式版本 2、整体 generation）、batches
 
 ## 6. 启用前仍须完成
 
-- 模型提案规范化、对象 / 语境 ID 分配、歧义处理与真实纠正理解评测。
+- 已有模型提案规范化、对象 / 语境 ID 分配和首批真实开发调用；仍须补齐跨语境关系、纠正后重评、完整留出集和宿主接线。
 - 将已实现的权威存档重建入口接入宿主锁与生命周期，提供失败状态 / 自动恢复接线；不能绕过 archive 读取旧投影。完整备份、远端同步和检查点保存仍须 M4 验收。
 - 后台调度、模型认证 / 自动刷新、语义查询和纠正覆盖层，防止旧原文观察绕过已知纠正。
 - 真正的权限上下文、负载 / 读取预算和完整开源组件选择与集成。

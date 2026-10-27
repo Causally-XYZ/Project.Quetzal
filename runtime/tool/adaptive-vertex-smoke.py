@@ -74,6 +74,7 @@ def probe(project: str, token: str, tier: str, model: str) -> dict:
             "promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "totalTokenCount")}
     except urllib.error.HTTPError as error:
         result.update(error="http", status=error.code)
+        error.close()
     except (urllib.error.URLError, OSError, http.client.HTTPException):
         result.update(error="transport-or-timeout")
     except (ValueError, TypeError, AttributeError, IndexError):

@@ -27,6 +27,7 @@ Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。真实模�
 | [自适应记忆行为契约](ADAPTIVE_MEMORY_CONTRACT.md) | 来源、指代歧义、多主题、时间、证据依赖、修正、权限和降级的目标行为 |
 | [自适应记忆验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md) | 跨月纠正案例、语义 / 工程断言、评测指标和本机多身体验收规则 |
 | [自适应记忆阶段验证](ADAPTIVE_MEMORY_PROGRESS.md) | 逐阶段执行证据、未验证项和放行状态 |
+| [自适应记忆语义评测](ADAPTIVE_MEMORY_EVAL.md) | 提案接口、开发集 / 留出集边界、冻结评分口径和真实模型复跑 |
 | [自适应记忆组件实验](ADAPTIVE_MEMORY_COMPONENTS.md) | 固定开源版本的行为探针、适配边界与三档 Gemini ADC 连通性；不代表语义门禁通过 |
 | [动态上下文](DYNAMIC_CONTEXT.md) | 引擎窗口预算、摘要、原文引用与取消 |
 | [结构化记忆](STRUCTURED_MEMORY.md) | 私有持久化、来源校验与生产学习 |

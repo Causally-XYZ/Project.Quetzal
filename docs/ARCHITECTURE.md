@@ -440,6 +440,8 @@ M2 阶段内新增[认识版本与证据依赖库](engine/ADAPTIVE_MEMORY_SEMANT
 
 M2 内部 `AdaptiveArchive` 已支持从权威文件及未交付结果原子重建，已知文件缺失 / 改动时拒绝旧投影，恢复完整后重放；新数据库不伪造本机任务。此入口尚未接入宿主，完整备份与大历史性能仍待验收。
 
+M2 提案层 `adaptive-proposal.ts` 已在独立开发工具中接入真实 Gemini：模型输出局部句柄与引文，宿主分配身份 / 版本 / 偏移并校验，抽取规则改编自固定版 Graphiti。开发试跑暴露语境和纠正重评缺口，见[评测登记](engine/ADAPTIVE_MEMORY_EVAL.md)；尚未接入生产模型路由或后台。
+
 长期真相仍在仓库外的私有 `QUETZAL_HOME/soul/`，对话、上下文引用与派生状态在本机 SQLite。结构化版本存入规范已有的 `notes/QuetzalMemory/<id>_v<version>.md`，含可读正文、来源与 fenced JSON；不增加灵魂顶层目录，不把索引提交进灵魂。私有正文原样存储，脱敏发生在模型输入、客户端输出和日志边界。
 
 | 层 | 现实现与上下文角色 |
