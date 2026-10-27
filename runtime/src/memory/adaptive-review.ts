@@ -1,8 +1,8 @@
-// 从仍引用旧版本的记录重建待重评工作；队列是派生状态，认识和依据仍由存档负责。
+// 从失效原文或旧版本引用重建待重评工作；队列是派生状态，认识和依据仍由存档负责。
 import crypto from 'node:crypto';
 import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
-import { directSpans, recordRefs, type SemanticRecord } from './adaptive-evidence.ts';
+import { directSpans, recordRefs, spanCurrent, sameRealm, type SemanticRecord } from './adaptive-evidence.ts';
 import { normalizeProposal, proposalPrompt, type ProposalContext } from './adaptive-proposal.ts';
 
 export interface ReviewPlan {
@@ -10,8 +10,8 @@ export interface ReviewPlan {
 }
 export type ReviewResult = { status: 'idle' | 'deferred' | 'cancelled' | 'failed' | 'stale' | 'revised' | 'unchanged'; target?: string };
 
-/** 当前版本依赖闭包足以重建任务键；不以整图 generation 生成新任务，避免无关发言触发反复重评。
- * 此原型至多扫描 1000 条当前记录、100 个闭包记录 / 来源；超限显式延后，不截掉必要前提。
+/** 当前版本闭包、对象候选与来源重建任务键；不以整图 generation 生成新任务。
+ * 此原型至多扫描 1000 条当前记录、100 个闭包 / 候选记录与来源；超限显式延后。
  */
 export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { plans: ReviewPlan[]; deferred: number } {
   const generation = archive.generation(), records = archive.current();
@@ -24,8 +24,13 @@ export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { p
       const r = current.get(ref.id);
       return !r || r.kind !== ref.kind || r.revision !== ref.revision || r.state === 'withdrawn';
     });
-    if (!stale.length) continue;
-    const closure = new Map<string, SemanticRecord>(), pending = [target];
+    const changedSources = directSpans(target).filter((p) => !spanCurrent(p, (id) => queue.source(id)));
+    if (!stale.length && !changedSources.length) continue;
+    // 纠正可能重新指向旧闭包之外的对象；给出同语境的已有候选与定义，不能迫使模型重复造人。
+    // 第一版完整加入有可读来源的对象，超过闭包上限显式延后，后续由大历史检索替代。
+    const candidates = records.filter((r) => r.kind === 'node' && r.state === 'present' && sameRealm(r.realm, target.realm) &&
+      directSpans(r).every((p) => { const s = queue.source(p.source); return s && s.role !== 'agent'; }));
+    const closure = new Map<string, SemanticRecord>(), pending = [target, ...candidates];
     let missing = false;
     for (let i = 0; i < pending.length; i++) {
       const r = pending[i]; if (closure.has(r.id)) continue;
@@ -40,27 +45,30 @@ export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { p
     const selected = [...closure.values()].sort((a, b) => a.id.localeCompare(b.id));
     const sourceIds = [...new Set(selected.flatMap((r) => directSpans(r).map((s) => s.source)))].sort((a, b) => a - b);
     const sources = sourceIds.flatMap((id) => { const s = queue.source(id); return s ? [s] : []; });
-    // 失效来源需要上游整合重新解释，不能给旧引文贴上新 hash 后交给模型修复。
-    if (missing || sources.length !== sourceIds.length || sources.length > 100 || selected.some((r) => directSpans(r).some((s) =>
-      sources.find((source) => source.id === s.source)?.hash !== s.hash))) { deferred++; continue; }
-    const causeIds = new Set(stale.flatMap((ref) => current.get(ref.id)?.reasons.map((s) => s.source) ?? []));
+    // 当前原文可用时允许重新解释；旧引文在提示中显式失效，不能自动换 hash。
+    // 删除、忽略或改成助手发言不作为新的独立证据，也不发送其派生文字。
+    if (missing || sources.length !== sourceIds.length || sources.length > 100 || sources.some((s) => s.role === 'agent')) { deferred++; continue; }
+    const causeIds = new Set([...changedSources.map((s) => s.source),
+      ...stale.flatMap((ref) => current.get(ref.id)?.reasons.map((s) => s.source) ?? [])]);
     const cause = sources.filter((s) => causeIds.has(s.id)).sort((a, b) => b.ts - a.ts || b.id - a.id)[0];
     if (!cause) { deferred++; continue; }
     const context: ProposalContext = { generation, current: cause.id, records: selected, sources };
     const targetKey = `r${selected.findIndex((r) => r.id === target.id) + 1}`;
     const prompt = proposalPrompt(context);
-    prompt.system += `\nThis is a DEPENDENCY REVIEW, overriding the current-message extraction task above.
+    prompt.system += `\nThis is a SOURCE AND DEPENDENCY REVIEW, overriding the current-message extraction task above.
 Review only the specified target against original sources AND the newer dependency versions. The current source is a scheduling anchor, not a new message to extract.
 The target is not automatically false: another independent support group may still suffice. Do not mechanically replace references or preserve a causal conclusion without fresh justification.
 You may revise the target or introduce necessary new records. Do not revise other existing records. Never undo an accepted correction using its superseded source alone.
 Return an empty patch if the evidence is insufficient to make a justified change; the target will retain its existing evidence status. Do not mark a record supported or verified yourself.
 The host lists newer dependency handles as review candidates, not equivalent identities or proof. Withdrawn dependencies cannot be reused as current support.\n`;
+    prompt.system += 'Existing same-realm object candidates are included with their source definitions. Consider them before creating a new object, but a matching name alone never proves identity. Do not merge objects or revise a candidate node other than the specified target.\n';
     const data = JSON.parse(prompt.user);
-    data.review = { target: targetKey, dependencies: stale.map((ref) => ({
+    data.review = { target: targetKey, candidates: candidates.map((r) => `r${selected.findIndex((s) => s.id === r.id) + 1}`), dependencies: stale.map((ref) => ({
       previous: { kind: ref.kind, revision: ref.revision },
       current: `r${selected.findIndex((r) => r.id === ref.id) + 1}`,
     })) };
     prompt.user = JSON.stringify(data);
+    if (Buffer.byteLength(JSON.stringify(prompt)) > 256 * 1024) { deferred++; continue; }
     const digest = crypto.createHash('sha256').update(JSON.stringify({ target: target.id, records: selected,
       sources: sources.map((s) => [s.id, s.revision, s.hash]), cause: cause.id })).digest('hex');
     plans.push({ processor: `review-${digest.slice(0, 56)}`, target: target.id, context, prompt });
@@ -69,7 +77,7 @@ The host lists newer dependency handles as review candidates, not equivalent ide
 }
 
 /** 调用者在与灵魂同步互斥的锁内提供 exclusive；模型调用期间释放锁。
- * 当前为内部开发入口，生产调度与模型路由接线另行验收。
+ * 后台与开发工具共用；生产调度与模型路由的完整质量 / 性能另行验收。
  */
 export async function reviewNext(options: {
   archive: AdaptiveArchive; queue: AdaptiveStore;

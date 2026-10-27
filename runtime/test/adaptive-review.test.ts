@@ -116,11 +116,22 @@ test('关闭 / 急停不开始调用或安装；越界修订被拒绝并保留�
   assert.equal(g.archive.history(g.a.id).length, 2);
 });
 
-test('来源修改不把旧引用偷换为新 hash；工作配置异常明确拒绝', async (t) => {
+test('来源修改可重评但不把旧引用偷换为新 hash；忽略来源不送入模型', async (t) => {
   const f = fixture(t); f.db.exec("UPDATE messages SET text='不同的原文' WHERE id=1");
   const discovered = reviewPlans(f.archive, f.queue);
-  assert.equal(discovered.plans.length, 0); assert.equal(discovered.deferred, 1);
-  assert.equal((await reviewNext({ ...f.options, generate: f.empty })).status, 'deferred');
+  assert.equal(discovered.plans.length, 2); assert.equal(discovered.deferred, 0);
+  for (const plan of discovered.plans) {
+    const data = JSON.parse(plan.prompt.user);
+    assert.ok(data.sourceChanges.length > 0);
+    assert.ok(plan.prompt.user.includes('unavailableSource'));
+    assert.ok(!plan.prompt.user.includes(f.span(1).hash));
+  }
+  assert.equal((await reviewNext({ ...f.options, generate: f.empty })).status, 'unchanged');
+  assert.equal(f.archive.history(f.b.id).length, 1);
+  f.db.exec("UPDATE messages SET mode='ignored' WHERE id=1");
+  let calls = 0;
+  assert.equal((await reviewNext({ ...f.options, generate: async () => { calls++; return f.empty(); } })).status, 'deferred');
+  assert.equal(calls, 0);
   await assert.rejects(reviewNext({ ...f.options, generate: f.empty, timeoutMs: 0 }), /超时参数/);
   assert.throws(() => f.queue.scheduleSource('bad/key', 1), /参数/);
 });

@@ -91,10 +91,10 @@ src/
 │   ├── structured.ts     notes/QuetzalMemory版本读写、来源/状态校验、scope与条件门禁、旧材料标注映射、归档回滚，原私有正文不脱敏
 │   ├── adaptive-store.ts 来源修订、持久任务、租约与回执；与 messages 同事务失效
 │   ├── adaptive-evidence.ts  M2 记录格式、精确出处、证据状态与纠正影响范围计算（受控后台试验）
-│   ├── adaptive-worker.ts    持久增量整合、完整输入与代次门禁，当前有工作量上限
+│   ├── adaptive-worker.ts    持久增量 / 编辑来源重整合、不可读来源依赖过滤、完整输入与代次门禁，当前有工作量上限
 │   ├── adaptive-model.ts     现有供应商路由、脱敏、窗口校验、严格 JSON 与时间墙
 │   ├── adaptive-proposal.ts  M2 提案提示 / schema、宿主身份与引文规范化（开发试跑）
-│   ├── adaptive-review.ts    M2 旧引用工作发现、持久队列复用与有界模型重评（后台与开发共用）
+│   ├── adaptive-review.ts    M2 失效来源 / 旧引用工作发现、同语境对象候选、持久队列复用与有界模型重评（后台与开发共用）
 │   ├── prompts/adaptive-graphiti.ts 固定上游抽取 / 时间规则的许可副本与适配
 │   ├── adaptive-archive.ts   M2 权威文件核对、重建与备份检查点（受控后台试验）
 │   ├── adaptive-graph.ts     M2 有版本 SQLite 投影、事务安装和快照读取（受控后台试验）
