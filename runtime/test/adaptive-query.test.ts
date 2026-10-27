@@ -78,3 +78,69 @@ test('数量与输出有界，取完整认识而非截断证据；空查询不�
   assert.equal(selectSemantic(records, '', 1, f.read, f.read).items.length, 0);
   assert.throws(() => selectSemantic(Array.from({ length: 1001 }, () => records[0]), '采风', 1, f.read, f.read), /工作上限/);
 });
+
+test('模型改写语言不同仍能以精确原文命中，不索引同消息的其他主题或改写返回正文', () => {
+  const f = fixture(), full = f.source('我的编辑叫林岚。另一个话题是火山摄影。');
+  const span = { ...full, end: 7, quote: full.quote.slice(0, 7) };
+  const c = f.claim('The editor is Lin Lan.', span);
+  const hit = selectSemantic([c], '编辑叫什么', 1, f.read, f.read).items[0];
+  assert.equal(hit.id, c.id); assert.ok(hit.kind === 'claim'); assert.equal(hit.text, c.text);
+  assert.equal(selectSemantic([c], '火山摄影', 1, f.read, f.read).matched, 0);
+  assert.equal(selectSemantic([c], '编辑', 1, () => undefined, f.read).matched, 0);
+  f.sources.set(full.source, { ...f.read(full.source)!, text: '已编辑原文', hash: 'f'.repeat(64) });
+  assert.equal(selectSemantic([c], '编辑', 1, f.read, f.read).matched, 0);
+});
+
+test('共同有效的多步支持链和提及锚点参与匹配，原节点修订后不沿旧版本召回', () => {
+  const f = fixture(), s = f.source('港口采风'), p = f.node('Harbor', s);
+  const m: MentionRecord = { ...f.base(s), kind: 'mention', anchor: s, candidates: [ref(p)], resolved: ref(p), unknown: false };
+  const a = f.claim('Fieldwork location', s); a.supports = [{ id: 'mention', premises: [ref(m)], assumptions: [] }];
+  const b = f.claim('A working hypothesis', s); b.nature = 'hypothesis'; b.supports = [{ id: 'upstream', premises: [ref(a)], assumptions: [] }];
+  assert.ok(selectSemantic([p, m, a, b], '采风', 1, f.read, f.read).items.some((r) => r.id === b.id));
+  const changed = { ...a, revision: 2 };
+  assert.ok(!selectSemantic([p, m, changed, b], '采风', 2, f.read, f.read).items.some((r) => r.id === b.id));
+  // 带独立支持的正向环仍有界，重复引文不会重复加权。
+  a.supports.push({ id: 'cycle', premises: [ref(b)], assumptions: [] });
+  assert.ok(selectSemantic([p, m, a, b], '采风', 1, f.read, f.read).items.some((r) => r.id === b.id));
+});
+
+test('不以审计原因、条件组、隐藏或全局失效分支中的词制造匹配', () => {
+  const f = fixture(), clean = f.source('ordinary evidence'), audit = f.source('审计秘密'), conditional = f.source('条件秘密');
+  const branch = f.source('分支秘密'), counter = f.source('明确反证');
+  const a = f.claim('A disputed premise', branch); a.counters = [{ id: 'counter', premises: [counter], assumptions: [] }];
+  const b = f.claim('A supported result', clean); b.reasons = [audit];
+  b.supports.push({ id: 'conditional', premises: [conditional], assumptions: ['待核实'] }, { id: 'branch', premises: [ref(a)], assumptions: [] });
+  const local = (id: number) => id === counter.source ? undefined : f.read(id);
+  for (const query of ['审计秘密', '条件秘密', '分支秘密']) assert.equal(selectSemantic([a, b], query, 1, local, f.read).matched, 0);
+  const result = selectSemantic([a, b], 'supported result', 1, local, f.read).items[0];
+  assert.equal(result.kind, 'claim'); if (result.kind === 'claim') assert.deepEqual(result.supports.map((g) => g.id), ['direct']);
+  const hidden = (id: number) => id === clean.source ? undefined : local(id);
+  assert.equal(selectSemantic([a, b], 'ordinary', 1, hidden, f.read).matched, 0);
+});
+
+test('可见与全局各自成立但没有共同证明时，不能返回当前认识或借它支持下游', () => {
+  const f = fixture(), publicSource = f.source('public basis'), privateSource = f.source('private basis'), counter = f.source('hidden counter');
+  const a = f.claim('local branch', publicSource); a.counters = [{ id: 'against', premises: [counter], assumptions: [] }];
+  const b = f.claim('global branch', privateSource);
+  const c = f.claim('target inconsistent support', publicSource); c.supports = [
+    { id: 'local-only', premises: [ref(a)], assumptions: [] }, { id: 'global-only', premises: [ref(b)], assumptions: [] }];
+  const d = f.claim('target dependent', publicSource); d.supports = [{ id: 'dependent', premises: [ref(c)], assumptions: [] }];
+  const e = f.claim('target independent alternative', publicSource); e.supports.push({ id: 'bad', premises: [ref(d)], assumptions: [] });
+  const local = (id: number) => [privateSource.source, counter.source].includes(id) ? undefined : f.read(id);
+  const selected = selectSemantic([a, b, c, d, e], 'target', 1, local, f.read);
+  assert.deepEqual(selected.items.map((r) => r.id), [e.id]);
+  const item = selected.items[0]; assert.ok(item.kind === 'claim'); assert.deepEqual(item.supports.map((g) => g.id), ['direct']);
+  assert.deepEqual(item.roots, [{ id: publicSource.source, hash: publicSource.hash }]);
+});
+
+test('纠正后旧措辞可定位当前认识，但无效旧支持不制造命中，索引预算超限不返回半份', () => {
+  const f = fixture(), old = f.source('旧称紫鹭'), fresh = f.source('新的名称是白鸥');
+  const c = f.claim('The current name is White Gull.', fresh); c.revision = 2; c.reasons = [old, fresh];
+  assert.equal(selectSemantic([c], '紫鹭', 2, f.read, f.read).matched, 0);
+  c.supports[0].premises.push(old);
+  const result = selectSemantic([c], '紫鹭', 2, f.read, f.read).items[0];
+  assert.equal(result.revision, 2); assert.ok(result.kind === 'claim'); assert.equal(result.text, c.text);
+  const spans = Array.from({ length: 9 }, () => f.source('a'.repeat(8000)));
+  const huge = f.claim('Large source set', spans[0]); huge.supports[0].premises = spans;
+  assert.throws(() => selectSemantic([huge], 'source', 2, f.read, f.read), /检索依据超过工作上限/);
+});

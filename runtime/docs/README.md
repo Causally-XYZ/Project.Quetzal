@@ -35,6 +35,8 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 `adaptive-model.ts` 复用模型路由、出站脱敏、实际用量和取消信号；完整输入装不进候选模型窗口时不发请求，不截掉必要依据。它严格拒绝截断、工具调用和非 JSON 输出。ADC 只用于显式启动的开发探针 / 试跑，生产后台不自行读取它，也不复制到其他身体。
 
+前台认识匹配保留模型改写正文及共同有效支持链的原文表达；原文被译成另一种语言时不丢弃已有检索词，但仍不是完整多语言语义召回。只返回可见 / 全局共同证明成立的当前版本，不从隐藏 / 失效分支借词。新增索引工作预算超限时空降级；无额外 LLM 调用、依赖、服务或配置，具体边界见[语义查询](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#前台认识查询)。
+
 `npm run pilot:adaptive-live -- --model=gemini-3.8-flash` 运行公开的现实人物别名开发案例。它自动创建仓库外隔离家目录，逐次写入合成消息，让正常后台定时器、模型路由、Google 适配器和灵魂发布处理，再调用正常 converse 回答纠正后的问题。`tool/adaptive-vertex-transport.ts` 只为该试验进程中的保留域名注入本机已有 ADC；沿用探针的 `GCLOUD_BIN` / `GOOGLE_CLOUD_PROJECT` 约定，不保存认证、不改真实家目录、不代表生产 ADC 部署支持。试验会产生真实 API 费用，最多12次适配器请求，8分钟时发出中止；报告在输出的临时目录，含输入视图、模型结果、用量、认识快照和上下文选择。首个后台失败即保留失败退出，不把自动重试后的成功当首次成功。收尾时等待调用结束，仅额外新问题的后台取消可标 cancelled-at-shutdown，仍保留未知用量。pipeline completed 只表示流程完成，语义仍须逐项核查；其他历史召回未关闭，不能用最终答对单独证明新图的增益。真实运行与检索缺口见[阶段记录 §4.26](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#426-m2-真实宿主adc-传输与纠正后回答开发试验2026-10-27)。
 
 开发提案探针默认 urllib，可显式设置 `QUETZAL_VERTEX_TRANSPORT=curl` 对照传输；该变量不影响生产。失败只记录安全类别 / 阶段，缺失用量为 null，SIGTERM 会清理 curl 子进程。边界测试需另跑 `python3 -B tool/test_adaptive_vertex_smoke.py`。开源检查点探针的独立清单 / 完整锁在 `tool/adaptive-checkpoint-probe/`，不进入 runtime 生产依赖，复现方法见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。

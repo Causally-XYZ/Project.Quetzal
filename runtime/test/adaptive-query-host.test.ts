@@ -156,3 +156,25 @@ test('已接受结果损坏时查询降级，不使用 SQLite 中还存在的旧
     assert.equal(result.status, 'unavailable'); assert.deepEqual(result.items, []);
   } finally { store.db.prepare('UPDATE adaptive_publications SET digest=? WHERE id=?').run(row.digest, row.id); }
 });
+
+test('中文问题经实际宿主与上下文选中英文改写，只有有效原文引文参与匹配', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0; markBusy(true);
+  store.ensureSession('bilingual-origin', '合成跨语言');
+  const source = store.addMessage('user', '合成', '我的编辑叫林岚。另一个话题是火山摄影。', { session: 'bilingual-origin' });
+  queue.schedule(); const s = queue.source(source)!;
+  const span: SourceSpan = { kind: 'source', source, hash: s.hash, start: 0, end: 7, quote: s.text.slice(0, 7) };
+  const claim: ClaimRecord = { id: crypto.randomUUID(), revision: 1, kind: 'claim', state: 'present', realm: { world: 'real', context: 'real' },
+    reasons: [span], text: 'The editor is Lin Lan.', nature: 'reported', participants: [], occurred: { text: '', earliest: null, latest: null },
+    valid: { text: '', earliest: null, latest: null }, supports: [{ id: 'direct', premises: [span], assumptions: [] }], counters: [] };
+  queue.scheduleSource('bilingual-fixture', source);
+  assert.equal(archive.accept(queue.claim('bilingual-fixture')!, [{ id: source, revision: s.revision, hash: s.hash }],
+    { baseGeneration: archive.generation(), records: [claim] }), true);
+  const query = await adaptive.queryAdaptiveSemantic('我的编辑叫什么');
+  assert.equal(query.status, 'ready'); assert.ok(query.items.some((r) => r.id === claim.id));
+  assert.ok(!(await adaptive.queryAdaptiveSemantic('火山摄影')).items.some((r) => r.id === claim.id));
+  await brain.converse('合成用户', '我的编辑叫什么', '控制台', { conv: 'bilingual-question', local: true }); markBusy(true);
+  assert.ok(plan('bilingual-question').selectedIds.includes(`memory:adaptive-semantic:${claim.id}:1`));
+  assert.match(joined(seen.at(-1)), /The editor is Lin Lan/);
+  store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(source);
+  assert.ok(!(await adaptive.queryAdaptiveSemantic('编辑')).items.some((r) => r.id === claim.id));
+});

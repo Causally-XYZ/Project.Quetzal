@@ -194,3 +194,5 @@ adapters/
 `adaptive-graph.ts` 以连接 WeakMap 保存完整重放见证；重放中传递当前记录映射，避免逐批读取全部旧 JSON。source/evidence 状态不缓存，外层回滚由下次投影摘要核对发现。`tool/adaptive-read-benchmark.ts` / `adaptive-read-workload.ts` 提供仓库外合成负载；`test/adaptive-query-scale.test.ts` 测真实宿主100次读取与损坏降级，未使用模型或浏览器。
 
 `tool/adaptive-live-pilot.ts` 用公开合成消息驱动实际后台及 converse，记录每轮图状态、前台输入和回答；开发 ADC 传输包装器只替换保留域名的认证与端点，流和请求正文保持现有适配器格式。该入口加入 package.json / tsconfig，复用 Node 和 Python 标准库及已有 gcloud，无新增生产依赖、服务、配置、RPC 或存储格式。生产后台仍读取控制台供应商配置。
+
+`adaptive-query.ts` 对可见 / 全局共同有效的支持记录再调用既有 evaluateEvidence，取得一致的支持组与根来源。以这些组中的精确原文引文补充词面匹配，沿 claim / mention 当前版本有界遍历，不索引审计原因、反证或整条消息。无新依赖 / 持久索引 / 配置，现有构建自动纳入；工作量和支持链测试见 adaptive-query.test.ts，实际发送上下文与规模读取由 query-host / query-scale 测试验证。
