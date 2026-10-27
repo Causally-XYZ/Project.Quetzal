@@ -1,6 +1,6 @@
 # 自适应记忆实施计划（M0–M5）
 
-状态：已对齐的实施目标；新增能力尚未实现。建立日期：2026-10-27。实际完成情况只以[阶段验证记录](ADAPTIVE_MEMORY_PROGRESS.md)为准。
+状态：M0 已完成，M1 来源处理骨架进行中；语义理解与推理能力尚未实现。建立日期：2026-10-27。实际完成情况只以[阶段验证记录](ADAPTIVE_MEMORY_PROGRESS.md)为准。
 
 本计划扩展 Quetzal 的记忆能力，不替代现有执行引擎。现状见[结构化记忆](STRUCTURED_MEMORY.md)、[全局架构](../ARCHITECTURE.md)与[灵魂仓库规范](../SOUL_REPO_SPEC.md)。行为定义见[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)，逐步输入与判定见[验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md)。
 

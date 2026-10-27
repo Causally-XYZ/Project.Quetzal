@@ -4,7 +4,7 @@
 
 内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
 
-规划中的自适应记忆接线涉及消息本机写入 / 复制应用、后台任务、上下文和灵魂存储，见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)；本轮为 M0 文档，不改变下列现有模块地图。多身体验收使用本机独立运行时，不能以两个浏览器标签替代两具身体。
+开发中的自适应记忆见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)，当前为 M1 部分实现，尚未放行。`memory/adaptive-store.ts` 管来源修订、持久任务、租约与处理回执；`memory/adaptive.ts` 管固定身体后台处理和有界读取；`mesh/adaptive-memory.ts` 复用正式成员认证；`mind/context.ts` 在模型准备阶段注入原文观察。`main.ts` 在非安全模式初始化灵魂后启动宿主，退出时停止，默认配置关闭。SQLite 数据与任务均在 `QUETZAL_HOME/data/quetzal.db`，没有新增守护进程或依赖。多身体验收使用本机独立进程与网关，不能以两个浏览器标签替代两具身体；桌面 / 移动视口交互留待对应阶段。
 
 执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 

@@ -22,6 +22,7 @@ import { startContinuity } from "./mind/continuity.ts";
 import { startMesh, wireMesh, registerSoulLink, meshStatus } from "./mesh/runtime.ts";
 import { soulLink } from "./ops.ts";
 import { startMcp, closeMcp } from "./mcp/runtime.ts";
+import { startAdaptiveMemory, stopAdaptiveMemory } from './memory/adaptive.ts';
 
 /** 持心跳的身体还是 1.3.0 以前的版本（不认识提醒）：跟随者自己负责触发，免得一条也不响（几具新版本的跟随者可能各响一次；都升级后恢复只由持心跳的那具触发）。 */
 function coordinatorLacksReminders(): boolean {
@@ -91,8 +92,10 @@ async function main() {
     return;
   }
   await ensureSoul().catch((e) => log("soul", `灵魂目录初始化失败：${e.message}`));
+  startAdaptiveMemory(); // 默认关闭；指定记忆主机启用后后台补扫，复用运行基座进程的守护与恢复
   void startMcp(); // 网关已就绪；启动审批不阻塞心脏与其他来源
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
+    stopAdaptiveMemory();
     const deadline = setTimeout(() => process.exit(0), 3000);
     void closeMcp().finally(() => { clearTimeout(deadline); process.exit(0); });
   });

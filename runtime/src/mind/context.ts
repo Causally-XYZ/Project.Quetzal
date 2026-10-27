@@ -6,6 +6,7 @@ import type { ChatRequest, Msg } from '../providers/types.ts';
 import type { MemoryStage } from '../../../engine/src/memory.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
 import { selectContextMemory } from '../memory/semantic.ts';
+import { queryAdaptive, adaptiveContext } from '../memory/adaptive.ts';
 import { identity } from '../memory/identity.ts';
 import { config, paths } from '../config.ts';
 import { chat } from '../providers/router.ts';
@@ -71,13 +72,16 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
         const signal = AbortSignal.any([stopped.signal, ...(request.signal ? [request.signal] : [])]);
         try {
         signal.throwIfAborted();
-        const candidates = await selectContextMemory({ text: context.query, scope: { agentId: identity().id, userId: 'owner', ...(conv ? { sessionId: conv } : {}) }, stage: context.phase,
-          tags: context.tags, tools: (request.tools ?? []).map((t) => t.name), limit: 12, now: Date.now() }, signal);
+        const [candidates, adaptive] = await Promise.all([
+          selectContextMemory({ text: context.query, scope: { agentId: identity().id, userId: 'owner', ...(conv ? { sessionId: conv } : {}) }, stage: context.phase,
+            tags: context.tags, tools: (request.tools ?? []).map((t) => t.name), limit: 12, now: Date.now() }, signal),
+          queryAdaptive(context.query, signal),
+        ]);
         request.signal?.throwIfAborted();
         if (fs.existsSync(paths.stop)) throw new Error('急停中，停止上下文准备');
         const plan = await manager.prepare({ messages: request.messages, tools: request.tools, contextWindow, maxOutputTokens,
           protectedFrom, state: context.state, signal,
-          memory: [...(previousSummary ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${previousSummary.text}`, priority: 3 }] : []), ...candidates.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
+          memory: [...adaptiveContext(adaptive), ...(previousSummary ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${previousSummary.text}`, priority: 3 }] : []), ...candidates.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
             priority: record.kind === 'fact' || record.preference === 'explicit' ? 2 : 1,
             reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
         });

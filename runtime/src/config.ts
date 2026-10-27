@@ -67,6 +67,8 @@ export interface Config {
   sharedRev: Record<string, number>;
   // 通道：feishuHolder 为持有飞书长连接的身体（多具身体时由部署者指定；空 = 这具身体自己连）。全网共用
   channels: { feishuHolder: string };
+  // 自适应记忆：同一 agent 指定一具固定身体集中处理；默认关闭，不随心脏协调者迁移。
+  adaptiveMemory: { enabled: boolean; hostBody: string };
   // 语音（Azure 语音服务文本转语音）。密钥单独保存在 secrets/azure_speech_key
   speech: { region: string; endpoint: string; voice: string; style: string; rate: string; pitch: string; volume: string; format: string };
   // 听觉：控制台 App 当耳朵（采集、降噪、断句），基座识别（Azure，与语音合成同一把密钥）并交给她判断要不要回应
@@ -112,6 +114,7 @@ export const defaults: Config = {
   mesh: { server: OFFICIAL_SYNC, priority: 0, lan: !isWindows }, // Windows 上监听端口会弹防火墙询问，缺省不开局域网信令
   sharedRev: {},
   channels: { feishuHolder: "" },
+  adaptiveMemory: { enabled: false, hostBody: "" },
   speech: { region: "", endpoint: "", voice: "zh-CN-XiaoxiaoNeural", style: "", rate: "0%", pitch: "0%", volume: "100", format: "audio-24khz-48kbitrate-mono-mp3" },
   hearing: { enabled: false, windowMin: 10, sensitivity: 2, language: "" },
   guard: { sentinel: { enabled: true, model: "", timeoutMs: 20_000, classes: ["host_shell", "remote_exec", "outbound", "mcp_write", "destructive", "credentials", "tool_write", "hands"], onFailure: "by_risk", hostMode: "review" } },
@@ -165,6 +168,11 @@ export function speechEndpointOk(endpoint: string): boolean {
 }
 export const speechRegionOk = (region: string) => !region || /^[a-z0-9-]{1,40}$/i.test(region);
 function sanitize() {
+  const adaptive = config.adaptiveMemory;
+  config.adaptiveMemory = {
+    enabled: adaptive?.enabled === true,
+    hostBody: typeof adaptive?.hostBody === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(adaptive.hostBody) ? adaptive.hostBody : '',
+  };
   for (const [key, min, max] of [['contextWindow', 1024, 2_000_000], ['contextSummaryTokens', 128, 4096], ['contextSummaryTimeoutMs', 100, 60_000], ['contextSummaryModelTokens', 128, 4096], ['memoryLearningTokens', 128, 4096], ['memoryLearningTimeoutMs', 100, 60_000], ['memorySelectionTimeoutMs', 100, 60_000], ['memorySelectionTokens', 128, 2400]] as const) {
     if (!Number.isSafeInteger(config.brain[key]) || config.brain[key] < min || config.brain[key] > max) config.brain[key] = defaults.brain[key];
   }
@@ -190,7 +198,7 @@ export function sanitizeSentinel(v: unknown): SentinelConfig {
 }
 
 /** 全网统一的设置分区（DISTRIBUTED.md C8）：一处改了，所有身体跟着改。身体名、时区、适配器、网关、飞书、同步服务地址等属于这具身体，不在其中。 */
-export const SHARED_SECTIONS = ["permissions", "budget", "heart", "hearing", "speech", "brain", "channels", "guard"] as const;
+export const SHARED_SECTIONS = ["permissions", "budget", "heart", "hearing", "speech", "brain", "channels", "guard", "adaptiveMemory"] as const;
 /** 记下某个共享分区被这具身体改了（设置分区、模型供应商、语音密钥、急停），并通知网状层。 */
 export function markShared(sections: string[]) {
   if (!sections.length) return;

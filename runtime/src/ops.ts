@@ -47,6 +47,7 @@ import { canvasOps } from './mind/canvas-ops.ts';
 import { pluginOps } from './plugins/ops.ts';
 import { listSources } from './mcp/runtime.ts';
 import { pendingRecommendations } from './plugins/index.ts';
+import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, adaptiveJobs, cancelAdaptiveJob } from './memory/adaptive.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -56,6 +57,7 @@ export const status = () => ({
   thought: mem.thought(), // 她想分享的一句话（首页展示）
   hearing: hearing.hearingStatus(), // 听觉：App 据 listening 决定要不要开麦克风
   mesh: meshRt.meshStatus(), // 网状层：同步服务、绑定、各身体的连接
+  adaptiveMemory: adaptiveStatus(),
   sandbox: sandboxStatus(), // agent 命令的沙箱：kind 为 bwrap / proot / none（none 时控制台应提示安装）
   reminders: reminderView(), // 她答应的提醒（首页显示接下来的几条）
   goals: goals.view(), // 她进行中的长期目标（首页显示：步骤与进度，可关闭）
@@ -248,6 +250,21 @@ export const ops = {
 
   memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), loops: mem.openLoops() }),
   'memory.records': (a: { state?: string; kind?: string }) => readStructuredRecords().filter((r) => r.scope.agentId === identity().id && (!a.state || r.state === a.state) && (!a.kind || r.kind === a.kind)),
+  'memory.adaptive.status': () => adaptiveStatus(),
+  'memory.adaptive.configure': (a: { enabled: boolean; hostBody: string }, actor: string) => {
+    const result = configureAdaptiveMemory(a);
+    audit(actor, 'memory.adaptive.configure', '设置固定记忆主机', config.adaptiveMemory, 'ok'); return result;
+  },
+  'memory.adaptive.query': (a: { query: string }) => {
+    if (typeof a?.query !== 'string' || a.query.length > 8000) throw new Error('记忆查询过长或形状不合法');
+    return queryAdaptive(a.query);
+  },
+  'memory.adaptive.jobs': () => adaptiveJobs(),
+  'memory.adaptive.cancel': (a: { id: string }, actor: string) => {
+    if (typeof a?.id !== 'string' || a.id.length > 100) throw new Error('记忆任务编号不合法');
+    const result = cancelAdaptiveJob(a.id);
+    audit(actor, 'memory.adaptive.cancel', '取消记忆任务', { id: a.id }, String(result)); return result;
+  },
   'memory.confirm': async (a: { key: string }, actor: string) => {
     if (!actor?.trim()) throw new Error('管理者身份不能为空');
     const record = await confirmPersonalMemory(a.key, { actor });
