@@ -23,6 +23,10 @@ Quetzal adaptations take precedence:
 - A story, a hypothetical situation and reality have separate realms. Narrated first person need not mean the real user.
 - Hearing a story does not establish whether its events are real or fictional. Preserve an unknown narrative realm unless the source identifies its status. Later using material in a novel does not retroactively make the original story fictional or its characters identical to novel characters.
 - Do not manufacture midnight or January 1 from a partial date. Preserve original time wording; uncertain UTC bounds stay null.
+- recordedAt is when a message was recorded, not when its relationships began or its events occurred. Never copy that date into occurred or valid merely because a fact was reported then.
+- For each occurred / valid field, text preserves the actual temporal wording relevant to that proposition. If none is stated, use text="" and both bounds null. A present-tense relationship or preference alone supplies no start date.
+- Relative wording such as yesterday or last week may use recordedAt as context, but UTC bounds require an unambiguous date, timezone and precision. A UTC message timestamp does not establish the user's local timezone. Keep vague periods as wording with null bounds.
+- A later correction of an earlier event changes the corrected event time, not its original message timestamp; when the user distinguishes hearing, writing and reporting, keep their times separate.
 - Distinguish an actual change over time from a correction of an earlier report; the latest sentence does not overwrite all history.
 - Repetition or a model's own summary is not independent confirmation. Preserve reported / inferred / hypothesis nature.
 `;

@@ -18,13 +18,13 @@
 | mention | anchor、candidates、unknown、resolved | 具体的一次提及；候选引用对象的具体版本，允许未知、多个候选和未解歧 |
 | claim | text、nature、participants、occurred、valid、supports、counters | 有来源的陈述 / 推论 / 假设；参与者经 mention 引用，支持与反证分别成组 |
 
-`realm={world,context}`：world 为 real / fiction / hypothetical / unknown；context 是宿主维护的语境标识，不用模型随意拼写的标签当世界身份。具体语境识别与标识分配尚待接线。不同语境的对象不能直接互相代入；跨语境比较应另行明确表达，不能靠复用同名节点暗中连接。
+`realm={world,context}`：world 为 real / fiction / hypothetical / unknown；context 是宿主维护的语境标识，不用模型随意拼写的标签当世界身份。提案由模型识别语境、宿主分配标识；跨语境关系的表示边界仍待对齐。不同语境的对象不能直接互相代入；跨语境比较应另行明确表达，不能靠复用同名节点暗中连接。
 
 出处为 `{kind:'source',source,hash,start,end,quote}`，位置按 JavaScript UTF-16 偏移，必须与当前来源 hash、原文切片完全一致，边界不得劈开代理对。模型端未来可提供原文引用，但最终位置应由宿主对齐；重复引文不能任意挑选。目前已有 `adaptive-proposal.ts` 规范化器，严格检查重复引文定位、宿主 ID / 版本和当前句柄，见[评测与提案接口](ADAPTIVE_MEMORY_EVAL.md)。
 
 记录引用为 `{kind,id,revision}`，不能只指向“最新”。一句话可以有多个 mention，也可以为多条 claim、多组依据提供材料；本批不把一句话限制到一个主题。对象名称、标签和文字内容本身都不是充分证据。
 
-`occurred` 与 `valid` 均保存 `{text,earliest,latest}`：保留原文时间描述，无法确定时边界为 null。确定边界使用 UTC ISO 时间；日期倒置、非法日期和无原文描述却填时间被拒绝。消息时间保持在原始消息里，处理时间在结果信封里，均不覆盖事件时间。时间语义解析和时区判断仍属于待评测的模型 / 宿主协作，不由格式校验保证。
+`occurred` 与 `valid` 均保存 `{text,earliest,latest}`：保留原文时间描述，无法确定时边界为 null。确定边界使用 UTC ISO 时间；日期倒置、非法日期和无原文描述却填时间被拒绝。消息时间保持在原始消息里，处理时间在结果信封里，均不覆盖事件时间。提示和响应 schema 明确 recordedAt 不作为事件 / 生效时间的缺省值；没有表述则 text 空、界限 null，模糊时期或时区不足不补出精确 UTC。时间语义仍由真实模型评测，不由格式校验保证。原文修订覆盖层对当前 supported claim 完整携带 occurred / valid，即使正文相同也能表达仅时间变化；来源不可见时仍不输出 current。
 
 ## 3. 支持、反证与循环
 

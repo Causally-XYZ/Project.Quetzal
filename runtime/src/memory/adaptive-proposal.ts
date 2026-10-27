@@ -25,6 +25,7 @@ You propose a minimal memory patch, not an answer to the user's message. All sup
 Follow the supplied response schema. Return only the minimal patch; no confidence, verified, active or extra fields.
 Input record keys r1... and realm keys w1... / real are host handles. Never output UUIDs, hashes, revisions or processing timestamps.
 Use an existing realm or explicitly declare a new fiction / hypothetical / unknown realm with a local c-key (c1, c2...). Do not declare a new real realm.
+Declare only realms needed by records in this patch. A valid but unused realm declaration creates no stored record or relationship.
 All new or revised records need a unique local p-key. replace is REQUIRED: null for new records or an existing r-key for a revision.
 References may use existing r-keys or this patch's p-keys. To reference a revised record, use its p-key. Do not silently redirect old dependencies.
 A quote must be an exact source substring; if repeated, specify its zero-based occurrence.
@@ -124,10 +125,8 @@ export function normalizeProposal(value: unknown, context: ProposalContext): Sem
       throw new Error('认识提案语境不合法');
     scopeReasons.set(scope.key, quote(scope.because)); scopes.set(scope.key, { world: scope.world, context: crypto.randomUUID() });
   }
-  if (!proposal.records.length) {
-    if (proposal.contexts.length) throw new Error('认识提案存在未使用语境');
-    return null;
-  }
+  // 语境声明只是本次提案的句柄表；已校验但无引用的项没有持久副作用。
+  if (!proposal.records.length) return null;
   const refs = new Map<string, RecordRef>(context.records.map((r, i) => [recordHandle(i), { kind: r.kind, id: r.id, revision: r.revision }]));
   const old = new Set<string>(), local = new Map<string, RecordRef>();
   for (const r of proposal.records) {
@@ -168,7 +167,6 @@ export function normalizeProposal(value: unknown, context: ProposalContext): Sem
       participants: r.participants.map((p: any) => { shape(p, ['role', 'mention']); return { role: p.role, mention: ref(p.mention) }; }),
       supports: groups(r.supports), counters: groups(r.counters) };
   });
-  if ([...scopeReasons.keys()].some((key) => !proposal.records.some((r: any) => r.realm === key))) throw new Error('认识提案存在未使用语境');
   const batch = { baseGeneration: context.generation, records }; validateBatch(batch); return batch;
 }
 
@@ -181,7 +179,9 @@ export function proposalResponseSchema() {
   const enumeration = (...values: string[]) => ({ type: 'STRING', enum: values });
   const quote = object({ kind: enumeration('source'), source: { ...string, description: 'Existing source handle such as s1' }, text: string,
     occurrence: { type: 'INTEGER', nullable: true, description: 'Zero-based exact substring occurrence; null only for a unique match' } });
-  const time = object({ text: string, earliest: { ...string, nullable: true }, latest: { ...string, nullable: true } });
+  const time = object({ text: { ...string, description: 'Relevant time wording from the sources; empty when unstated. Never default to recordedAt.' },
+    earliest: { ...string, nullable: true, description: 'UTC bound only with supported date, timezone and precision; otherwise null.' },
+    latest: { ...string, nullable: true, description: 'UTC bound only with supported date, timezone and precision; otherwise null.' } });
   const group = object({ id: string, premises: array({ anyOf: [quote, object({ kind: enumeration('record'), key: string })] }), assumptions: strings });
   const base = (kind: string) => ({ key: { ...string, description: 'Unique local p-key' }, replace: { ...string, nullable: true, description: 'Required: null for a new record; existing r-key only for an explicit revision' },
     kind: enumeration(kind), state: enumeration('present', 'withdrawn'), realm: string, reasons: array(quote) });

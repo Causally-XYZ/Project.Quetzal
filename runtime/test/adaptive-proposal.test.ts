@@ -51,6 +51,21 @@ test('新语境宿主分配身份；不存在的记录、重复修订、跨种�
   const wrong: any = patch(); wrong.records[0].replace = 'r1'; wrong.records[0].kind = 'claim'; assert.throws(() => normalizeProposal(wrong, c), /修订目标/);
 });
 
+test('校验后的未使用语境不使独立认识丢失，也不生成持久身份或绕过声明检查', () => {
+  const c = context(), p: any = patch();
+  p.contexts = [{ key: 'c1', world: 'unknown', because: quote() }];
+  const result = normalizeProposal(p, c)!;
+  assert.equal(result.records.length, 1); assert.deepEqual(result.records[0].realm, { world: 'real', context: 'real' });
+  assert.deepEqual(result.records[0].reasons.map((r) => r.quote), ['阿舟']);
+  assert.equal(normalizeProposal({ ...p, records: [] }, c), null);
+  for (const bad of [{ ...p.contexts[0], world: 'real' }, { ...p.contexts[0], because: quote('不存在') },
+    { ...p.contexts[0], extra: true }]) {
+    assert.throws(() => normalizeProposal({ contexts: [bad], records: [] }, c), /语境|引文|字段/);
+  }
+  assert.throws(() => normalizeProposal({ ...p, contexts: [p.contexts[0], p.contexts[0]] }, c), /语境/);
+  p.records[0].realm = 'c2'; assert.throws(() => normalizeProposal(p, c), /语境/);
+});
+
 test('输入记录引用用可见句柄，旧版本和缺失来源不能被重新映射成最新', () => {
   const c = context(); const r = normalizeProposal(patch(), c)!.records[0]; c.records.push(r);
   const span: SourceSpan = { kind: 'source', source: 1, hash: 'a'.repeat(64), start: 0, end: 2, quote: '阿舟' };

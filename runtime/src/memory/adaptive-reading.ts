@@ -1,11 +1,12 @@
 // 原文不会因认识修订被改写；读取时附上针对具体认识 / 片段的当前状态。
-import { directSpans, recordRefs, refKey, evaluateEvidence, type SemanticRecord, type SourceReader, type EvidenceState } from './adaptive-evidence.ts';
+import { directSpans, recordRefs, refKey, evaluateEvidence, type SemanticRecord, type SourceReader, type EvidenceState, type ClaimRecord } from './adaptive-evidence.ts';
 
 export interface SourceNotice {
   id: string; revision: number; kind: SemanticRecord['kind'];
   status: EvidenceState['status'] | 'unavailable';
   spans: { hash: string; start: number; end: number }[];
-  current: { text: string; realm: SemanticRecord['realm']; nature?: string; sources: { id: number; hash: string }[] } | null;
+  current: { text: string; realm: SemanticRecord['realm']; nature?: string;
+    occurred?: ClaimRecord['occurred']; valid?: ClaimRecord['valid']; sources: { id: number; hash: string }[] } | null;
 }
 export interface SourceReading {
   generation: number; freshness: 'local-snapshot';
@@ -46,7 +47,8 @@ export function sourceReading(history: SemanticRecord[], ids: number[], generati
     let current: SourceNotice['current'] = null;
     if (status === 'supported') {
       const roots = states.get(record.id)!.roots.map((key) => { const [id, hash] = key.split(':'); return { id: Number(id), hash }; });
-      if (record.kind === 'claim') current = { text: record.text, realm: record.realm, nature: record.nature, sources: roots };
+      if (record.kind === 'claim') current = { text: record.text, realm: record.realm, nature: record.nature,
+        occurred: record.occurred, valid: record.valid, sources: roots };
       if (record.kind === 'node') current = { text: record.name, realm: record.realm, sources: roots };
       if (record.kind === 'mention' && record.resolved) {
         const node = latest.get(record.resolved.id);

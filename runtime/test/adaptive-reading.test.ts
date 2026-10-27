@@ -46,6 +46,21 @@ test('纠正改用新来源，旧消息仍携带替代内容；来源再编辑�
   assert.ok(view.sources[0].notices.some((n) => n.spans.some((s) => s.hash === oldHash)));
 });
 
+test('仅时间字段修订而正文相同时，旧来源覆盖层仍给出发生和有效时间；隐藏纠正不泄漏', () => {
+  const f = fixture(), original = f.claim('听到港口故事');
+  original.occurred = { text: '上周', earliest: null, latest: null };
+  const revised = { ...original, revision: 2, reasons: [f.span(4)],
+    occurred: { text: '三月中旬', earliest: null, latest: null }, valid: { text: '自四月起', earliest: null, latest: null },
+    supports: [{ id: 'corrected', premises: [f.span(4)], assumptions: [] }] };
+  const history = [original, revised];
+  const view = sourceReading(history, [3], 2, f.read), current = view.sources[0].notices[0].current!;
+  assert.equal(current.text, original.text); assert.deepEqual(current.occurred, revised.occurred); assert.deepEqual(current.valid, revised.valid);
+  assert.match(sourceReadingHeader(view, 3), /三月中旬/); assert.match(sourceReadingHeader(view, 3), /自四月起/);
+  const hidden = sourceReading(history, [3], 2, (id) => id === 4 ? undefined : f.read(id), f.read);
+  assert.equal(hidden.sources[0].notices[0].current, null); assert.ok(!JSON.stringify(hidden).includes('三月中旬'));
+  assert.equal(original.occurred.text, '上周');
+});
+
 test('隐藏纠正 / 反证不泄漏正文，也不因隐藏反证而重新报告支持；不可访问原文无正文入口', () => {
   const f = fixture(), countered = { ...f.quote, revision: 2, supports: [{ id: 'direct', premises: [f.span(3)], assumptions: [] }],
     counters: [{ id: 'counter', premises: [f.span(4)], assumptions: [] }], text: '含不可见纠正内容的认识' };

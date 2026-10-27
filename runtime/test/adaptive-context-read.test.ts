@@ -138,3 +138,29 @@ test('同步读取回调超过截止也不把结果返回为成功', async () =>
     }), /读取超时/);
   } finally { Date.now = now; }
 });
+
+test('时间纠正保留原消息日期，实际 context_read 每页与 recall 均带新时间', async () => {
+  const first = store.addMessage('user', '合成', '上周在港口听到一个故事。', { session: session.conv });
+  queue.schedule();
+  const original: ClaimRecord = { ...claim, id: crypto.randomUUID(), text: '在港口听到一个故事', reasons: [span(first)],
+    occurred: { text: '上周', earliest: null, latest: null }, supports: [{ id: 'first', premises: [span(first)], assumptions: [] }] };
+  function install(record: ClaimRecord, ids: number[], processor: string) {
+    queue.scheduleSource(processor, ids.at(-1)!);
+    assert.equal(archive.accept(queue.claim(processor)!, ids.map((id) => { const s = queue.source(id)!; return { id, revision: s.revision, hash: s.hash }; }),
+      { baseGeneration: archive.generation(), records: [record] }), true);
+  }
+  install(original, [first], 'time-original');
+  const before = store.db.prepare('SELECT ts,text FROM messages WHERE id=?').get(first);
+  const corrected = store.addMessage('user', '合成', '更正，是三月中旬听到的，四月才写下来。', { session: session.conv });
+  queue.schedule();
+  install({ ...original, revision: 2, occurred: { text: '三月中旬', earliest: null, latest: null }, reasons: [span(corrected)],
+    supports: [{ id: 'corrected', premises: [span(corrected)], assumptions: [] }] }, [first, corrected], 'time-corrected');
+  store.saveContextSource('time-message', session.conv, JSON.stringify({ messageRef: { id: first, conv: session.conv } }));
+  for (const offset of [0, 20, 40]) {
+    const result = await callTool('context_read', { ref: 'time-message', offset, limit: 20 }, '合成', { session });
+    assert.equal(result.status, 'ok'); assert.match(result.text, /"occurred":\{"text":"三月中旬","earliest":null,"latest":null\}/);
+  }
+  const result = await callTool('recall', { query: '港口', scope: 'chats' }, '合成', { session });
+  assert.equal(result.status, 'ok'); assert.match(result.text, /三月中旬/); assert.match(result.text, /上周在港口/);
+  assert.deepEqual(store.db.prepare('SELECT ts,text FROM messages WHERE id=?').get(first), before);
+});
