@@ -31,12 +31,12 @@ async function sse(url: string, headers: Record<string, string>, body: unknown, 
   if (r.signal?.aborted) kill("session"); else r.signal?.addEventListener("abort", outer, { once: true });
   const fail = (e: any): never => {
     if (e instanceof ProviderError) throw e;
-    if (why === "session") throw new ProviderError("会话已中止", 0, true);
-    if (why === "idle") throw new ProviderError(`网络错误：超时（${LLM_IDLE_MS / 1000} 秒没有收到任何数据）`);
-    if (why === "content") throw new ProviderError(`网络错误：超时（${LLM_CONTENT_IDLE_MS / 1000} 秒只收到保活、没有任何内容）`);
+    if (why === "session") throw new ProviderError("会话已中止", 0, true, 'cancelled');
+    if (why === "idle") throw new ProviderError(`网络错误：超时（${LLM_IDLE_MS / 1000} 秒没有收到任何数据）`, 0, false, 'idle_timeout');
+    if (why === "content") throw new ProviderError(`网络错误：超时（${LLM_CONTENT_IDLE_MS / 1000} 秒只收到保活、没有任何内容）`, 0, false, 'content_timeout');
     const msg = String(e?.message ?? e);
     if (/ByteString/.test(msg)) throw new ProviderError("请求头含有非 ASCII 字符（多半是 API Key 粘错了：请到模型页重新添加 Key）");
-    throw new ProviderError(`网络错误：${msg}`);
+    throw new ProviderError(`网络错误：${msg}`, 0, false, 'network');
   };
   try {
     let res: Response;
@@ -47,7 +47,7 @@ async function sse(url: string, headers: Record<string, string>, body: unknown, 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       const immediate = [400, 401, 403, 404].includes(res.status); // 按状态码：这几种换 Key 也没用，直接换下一个模型（不按报错文字猜）
-      throw new ProviderError(`HTTP ${res.status}：${text.slice(0, 300)}`, res.status, immediate);
+      throw new ProviderError(`HTTP ${res.status}：${text.slice(0, 300)}`, res.status, immediate, 'http');
     }
     if (!(res.headers.get("content-type") ?? "").includes("text/event-stream")) {
       const text = await res.text().catch(fail);
@@ -256,7 +256,8 @@ async function google(t: Target, r: ChatRequest): Promise<ChatResult> {
   };
   const j = await sse(`${base(t.baseUrl)}/models/${t.model}:streamGenerateContent?alt=sse`, { "x-goog-api-key": t.apiKey, ...t.headers }, {
     contents, systemInstruction: system ? { parts: [{ text: system }] } : undefined,
-    generationConfig: { maxOutputTokens: r.maxTokens ?? t.maxTokens, temperature: r.temperature },
+    generationConfig: { maxOutputTokens: r.maxTokens ?? t.maxTokens, temperature: r.temperature,
+      ...(r.responseSchema ? { responseMimeType: 'application/json', responseSchema: r.responseSchema } : {}) },
     ...(r.tools?.length ? { tools: [{ functionDeclarations: r.tools.map((f) => ({ ...f, parameters: geminiSchema(f.parameters) })) }] } : {}),
   }, r, (c) => onChunk(c, true));
   if (j) for (const c of Array.isArray(j) ? j : [j]) onChunk(c, false);

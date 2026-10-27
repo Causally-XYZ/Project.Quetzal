@@ -21,5 +21,8 @@ export type { ToolCall, ImagePart, Msg, ToolDef, ChatRequest, ChatResult } from 
 
 export class ProviderError extends Error {
   status: number; immediate: boolean;
-  constructor(message: string, status = 0, immediate = false) { super(message); this.status = status; this.immediate = immediate; }
+  reason?: 'idle_timeout' | 'content_timeout' | 'cancelled' | 'network' | 'http' | 'protocol';
+  constructor(message: string, status = 0, immediate = false, reason?: ProviderError['reason']) {
+    super(message); this.status = status; this.immediate = immediate; this.reason = reason;
+  }
 }

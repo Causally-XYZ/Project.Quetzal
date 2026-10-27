@@ -204,3 +204,5 @@ adapters/
 `tool/adaptive-eval/controlled-graph.ts` 仅用于 AM-07 受控输入：先暂停空闲中心，复制当前控制消息，用正式 archive.accept 完成 semantic-v1 任务及受控初始图 / 撤回版本，然后恢复正常发布与依赖重评。控制消息不再次抽取，查询 / 回答仍按正常历史处理；后台模型结果不由运行器改写。control 文件先于后台恢复保存，快照包含五条受控认识的当前状态与版本历史，另保存实际网关语义查询。只在声明受控模式的测试子进程开放内部 IPC，不新增产品 RPC、配置、依赖或灵魂格式；现有 tsconfig import 链和测试 glob 已包含。
 
 认识 v2 的 claim.references 区分跨语境对象指向与事实前提；recordRefs 包含指向依赖，realmBoundRefs 保留身份 / participants / 支持 / 反证的同语境约束。evaluateEvidence 要求引用提及当前可解歧，但不能靠引用单独支持结论；graph 安装拒绝 node 改 realm。query / packet 保留引用角色、语境与版本，reading 的修订提示带当前引用角色、语境与名称。提案 schema 新增 references，重评对象候选覆盖目标及其明确引用语境。新写 result-v2 / semantic-v2，archive / material 读取兼容旧 v1，旧语义不能携带新字段；查询发送 v2、接收兼容无新字段的 v1。没有新增表、配置、依赖或构建入口，现有 import 链与测试 glob 覆盖；灵魂规范 v14 的 Markdown 目录不变，完整混合版本部署仍待后续验收。
+
+`adaptive-model.ts` 按 router.prepareForModel 提供的 structuredOutput 能力准备提案：Google 的 schema 通过 generationConfig 发送，其他协议继续完整提示协议；两者均预算全部 schema，普通对话不设置 responseSchema。既有严格 JSON、截断 / 工具输出拒绝及宿主认识校验保留。ProviderError 新增可选固定原因码；开发 model-observer 保存实际 responseSchema 与白名单原因，不保存供应商错误正文。没有新增依赖、配置、迁移或构建入口，现有类型检查 / 测试 glob 覆盖。

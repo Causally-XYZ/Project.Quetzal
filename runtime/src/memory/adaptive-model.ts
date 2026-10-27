@@ -9,17 +9,22 @@ export type ProposalUsage = { model: string } & ChatResult['usage'];
 export async function generateAdaptiveProposal(prompt: ReturnType<typeof proposalPrompt>, signal: AbortSignal,
   report?: (usage: ProposalUsage) => void): Promise<unknown> {
   signal.throwIfAborted();
-  const messages: ChatRequest['messages'] = [
-    { role: 'system', content: `${prompt.system}\nReturn exactly one JSON object conforming to this response schema. Do not call tools or add Markdown fences.\n${JSON.stringify(prompt.schema)}` },
+  const schema = JSON.stringify(prompt.schema);
+  const messagesFor = (native: boolean): ChatRequest['messages'] => [
+    { role: 'system', content: `${prompt.system}\nReturn exactly one JSON object conforming to this response schema. Do not call tools or add Markdown fences.\n${native ? 'The response schema is supplied through the structured output configuration.' : schema}` },
     { role: 'user', content: redactSecrets(prompt.user) },
   ];
-  const requiredInput = messages.reduce((n, m) => n + estimateTextTokens(m.content) + 32, 512);
+  const messages = messagesFor(false);
+  // 原生 schema 也占输入窗口；对提示与协议两种路径取较大完整预算。
+  const budget = (items: ChatRequest['messages']) => items.reduce((n, m) => n + estimateTextTokens(m.content) + 32, 512);
+  const requiredInput = Math.max(budget(messages), budget(messagesFor(true)) + estimateTextTokens(schema));
   const request: ChatRequest = { messages, maxTokens: 16384, signal,
-    prepareForModel: async ({ contextWindow, maxOutputTokens }) => {
+    prepareForModel: async ({ contextWindow, maxOutputTokens, structuredOutput }) => {
       signal.throwIfAborted();
       if (requiredInput + maxOutputTokens > contextWindow)
         throw new ContextOverflow('认识提案的完整来源与格式超出模型窗口', contextWindow, requiredInput + maxOutputTokens);
-      return { messages, maxTokens: maxOutputTokens, signal };
+      return { messages: messagesFor(!!structuredOutput), maxTokens: maxOutputTokens, signal,
+        ...(structuredOutput ? { responseSchema: prompt.schema } : {}) };
     } };
   // 全局主模型顺序及现有故障转移；不按 quick 配置挑选复杂身份抽取模型。
   const result = await chat(request);

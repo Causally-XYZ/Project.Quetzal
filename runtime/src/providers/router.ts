@@ -64,10 +64,12 @@ export async function chat(req: ChatRequest, opts: { quick?: boolean; prefer?: s
         // 每个候选模型分别从完整来源准备视图，故障转移不沿用上一模型的窗口。
         const contextWindow = Number.isSafeInteger(r.model.context) && r.model.context > 0 ? r.model.context : config.brain.contextWindow;
         const maxOutputTokens = Math.max(1, Math.min(req.maxTokens ?? r.model.maxTokens, r.model.maxTokens || 4096, Math.floor(contextWindow / 4)));
-        const prepared = req.prepareForModel ? await req.prepareForModel({ contextWindow, maxOutputTokens, model: `${r.provider.id}/${r.model.id}` }) : req;
+        const structuredOutput = t.protocol === 'google-generative-ai';
+        const prepared = req.prepareForModel ? await req.prepareForModel({ contextWindow, maxOutputTokens, model: `${r.provider.id}/${r.model.id}`, structuredOutput }) : req;
         req.signal?.throwIfAborted();
         // prepare 回调可能返回完整图片来源；不能恢复原本因缺少看图模型而去掉的图片。
         const view = forImages({ ...prepared, maxTokens: maxOutputTokens }, [r]).req;
+        if (view.responseSchema && !structuredOutput) throw new ProviderError('该协议尚未接入原生结构化输出', 0, true, 'protocol');
         const res = await adapters[t.protocol](t, view);
         const c = r.model.cost;
         addUsage(`${r.provider.name}/${r.model.name}`, res.usage.input, res.usage.output,

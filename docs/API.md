@@ -352,6 +352,8 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 | `testModel` | `{providerId, model}` | `{ok, latencyMs, message}` |
 | `moveModel` / `toggleModel` | `{modelId, delta}` / `{modelId}` | 快捷调整全局顺序与启停 |
 
+内部 ChatRequest 增加可选 responseSchema；prepareForModel 的 structuredOutput 标记表示该路由已接入原生约束发送（目前仅 Google 协议），不保证所有模型 / schema 均支持。Google 发送 application/json 与 responseSchema；其他协议若仍收到显式原生约束则拒绝，不默默忽略。记忆提案按候选能力选择原生约束或完整提示协议，普通聊天不变。此为内部模型协议，不新增控制台配置、网关参数、存储格式或环境变量。
+
 供应商配置结构：
 
 模型的 `context` 用于带 `prepareForModel` 的生产工具循环请求，每个候选/故障转移重新从完整来源准备窗口视图；无有效 context 时使用 `brain.contextWindow`。文本采用UTF-8字节保守估计，不是真tokenizer。输出实际取请求上限、模型 `maxTokens` 与窗口四分之一中的较小值（至少1）。quick内省、摘要和记忆选择等直接chat请求不等于都经同一个动态上下文管理器。`vision` 为可选看图设置，优先于公共目录。

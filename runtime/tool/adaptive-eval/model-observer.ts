@@ -8,9 +8,9 @@ import type { ChatRequest, ChatResult } from '../../src/providers/types.ts';
 
 export interface ObservedCall {
   id: number; phase: string; purpose: 'proposal' | 'conversation'; model: string; start: number;
-  request: { messages: ChatRequest['messages']; tools: ChatRequest['tools']; maxTokens: number | undefined };
+  request: { messages: ChatRequest['messages']; tools: ChatRequest['tools']; maxTokens: number | undefined; responseSchema?: ChatRequest['responseSchema'] };
   state: 'running' | 'returned' | 'failed'; elapsedMs?: number; firstTextMs?: number; firstChunkMs?: number;
-  result?: ChatResult; failure?: { category: string; status: number | null; usage: null }; transport: VertexReceipt[];
+  result?: ChatResult; failure?: { category: string; status: number | null; reason?: string; usage: null }; transport: VertexReceipt[];
 }
 export async function observeModel(options: { directory: string; model: string; kind: 'live' | 'stub'; maxCalls: number; stubFailAt?: number; stubReviewDelayMs?: number }) {
   if (!vertexModels.includes(options.model) || !Number.isSafeInteger(options.maxCalls) || options.maxCalls < 1 || options.maxCalls > 100)
@@ -34,7 +34,8 @@ export async function observeModel(options: { directory: string; model: string; 
   });
   adapters['google-generative-ai'] = (target, request) => {
     const call: ObservedCall = { id: calls.length + 1, phase, purpose: request.messages[0]?.content.includes('Return exactly one JSON object conforming to this response schema.') ? 'proposal' : 'conversation',
-      model: target.model, start: Date.now(), request: { messages: structuredClone(request.messages), tools: structuredClone(request.tools), maxTokens: request.maxTokens }, state: 'running', transport: [] };
+      model: target.model, start: Date.now(), request: { messages: structuredClone(request.messages), tools: structuredClone(request.tools), maxTokens: request.maxTokens,
+        ...(request.responseSchema ? { responseSchema: structuredClone(request.responseSchema) } : {}) }, state: 'running', transport: [] };
     calls.push(call); save(call.id, 'start', call);
     const task = context.run(call, async () => {
       try {
@@ -62,7 +63,8 @@ export async function observeModel(options: { directory: string; model: string; 
       } catch (error) {
         call.state = 'failed'; call.failure = { category: controller.signal.aborted || request.signal?.aborted ? 'cancelled'
           : call.id > options.maxCalls ? 'call-budget' : options.kind === 'stub' ? 'stub-failure' : 'provider-failed',
-          status: error instanceof ProviderError ? error.status : null, usage: null };
+          status: error instanceof ProviderError ? error.status : null, usage: null,
+          ...(error instanceof ProviderError && error.reason && ['idle_timeout', 'content_timeout', 'cancelled', 'network', 'http', 'protocol'].includes(error.reason) ? { reason: error.reason } : {}) };
         throw new ProviderError('评测模型调用失败，详情只记录安全分类', 0, true);
       } finally { call.elapsedMs = Date.now() - call.start; save(call.id, 'end', call); }
     });

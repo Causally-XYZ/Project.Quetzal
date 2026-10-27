@@ -589,6 +589,8 @@ flowchart LR
 - Key 用 AES-256-GCM 加密，供应商 id 作为附加认证数据；对外只返回末四位。
 - 模型目录来自 models.dev（含上下文长度、价格），也可以从供应商的 models 接口拉取，或手动添加自定义模型。
 - 可指定一个 quick（内省）模型，用于醒来时的轻量判断。
+- 记忆提案的 Google 路由发送原生 responseMimeType / responseSchema，schema 不在系统提示中重复；其他协议重新准备原有完整 schema 提示。结构化输出不代替宿主 JSON / 引用 / 版本校验，格式拒绝不剥围栏重试。适配器可以发送约束不保证每个模型接受该 schema，供应商拒绝时沿既有路由故障转移。普通对话不启用，两条路径都为完整 schema 预留窗口。
+- ProviderError 可携带固定原因码（无数据超时、无内容超时、取消、网络、HTTP、协议），开发评测只记录白名单原因及状态，不保存错误正文。原因码不改变90秒无数据 / 180秒无内容时限或故障转移决策。
 - Google 用量按 prompt + tool-use prompt 计输入、candidate + thoughts 计输出，流式累计快照不重复相加，缺字段不清零。可选 reasoning 是输出子集，total 保留供应商报告；每日 SQLite / 多身体用量沿用 input / output 汇总。费用按配置的输入 / 输出单价估算，不含缓存折扣等完整账单规则；未返回用量的失败调用仍无法精确核算，旧日记录不追溯补算。
 - 换下一个模型还是换下一把 Key 只看 HTTP 状态码（400 / 401 / 403 / 404 换模型，其余先换 Key），不按报错文字猜。快速接入（`providers/quick.ts`）按公共目录的事实挑候选：目录写明能调工具、输出模态里有文字的；正式的在前，目录标为 alpha / beta 的其次，已弃用的最后（不按模型名里有没有 preview、image 之类去猜）；试到 HTTP 401 就停（Key 不对，换哪个模型都一样）。Key 只查确定的形状（不能为空、只能是可打印 ASCII、不能有空白），不按长短判断像不像 Key。
 - **供应商兼容层**（`providers/compat/`）：个别供应商有额外约定，由独立的兼容模块处理，只在识别到对应供应商时自动生效，核心适配器保持通用。每次醒来或交谈生成一个会话标识，随请求传给兼容模块。目前有 **OpenCode Go**（[官方文档](https://opencode.ai/docs/go/)），在目录 ID 为 `opencode-go` 或地址为 `opencode.ai/zen/go` 时生效：

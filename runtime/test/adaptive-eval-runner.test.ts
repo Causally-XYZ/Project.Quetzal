@@ -32,6 +32,9 @@ test('评测执行链逐步释放并经真实网关回答，记录复制/自动�
       const consumer = i === 1 ? 'center' : 'satellite';
       const calls = cp.postAnswer[consumer].calls.filter((c: any) => c.purpose === 'conversation');
       assert.ok(calls.length); assert.ok(JSON.stringify(calls.at(-1).request).includes('蓝色船屋'));
+      const proposals = cp.postAnswer.center.calls.filter((c: any) => c.purpose === 'proposal');
+      assert.ok(proposals.length); assert.ok(proposals.every((c: any) => c.request.responseSchema?.properties?.records));
+      assert.ok(calls.every((c: any) => !c.request.responseSchema), '普通回答不继承提案格式');
       assert.ok(cp.postAnswer.center.publications.every((p: any) => p.state === 'published'));
     }
     for (const stop of result.shutdown) { assert.equal(stop.forced, false); assert.equal(stop.exitCode, 0); assert.throws(() => process.kill(stop.pid, 0)); }

@@ -35,3 +35,5 @@ npm run build --prefix engine
 生产宿主的现实现见 [动态上下文](../../docs/engine/DYNAMIC_CONTEXT.md)、[结构化记忆](../../docs/engine/STRUCTURED_MEMORY.md) 与 [PRIME](../../docs/engine/PRIME_CORE.md)。窗口预算是字节保守估计；内核状态与端口可执行不等于真实模型质量或论文收益已经得到验证。
 
 宿主可在 ToolResult.reading 返回不透明读取凭据，引擎仅传给 recordTool，不解释或注入模型。工具 Msg.atomic 由宿主在准备视图时设置，使 ContextManager 保留完整工具内容而不做头尾节选；完整组仍按既有规则摘要 / 引用，固定组放不下则溢出。无新依赖，类型检查和现有构建入口包含这些可选协议字段。
+
+ChatRequest 可带 responseSchema，并通过 prepareForModel 的可选 structuredOutput 能力标记按路由准备请求。此协议不绑定供应商、不会把合法格式当作正确语义；当前宿主实现和限制见[引擎边界](ARCHITECTURE.md)。无新增依赖或构建入口。

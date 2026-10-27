@@ -8,7 +8,8 @@ export type Msg =
 export interface ToolDef { name: string; description: string; parameters: Record<string, unknown> }
 export interface ChatRequest {
   messages: Msg[]; tools?: ToolDef[]; maxTokens?: number; temperature?: number;
-  prepareForModel?: (limits: { contextWindow: number; maxOutputTokens: number; model: string }) => Promise<ChatRequest>;
+  responseSchema?: Record<string, unknown>; // 宿主支持的原生结构化输出约束；不是结果校验或语义正确保证。
+  prepareForModel?: (limits: { contextWindow: number; maxOutputTokens: number; model: string; structuredOutput?: boolean }) => Promise<ChatRequest>;
   session?: string; // 一次对话的稳定标识（同一次醒来 / 同一段交谈的多轮调用相同），供需要的供应商使用
   signal?: AbortSignal; // 外部中止（会话时间墙）
   onChunk?: () => void; // 收到任何流数据块（用于重置会话时间墙）

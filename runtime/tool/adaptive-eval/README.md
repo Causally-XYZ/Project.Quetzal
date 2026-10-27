@@ -85,3 +85,5 @@ Artifact 的 checkpoint 为 `<track>/<step>`，包含五类 surface 之一、内
 complete 声明需要每检查点五类材料及 pipelineComplete 事件，否则整份回执无效；failed / interrupted 已取得的有效审核仍可统计，未取得的检查保留分母。CLI 对单个计划限制64 KiB、回执32 MiB，解析文件须为评测目录内的普通文件。汇总只打印分数和安全错误码，不打印原始材料。
 
 **信任边界**：哈希不是签名，JSON Pointer 不是语义证明，live / reviewer / pipelineComplete 是受信运行与审核流程写下的声明。评分器不能阻止伪造整套回执；必须核查原始运行日志和审核 provenance，不能让被测模型生成整份回执后直接作为成绩。测试文件有意构造标 live 的占位回执来测试算术，明确不是正式执行证据或已审核语义。
+
+模型旁路记录现包含实际 ChatRequest.responseSchema（如果有），不能只保存 messages 后漏掉供应商原生约束。Google 提案原生发送 schema，普通对话不启用；其他协议按宿主现有路由准备提示。失败只新增白名单 reason（idle_timeout / content_timeout / cancelled / network / http / protocol），不保存任意异常正文、端点或凭据。旧记录没有 reason 时保持缺失，不追溯猜填；原因分类不改变时限、重试或语义评分。
