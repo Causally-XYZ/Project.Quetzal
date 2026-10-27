@@ -1,0 +1,9 @@
+{
+  "name": "quetzal-retrieval-contract-probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1"
+  }
+}

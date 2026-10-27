@@ -85,3 +85,6 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 跨语境关系由 claim.references 表示，角色可开放描述，目标提及保留自己的语境和身份；participants、支持与反证不能跨语境借用事实。引用目标的歧义 / 修订也影响关系可用性。内部存档和语义查询已升版，新读取器兼容旧认识；旧程序读取新结果会拒绝，不能静默使用旧投影。详见[语义格式](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。公开 `pilot:adaptive-multibody -- --case=realm` 可运行现实亲属 / 同名小说角色 / 后续纠正开发案例，不修改冻结留出集，默认仍为 stub。
 
 Google 记忆提案通过原生结构化输出发送 schema；其他协议继续提示格式并严格解析。故障转移会按新候选重新准备 schema 和窗口；供应商约束不替代宿主形状 / 来源 / 版本校验。普通对话不变，无新增依赖、配置或部署步骤。`adaptive-structured-output.test.ts` 检查实际 HTTP 请求 / 跨协议故障转移，`provider-failure-reason.test.ts` 检查固定失败分类及既有超时边界；开发记录保留实际 schema，缺失用量不填零。
+
+
+`tool/adaptive-retrieval-probe/` 为独立开源改述召回实验：完整开发锁、固定模型摘要、公开夹具、实际词面函数与上游 RRF。`--lexical-only` 已实际运行；完整嵌入 / 混合结果尚待依赖和权重完整核验。准备工具仅下载固定公开文件，支持中断续传；模型推理前再次核对全部文件，禁止远程自动取模型。所有依赖、模型和结果放仓库外，不进入 runtime 的 package / tsconfig / main 构建，无生产配置变化。复跑与边界见[探针说明](../tool/adaptive-retrieval-probe/README.md)。
