@@ -1,8 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { sourceReading, sourceReadingHeader } from '../src/memory/adaptive-reading.ts';
+import { sourceReading, sourceReadingHeader, sourceRecordedAt } from '../src/memory/adaptive-reading.ts';
 import type { SemanticRecord, ObjectRecord, MentionRecord, ClaimRecord, SourceSpan } from '../src/memory/adaptive-evidence.ts';
+
+test('消息时间缺失、非数值或超出日期范围时保持未知，不回填当前时间', () => {
+  assert.equal(sourceRecordedAt(0), '1970-01-01T00:00:00.000Z');
+  for (const value of [undefined, null, NaN, Infinity, 1e20, '2026-04-10']) assert.equal(sourceRecordedAt(value), null);
+});
 
 function fixture() {
   const sources = new Map([[1, '编辑叫阿舟'], [2, '弟弟也叫阿舟'], [3, '阿舟劝我，我决定补写'], [4, '更正，饭友是弟弟，引语是我说的']]);

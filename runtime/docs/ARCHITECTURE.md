@@ -218,3 +218,6 @@ adapters/
 
 
 `adaptive-query.ts` 的 semanticCandidates 为派生索引提供与当前查询相同门禁的输入及摘要；selectSemantic 的可选近邻只允许匹配当前候选 / 查询，失效摘要不能参与结果。`adaptive-ranking.ts` 移植固定 Graphiti RRF，由既有 main 构建自动纳入，许可已加入随包 NOTICE。adaptive-vector.ts 管理独立 worker、候选快照确认和有界请求；adaptive-vector-worker.ts 使用固定 E5，文档块128 token、查询块480 token，最多128块，按最大分块相似度推荐候选。派生 SQLite 缓存按 agent / 模型空间 / 候选摘要绑定，逐候选原子提交，更新移除旧 key；查询只收 key，仍在权威快照复核。中心既有 semantic 开关开启时，adaptive-component 自动在后台准备固定组件再加载；空闲快照刷新间隔至少2秒，单块间优先查询，停止时等待原生调用结束并 dispose。准备过程由持久完成标记、可续传文件和 npm 缓存恢复；故障退避、关闭取消 npm 进程树。依赖加载故障会废弃依赖完成标记并重装；SQLite 确定损坏隔离后重建，busy 不删库。候选暂时失败2至60秒重试，分块超限 blocked；错误码和进度经既有状态接口提供。未准备时仍用词面查询，无新配置或 RPC。开发探针另有显式 ADC 嵌入对照，复用既有认证 / 传输，不进入生产模型路由。
+
+
+`withAdaptiveSources` 在已有 SQLite / 灵魂读取边界内为可见来源附加 recordedAt（有效消息毫秒时间转换为 UTC，否则 null）。`historyReading` 将已核对 sources 送入 `adaptiveSemanticContext`，逐根比对 hash 后生成来源时间材料；不改 RPC v2 或认识正文。近况逐条标注记录时间，session.updated 只作为会话更新信息。`sourceRecordedAt` 不把缺失 / 损坏值补成当前时间；记录时间不填入事件时间。模型准备的既有复核覆盖该材料与时间变化。提案提示要求每个 reported 角色有来源，允许缺少未知参与角色，必要推断另建 inferred / hypothesis；提示约束仍须真实语义评测。

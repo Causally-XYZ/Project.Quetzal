@@ -61,7 +61,7 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
   const tools = prepareToolReadings(toolRecords, turns.get(turn)?.shared ? conv : '');
   const ids = [...new Set([...historyIds, ...records.flatMap(materialSources), ...system.sources, ...tools.sources, ...semanticSources])];
   return withAdaptiveSources(ids, (view) => {
-    if (!view) return { messages, records, key: '', basis: undefined, previousValid: true, answerSources: undefined };
+    if (!view) return { messages, records, key: '', basis: undefined, previousValid: true, answerSources: undefined, sourceReadings: [] };
     const systemViews = system.render(view);
     const toolViews = tools.render(view, (record) => {
       const ref = `${turn}/tool:${record.call}`;
@@ -121,7 +121,7 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
       return result;
     });
     const key = crypto.createHash('sha256').update(JSON.stringify([keyFor(ids), checkedRecords, [...systemViews.values()], [...toolViews.values()]])).digest('hex');
-    return { messages: fresh, records: checkedRecords, key, answerSources: view.sources.map(answerSource), basis: { sources: historyIds, key: keyFor(historyIds) },
+    return { messages: fresh, records: checkedRecords, key, sourceReadings: view.sources, answerSources: view.sources.map(answerSource), basis: { sources: historyIds, key: keyFor(historyIds) },
       previousValid: !!inheritedBasis && keyFor(inheritedBasis.sources) === inheritedBasis.key };
   }, signal);
 }
@@ -203,7 +203,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
           });
           const plan = await manager.prepare({ messages: reading.messages, tools: request.tools, contextWindow, maxOutputTokens,
             protectedFrom, state: context.state, signal,
-            memory: [...adaptiveContext(adaptive), ...adaptiveSemanticContext(semantic), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...reading.records.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
+            memory: [...adaptiveContext(adaptive), ...adaptiveSemanticContext(semantic, reading.sourceReadings), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...reading.records.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
               priority: record.kind === 'fact' || record.preference === 'explicit' ? 2 : 1,
               reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
           });

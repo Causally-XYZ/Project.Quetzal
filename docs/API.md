@@ -252,6 +252,8 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 语义查询信封现发送 version 2；新版接收器仍接受不带 references 的 version 1。claim 可带 references，每项含 role、mention、引用对象的 realm 与 object（id / revision / name）；对象指向不是事实前提，仍核对全部依赖及来源版本。旧版本查询失败时空降级，不删字段冒充兼容。M1 原文 packet 仍为 version 1。内部存档升为 result-v2 / semantic-v2 并兼容旧记录，详见语义与发布协议；灵魂规范的 Markdown 路径不变。
 
+模型材料的来源核对附带原消息 recordedAt（UTC；无法核对则 null），由接收身体在同一 SQLite 快照内读取，只有可见来源且 hash 匹配认识根时才注入。它是记录时间，不是 occurred / valid；缺失时不得用会话更新时间或当前时间替代。该信息只属于本地材料，不增添语义 RPC 信封字段、灵魂格式或迁移。历史消息时间变更参与既有来源 hash 和材料复核。
+
 零命中、unavailable、unsupported 均不表示所问事实为假；否定也须有适用来源与时间。普通对话与后台提案现包含这一提示规则，不新增 API 字段或真值判定保证；公开真实模型仍有失败，见[阶段记录 §4.35](engine/ADAPTIVE_MEMORY_PROGRESS.md#435-m2-未知与否定的证据边界2026-10-27)。
 
 正常回答的消息行可带 answerBasis（null 或 version 1 对象）：agent、answerHash、consistent 与 sources[{id,hash,reading}]。这是宿主生成的消息来源依赖，随既有消息复制；不新增 RPC，客户端不应将其显示为“事实已验证”。原始历史接口继续保留回答正文；模型使用的历史 / 近况 / context_read / recall 在来源 changed 时返回占位与当前修订。旧消息缺少凭据时明确 unbound；来源文件与其他派生依赖仍有覆盖缺口，完整约定见[读取语义](engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。

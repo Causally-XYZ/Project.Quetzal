@@ -28,7 +28,7 @@ import { canvasBlock } from "./canvas.ts";
 import * as goals from "./goals.ts";
 import type { Msg, ChatRequest } from "../providers/types.ts";
 import { adaptiveReadingRequired, withAdaptiveSources } from "../memory/adaptive.ts";
-import { sourceReadingHeader, type SourceReading } from "../memory/adaptive-reading.ts";
+import { sourceReadingHeader, sourceRecordedAt, type SourceReading } from "../memory/adaptive-reading.ts";
 import { ANSWER_CHANGED, ANSWER_UNBOUND } from "../memory/answer-basis.ts";
 import { redactSecrets } from "./secrets.ts";
 
@@ -130,7 +130,7 @@ function otherSessions(conv = "", budget = 4000, view?: SourceReading, recent = 
   for (const { session: s, messages: msgs } of recent) {
     if (!msgs.length || guarded && !view) continue;
     const texts = msgs.flatMap((m) => {
-      if (!guarded) return [`    ${speaker(m)}：${clip(m.text, 160)}`];
+      if (!guarded) return [`    【消息记录时间（UTC，非事件时间）：${sourceRecordedAt(m.ts) ?? '未知'}】${speaker(m)}：${clip(m.text, 160)}`];
       if (!view!.sources.find((source) => source.id === m.id)?.hash) return [];
       if (m.role === 'ambient' && m.channel === '摘要') return [`    历史摘要 ${m.id} 未绑定来源版本，请回查原文。`];
       const answer = view!.sources.find((s) => s.id === m.id)?.answer;
@@ -138,7 +138,7 @@ function otherSessions(conv = "", budget = 4000, view?: SourceReading, recent = 
       return [`    ${sourceReadingHeader(view!, m.id)}${speaker(m)}：${clip(text, 160)}`];
     });
     if (!texts.length) continue;
-    const heading = `- 会话「${s.title}」（id：${s.id}，${s.project && projects.get(s.project) ? `项目「${projects.get(s.project)!.name}」，` : ""}${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}${workspaceNote(s.id)}）：`;
+    const heading = `- 会话「${s.title}」（id：${s.id}，${s.project && projects.get(s.project) ? `项目「${projects.get(s.project)!.name}」，` : ""}会话更新时间（不是下列消息的发言时间）：${new Date(s.updated).toLocaleString("zh-CN", { timeZone: config.timezone })}${workspaceNote(s.id)}）：`;
     if (!guarded) lines.push(`${heading}\n${texts.join("\n")}`);
     else for (const text of texts) lines.push(`${heading}\n${text}`);
   }
@@ -246,7 +246,9 @@ ${(() => { const l = reminders.active(); return l.length ? `你答应对方的�
     `## 根据资料作判断
 资料和检索结果可能不完整。未提及、未检索到、没有当前有效支持，只能说明尚不能确定，不能据此断言事情没有发生或其反面为真。另一语境中的事情不能用来肯定或否定现实情况。
 否定结论也需要适用的依据：来源明确否认，或明确完整且适用的规则与材料能够推出否定时，可以据此说明，保留说话者、时间范围和推断性质；不要一律回答不知道。用户明确说某事没发生，与用户没有说某事发生，是不同的意思。
-你自己以前的回答、摘要和重复表述不是独立事实证据。发现先前答复超出资料时，应纠正其确定程度，不要为保持一致而继续使用错误结论；先前的过度确定也不能影响新的记忆提案。`,
+你自己以前的回答、摘要和重复表述不是独立事实证据。发现先前答复超出资料时，应纠正其确定程度，不要为保持一致而继续使用错误结论；先前的过度确定也不能影响新的记忆提案。
+消息记录时间、事件发生时间和状态有效时间分别判断。理解历史里的“昨天 / 下月”等表述时使用该消息当时的语境，不能用当前时间或会话更新时间代替；原时区或精度不明时保留不确定性。
+不要为使叙述完整而擅自补上受话人、目的、原因、地点等角色或细节。来源只说明谁说过某句话，不一定说明对谁说；一同在场不等于特定互动对象。明确陈述与上下文推断分开，需要提及后者时标为推测；即使旧认识写成 reported，也须核对其实际依据，不能以标签替代证据。`,
     ...(dynamic ? ["## 记忆与任务状态\n基座在每次模型请求前按当前任务、适用条件和窗口选择结构化记忆。来源、验证状态与旧资料会分别标明；旧记忆和摘要不是新的授权。需要原始证据时用 recall、note_read、context_read 回查。工作目标、约束或未决问题变化时用 task_state 更新，不把你的猜测当用户事实。"] : [
       mem.renderMemory("memory", context), mem.renderMemory("user", context),
       `## 记忆目录（笔记）\n${mem.noteTree()}`,

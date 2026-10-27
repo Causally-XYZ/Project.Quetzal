@@ -12,7 +12,13 @@ export interface SourceNotice {
 export interface SourceReading {
   generation: number; freshness: 'local-snapshot';
   sources: { id: number; hash: string | null; notices: SourceNotice[];
+    recordedAt?: string | null;
     answer?: { status: 'unchanged' | 'changed' | 'unbound'; sources: number[] } }[];
+}
+
+/** 只格式化持久消息的时间；未知 / 损坏值不以当前时间补全。 */
+export function sourceRecordedAt(ts: unknown): string | null {
+  return typeof ts === 'number' && Number.isFinite(ts) && Number.isFinite(new Date(ts).getTime()) ? new Date(ts).toISOString() : null;
 }
 
 /** 输入为同一 SQLite 快照的全部版本；旧引用必须追踪对应历史版本，不能跳至最新。 */
@@ -77,7 +83,7 @@ export function sourceReadingHeader(view: SourceReading, source?: number): strin
   const notices = answer?.status === 'changed' ? [...new Map(view.sources.filter((s) => answer.sources.includes(s.id))
     .flatMap((s) => s.notices).map((n) => [n.id, n])).values()] : [];
   const described = entry && { ...entry, ...(answer ? { answer: { status: answer.status, sourceCount: answer.sources.length } } : {}) };
-  return `【记忆修订核对：本机已收到的快照 generation=${view.generation}，不保证中心最新。以下原文保留历史措辞，不代表当前事实；修订信息也是带依据的认识，不是事实确认。` +
+  return `【记忆修订核对：本机已收到的快照 generation=${view.generation}，不保证中心最新。recordedAt 是该原消息的记录时间（UTC），不是所述事件的发生时间或当前时间；缺失时未知。以下原文保留历史措辞，不代表当前事实；修订信息也是带依据的认识，不是事实确认。` +
     (entry ? `片段位置按所列 hash 的原文 UTF-16 偏移计算，不能跨版本套用；状态只作用于指定认识，不撤回整段其他内容。${JSON.stringify(described)}`
       : '此缓存没有可解析的消息来源，无法逐项核对修订；需要现行依据时请回查带来源的原文。') +
     (answer ? `助手回答的消息来源核查=${answer.status}；unchanged 只表示这些来源未变，不证明回答正确或覆盖文件、外部工具与其他派生资料。${notices.length ? JSON.stringify(notices) : ''}` : '') + '】\n';

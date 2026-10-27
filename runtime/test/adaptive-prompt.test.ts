@@ -79,6 +79,24 @@ const { foldRemote } = await import('../src/mind/activity.ts');
 const summaryRequest = (request: any) => joined(request).startsWith('压缩历史资料');
 afterEach(() => { store.db.prepare('UPDATE sessions SET archived=1').run(); script = async () => ({ content: '完成' }); });
 
+test('跨会话近况分别保留每条消息的历史时间，不用会话更新时间覆盖，编辑时间会更新读取视图', async () => {
+  store.ensureSession('dated-history', '合成跨月历史');
+  const first = store.addMessage('user', '合成', '昨天整理录音。', { session: 'dated-history' });
+  const second = store.addMessage('user', '合成', '后来更正了一处口误。', { session: 'dated-history' });
+  const a = '2026-02-10T12:00:00.000Z', b = '2026-08-10T12:00:00.000Z', c = '2026-03-10T12:00:00.000Z';
+  store.db.prepare('UPDATE messages SET ts=? WHERE id=?').run(Date.parse(a), first);
+  store.db.prepare('UPDATE messages SET ts=? WHERE id=?').run(Date.parse(b), second);
+  const messages = [systemMessage('', { conv: 'current', dynamic: true })];
+  const initial = joined({ messages: await readSystemMessages(messages) });
+  assert(initial.includes(a) && initial.includes(b)); assert(initial.includes('会话更新时间（不是下列消息的发言时间）'));
+  store.db.prepare('UPDATE messages SET ts=? WHERE id=?').run(Date.parse(c), first);
+  const edited = joined({ messages: await readSystemMessages(messages) });
+  assert(!edited.includes(a)); assert(edited.includes(c) && edited.includes(b));
+  store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(first);
+  const hidden = joined({ messages: await readSystemMessages(messages) });
+  assert(!hidden.includes(c)); assert(!hidden.includes('昨天整理录音')); assert(hidden.includes(b));
+});
+
 test('生产系统消息在实际模型准备时读跨会话修订，保持历史性质和原调用对象', async () => {
   configure([{ id: 'large', context: 131072 }]); seen.length = 0;
   const f = fixture('other-correct'); store.ensureSession('current', '当前会话');

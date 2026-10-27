@@ -141,6 +141,30 @@ test('集中主机本机从权威图读取，当前主模型接收认识并在�
   assert.equal((await adaptive.queryAdaptiveSemantic('饭友')).items[0].revision, 2, '纠正的新独立支持不随旧来源忽略而丢弃');
 });
 
+test('认识正文带 hash 匹配的原消息时间，时间未知或来源已排除时不借旧元数据补全', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const f = fixture('time-source'), recordedAt = '2026-04-10T12:00:00.000Z';
+  store.db.prepare('UPDATE messages SET ts=? WHERE id=?').run(Date.parse(recordedAt), f.correction); f.correct();
+  try {
+    const reading = await adaptive.queryAdaptiveSemantic('饭友');
+    const item = reading.items.find((r) => r.roots.some((s) => s.id === f.correction))!; assert(item);
+    const sources = await adaptive.withAdaptiveSources([f.correction], (view) => view!.sources);
+    assert.equal(sources[0].recordedAt, recordedAt);
+    const text = adaptive.adaptiveSemanticContext(reading, sources).find((m) => m.id.endsWith(`${item.id}:2`))!.text;
+    assert(text.includes(recordedAt)); assert(text.includes(JSON.stringify(item)));
+    assert(item.kind === 'claim'); assert.deepEqual(item.occurred, { text: '', earliest: null, latest: null }, '记录时间不回填事件时间');
+    const wrong = adaptive.adaptiveSemanticContext(reading, [{ ...sources[0], hash: '0'.repeat(64) }]).find((m) => m.id.endsWith(`${item.id}:2`))!.text;
+    assert(!wrong.includes(recordedAt)); assert(wrong.includes('"recordedAt":null'));
+    store.ensureSession('time-query', '时间查询');
+    await brain.converse('合成用户', '饭友是谁，原消息是什么时候记录的？', '控制台', { conv: 'time-query', local: true }); markBusy(true);
+    assert(joined(seen.at(-1)).includes(recordedAt)); assert(joined(seen.at(-1)).includes('来源时间：'));
+    store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.correction);
+    const hidden = await adaptive.withAdaptiveSources([f.correction], (view) => view!.sources[0]);
+    assert.equal(hidden.hash, null); assert.equal(hidden.recordedAt, null);
+    assert(!adaptive.adaptiveSemanticContext(reading, [hidden]).find((m) => m.id.endsWith(`${item.id}:2`))!.text.includes(recordedAt));
+  } finally { store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction); }
+});
+
 test('摘要等待时纠正，主模型前重新查询，失效认识不进入已准备请求', async () => {
   configure([{ id: 'compact', context: 8000 }]); seen.length = 0;
   const conv = 'semantic-race-source', f = fixture(conv);
