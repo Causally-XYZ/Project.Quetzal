@@ -258,7 +258,7 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 正常回答的消息行可带 answerBasis（null 或 version 1 对象）：agent、answerHash、consistent 与 sources[{id,hash,reading}]。这是宿主生成的消息来源依赖，随既有消息复制；不新增 RPC，客户端不应将其显示为“事实已验证”。原始历史接口继续保留回答正文；模型使用的历史 / 近况 / context_read / recall 在来源 changed 时返回占位与当前修订。旧消息缺少凭据时明确 unbound；来源文件与其他派生依赖仍有覆盖缺口，完整约定见[读取语义](engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。
 
-已记录消息来源在模型返回后及正常对话最终落盘前再次核对。来源变化时，原模型答复不成为持久最终回答；沿用现有 text / done 事件发布明确的草稿失效说明，不新增事件或 RPC，不自动重放工具操作。无凭据旧路径不冒充已核查，未收到的远端修订和无消息出处材料仍不在保证范围。
+已记录消息来源在模型返回后及正常对话最终落盘前再次核对。来源变化时，原模型答复不成为持久最终回答；沿用现有 text 事件说明正在重新核对；正常 converse 自动尝试一次只读恢复，成功后 done 为新答复，再失败则明确说明。恢复至多三轮主模型请求并共享30秒取消信号（路由故障转移 / 摘要另计，同步代码不被抢占），只允许 recall / note_read / memory_records / context_read，执行端同样强制限制；不新增 RPC、不自动重放写操作。无凭据旧路径不冒充已核查，未收到的远端修订和无消息出处材料仍不在保证范围。
 
 认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。中心自动准备并核验本机嵌入组件后，可在灵魂锁外等待至多100ms取得近邻，随后核对本次问题和当前候选摘要再融合；缺组件 / 超时保留同门禁词面路径。整次读取仍受500ms截止约束，不新增查询参数或语义信封字段。status.adaptiveMemory.retrieval 新增组件状态：inactive / unavailable / attached / preparing 或 loading / ready / failed / closed；准备阶段可带 preparation（phase / file / bytes / total）、固定错误码 error 与 retryAt；受管 worker 另含 failure（component / cache / worker 或 null）、current、snapshot、indexed、pending、reused、computed、errors、retrying、blocked、cacheRecovered。current 只表示已收到本次候选快照的状态，pending=0 才表示该快照全部索引完成；均非语义质量或全历史覆盖证明。安装与模型续传在中心后台执行；准备期间仍可词面读取。retrying 是暂时失败等待重试的候选数，blocked 是超过分块限额等不可自动重试的候选数，pending 包含二者；cacheRecovered 只表示派生库损坏后已重建，不是灵魂恢复证明。真实多身体向量与跨平台部署仍待验收。
 

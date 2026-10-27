@@ -29,6 +29,7 @@ const historySources = new WeakMap<Msg, { id: number; conv: string; original: st
 export function registerHistorySource(message: Msg, messageId: number, conv: string, processNote = false): Msg {
   historySources.set(message, { id: messageId, conv, original: JSON.stringify(getSessionMessage(messageId, conv)), processNote }); return message;
 }
+export const hasHistorySource = (message: Msg): boolean => historySources.has(message);
 const clean = (message: Msg): string => redactSecrets(JSON.stringify({ ...message, ...('images' in message ? { images: undefined } : {}) }));
 
 interface SummaryBasis { sources: number[]; key: string }
@@ -136,12 +137,12 @@ export async function summarizeContext({ entries, previousSummary, maxTokens, si
   return redactSecrets(result.text);
 }
 
-export function createTurnContext(id: string, conv: string, messages: Msg[]) {
+export function createTurnContext(id: string, conv: string, messages: Msg[], fresh = false) {
   const protectedFrom = Math.max(0, messages.findLastIndex((m) => m.role === 'user'));
   const initial = messages[protectedFrom]?.content ?? '';
-  const previousState = conv ? taskStates.get(conv) : null;
+  const previousState = conv && !fresh ? taskStates.get(conv) : null;
   const state: TaskWorkingState = { goal: initial, constraints: previousState?.constraints ?? [], openQuestions: previousState?.openQuestions ?? [], evidence: [] };
-  const previousPlan = conv ? kv.get<{ summary?: ContextPlan['summary']; adaptiveBasis?: unknown } | null>(`context.plan.${conv}`, null) : null;
+  const previousPlan = conv && !fresh ? kv.get<{ summary?: ContextPlan['summary']; adaptiveBasis?: unknown } | null>(`context.plan.${conv}`, null) : null;
   const previousSummary = previousPlan?.summary, previousBasis = summaryBasis(previousPlan?.adaptiveBasis);
   const projected = new WeakMap<Msg, Msg>();
   const versionedSources = new Set<string>();
@@ -167,7 +168,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[]) {
       request.signal?.throwIfAborted();
       const latest = request.messages.findLast((m) => m.role === 'user' && !m.content.startsWith('（基座提醒'));
       context.query = `${context.state.goal}\n${latest?.content ?? ''}`;
-      if (context.shared) { const tl = taskStates.timelineText(context.conv); if (tl.length) context.state.timeline = tl; else delete context.state.timeline; } // 这项工作的时间线，带相对时间（#40）
+      if (context.shared && !fresh) { const tl = taskStates.timelineText(context.conv); if (tl.length) context.state.timeline = tl; else delete context.state.timeline; } // 这项工作的时间线，带相对时间（#40）
       // 工具观测是本机执行证据，不能由卡片成功推断整个任务完成。
       context.state.evidence = request.messages.filter((m) => m.role === 'tool').slice(-8).map((m) => {
         if (m.role !== 'tool') throw new Error('工具消息类型不一致');

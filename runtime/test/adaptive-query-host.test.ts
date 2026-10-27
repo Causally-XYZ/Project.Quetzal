@@ -302,7 +302,7 @@ test('实际回答保存跨会话来源，后续派生回答继承；纠正后�
   } finally { script = async () => ({ content: '完成' }); }
 });
 
-test('模型等待期间接受纠正或撤回来源，不发布旧结论、不执行该输出的工具', async () => {
+test('模型等待期间接受纠正或撤回来源，自动按新依据回答、不执行失效输出的工具', async () => {
   configure([{ id: 'large', context: 131072 }]);
   const { bus } = await import('../src/bus.ts');
   for (const action of ['correct', 'ignored', 'tool'] as const) {
@@ -310,6 +310,12 @@ test('模型等待期间接受纠正或撤回来源，不发布旧结论、不�
     const listen = (event: any) => { if (event.conv === conv) events.push(event); };
     bus.on('activity', listen); seen.length = 0;
     script = async (request) => {
+      if (seen.length === 2) {
+        assert.ok(!joined(request).includes('STALE_GENERATION'));
+        assert.ok(request.tools.every((t: any) => ['recall', 'context_read', 'memory_records', 'note_read'].includes(t.function.name)));
+        if (action !== 'ignored') assert.match(joined(request), /饭友是弟弟/);
+        return { content: 'FRESH_GENERATION 已按当前来源核对。' };
+      }
       assert.match(joined(request), /饭友是编辑/);
       if (action === 'ignored') store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source);
       else await exclusive(() => f.correct());
@@ -319,14 +325,14 @@ test('模型等待期间接受纠正或撤回来源，不发布旧结论、不�
     };
     try {
       const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
-      assert.match(reply, /资料已变化/); assert.ok(!reply.includes('STALE_GENERATION'));
-      assert.equal(seen.length, 1, '不能重新执行可能已有副作用的工具轨迹');
+      assert.match(reply, /FRESH_GENERATION/); assert.ok(!reply.includes('STALE_GENERATION'));
+      assert.equal(seen.length, 2, '仅自动重核一次，不重放原操作');
       assert.ok(!events.some((e) => e.kind === 'text' && e.text?.includes('STALE_GENERATION')));
       assert.ok(!events.some((e) => e.kind === 'tool' && e.call === 'stale-call'));
       assert.equal(events.findLast((e) => e.kind === 'done')?.reply, reply);
       const stored = store.sessionMessages(conv).filter((m) => m.role === 'agent');
       assert.equal(stored.length, 1); assert.equal(stored[0].text, reply);
-      assert.ok(!stored[0].answerBasis, '终止通知不能冒充有事实依据的回答');
+      assert.ok(stored[0].answerBasis?.consistent, '恢复回答重新收集当前凭据');
     } finally { bus.off('activity', listen); script = async () => ({ content: '完成' }); }
   }
 });
@@ -344,13 +350,16 @@ test('模型结果核查后到最终落盘前发生修订，最终再核查拒�
       else store.addMessage('user', '合成', '另一件事：窗台上的绿萝长出新叶。', { session: conv });
     };
     bus.on('activity', listen); seen.length = 0;
-    script = async () => ({ content: 'PUBLISH_CANDIDATE 饭友是编辑。' });
+    script = async (request) => {
+      if (seen.length > 1) { assert.ok(!joined(request).includes('PUBLISH_CANDIDATE')); return { content: 'CURRENT_FINAL 饭友是弟弟。' }; }
+      return { content: 'PUBLISH_CANDIDATE 饭友是编辑。' };
+    };
     try {
       const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
-      assert.equal(changed, true); assert.equal(seen.length, 1);
+      assert.equal(changed, true); assert.equal(seen.length, related ? 2 : 1);
       const stored = store.sessionMessages(conv).filter((m) => m.role === 'agent');
       assert.equal(stored.length, 1); assert.equal(stored[0].text, reply);
-      if (related) { assert.match(reply, /资料已变化/); assert.ok(!reply.includes('PUBLISH_CANDIDATE')); }
+      if (related) { assert.match(reply, /CURRENT_FINAL/); assert.ok(!reply.includes('PUBLISH_CANDIDATE')); }
       else { assert.match(reply, /PUBLISH_CANDIDATE/); assert.ok(stored[0].answerBasis?.consistent); }
     } finally { bus.off('activity', listen); script = async () => ({ content: '完成' }); }
   }
@@ -377,4 +386,137 @@ test('最终核查等锁取消或超时后不能迟到发布；发布异常不�
   await assert.rejects(adaptive.withCurrentAnswer(basis, text, () => { called++; throw failure; }), (error) => error === failure);
   assert.equal(called, 1); assert.equal(store.db.isTransaction, false);
   assert.equal(await adaptive.withCurrentAnswer(basis, text, () => '已发布'), '已发布');
+});
+
+test('恢复保留已执行索引和当前记忆回查，移除旧叙述并在执行端阻止重复写入', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const f = fixture('recovery-operations-source'), conv = 'recovery-operations';
+  const mem = await import('../src/memory/memory.ts');
+  const call = (id: string, name: string, args: object) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
+  script = async (request) => {
+    if (seen.length === 1) return { content: 'OLD_NARRATIVE 饭友是编辑', tool_calls: [
+      call('save-once', 'note_save', { title: '恢复操作样例', body: 'ONE_APPEND', append: true }),
+      call('read-before', 'recall', { query: '饭友', kinds: ['chat'] }),
+    ] };
+    if (seen.length === 2) {
+      await exclusive(() => f.correct());
+      store.kv.set(`context.plan.${conv}`, { summary: { text: 'OLD_RECOVERY_SUMMARY' } });
+      const states = await import('../src/mind/task-states.ts');
+      states.save(conv, { constraints: ['OLD_RECOVERY_CONSTRAINT'], openQuestions: ['OLD_RECOVERY_QUESTION'] });
+      return { content: 'OLD_FINAL 饭友是编辑' };
+    }
+    if (seen.length === 3) {
+      assert.ok(!joined(request).includes('OLD_NARRATIVE')); assert.ok(!joined(request).includes('OLD_FINAL'));
+      assert.ok(!joined(request).includes('OLD_RECOVERY_'), '恢复不继承上一轮派生摘要、工作状态或时间线');
+      assert.ok(!request.messages.some((m: any) => m.role === 'tool' || m.role === 'assistant' && m.tool_calls?.length), '旧工具协议轨迹不复制；独立的当前笔记仍可正常检索');
+      assert.match(joined(request), /note_save/); assert.match(joined(request), /饭友是弟弟/);
+      const ref = joined(request).match(/answer-recovery:[^"\s]+:read-before/)?.[0]; assert.ok(ref);
+      return { tool_calls: [call('read-current', 'context_read', { ref }),
+        call('write-again', 'note_save', { title: '恢复操作样例', body: 'DUPLICATE_APPEND', append: true })] };
+    }
+    assert.equal(seen.length, 4);
+    const outputs = request.messages.filter((m: any) => m.role === 'tool');
+    assert.match(outputs.map((m: any) => m.content).join('\n'), /饭友是弟弟/);
+    assert.match(outputs.map((m: any) => m.content).join('\n'), /未执行此操作/);
+    return { content: 'RECOVERED_WITH_READ 已按当前来源重新回答，先前操作没有重做。' };
+  };
+  try {
+    const reply = await brain.converse('合成用户', '记录本次操作，然后说说饭友是谁', '控制台', { conv, local: true }); markBusy(true);
+    assert.match(reply, /RECOVERED_WITH_READ/);
+    const note = mem.readNote('恢复操作样例'); assert.equal(note.split('ONE_APPEND').length - 1, 1); assert.ok(!note.includes('DUPLICATE_APPEND'));
+    const answer = store.sessionMessages(conv).findLast((m) => m.role === 'agent')!;
+    assert.ok(answer.answerBasis?.consistent); assert.ok(answer.answerBasis.sources.some((s) => s.id === f.source));
+  } finally { script = async () => ({ content: '完成' }); }
+});
+
+test('恢复遇到再次变化或读循环达到上限时终止，不无限重新生成', async () => {
+  configure([{ id: 'large', context: 131072 }]);
+  for (const repeatChange of [true, false]) {
+    const f = fixture(`recovery-bounded-source-${repeatChange}`), conv = `recovery-bounded-${repeatChange}`; seen.length = 0;
+    script = async () => {
+      if (seen.length === 1) { await exclusive(() => f.correct()); return { content: 'STALE_ONCE' }; }
+      if (repeatChange) { store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source); return { content: 'STALE_TWICE' }; }
+      return { tool_calls: [{ id: `read-${seen.length}`, type: 'function', function: { name: 'memory_records', arguments: '{}' } }] };
+    };
+    try {
+      const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
+      assert.equal(seen.length, repeatChange ? 2 : 4); assert.ok(!reply.includes('STALE_'));
+      assert.match(reply, repeatChange ? /资料已变化/ : /重新核对已达到上限/);
+      const stored = store.sessionMessages(conv).filter((m) => m.role === 'agent'); assert.equal(stored.length, 1); assert.ok(!stored[0].answerBasis);
+    } finally { script = async () => ({ content: '完成' }); }
+  }
+});
+
+test('最终核查期间的插话仍并入当前轮次；恢复等待中的停止不会发布迟到回答', async () => {
+  configure([{ id: 'large', context: 131072 }]);
+  const { bus } = await import('../src/bus.ts');
+  const conv = 'publish-late-input'; seen.length = 0; let sent = false;
+  const listen = (event: any) => {
+    if (sent || event.conv !== conv || event.kind !== 'text' || !event.final) return;
+    sent = true; void brain.converse('合成用户', 'LATE_INPUT 请把补充一起考虑', '控制台', { conv, local: true });
+  };
+  bus.on('activity', listen);
+  script = async (request) => {
+    if (seen.length === 1) return { content: '尚未看到补充的草稿' };
+    assert.match(joined(request), /LATE_INPUT/); return { content: 'FINAL_WITH_INPUT 已看到补充。' };
+  };
+  try {
+    const reply = await brain.converse('合成用户', '先回答问题', '控制台', { conv, local: true }); markBusy(true);
+    assert.match(reply, /FINAL_WITH_INPUT/); assert.equal(seen.length, 2);
+    assert.equal(store.sessionMessages(conv).filter((m) => m.role === 'agent').length, 1);
+  } finally { bus.off('activity', listen); script = async () => ({ content: '完成' }); }
+
+  const f = fixture('recovery-stop-origin'), stopping = 'recovery-stop'; seen.length = 0;
+  let release!: () => void;
+  script = async () => {
+    if (seen.length === 1) { await exclusive(() => f.correct()); return { content: 'OLD_STOPPED' }; }
+    const wait = new Promise<void>((resolve) => { release = resolve; });
+    assert.equal(await brain.stopTurn(stopping, { local: true }), true);
+    await wait; return { content: 'LATE_RECOVERY_RESPONSE' };
+  };
+  try {
+    const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv: stopping, local: true }); markBusy(true);
+    assert.match(reply, /被对方停止/); assert.equal(seen.length, 2);
+    release(); await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(!store.sessionMessages(stopping).some((m) => m.text.includes('LATE_RECOVERY_RESPONSE')));
+  } finally { release?.(); script = async () => ({ content: '完成' }); }
+});
+
+test('自动恢复的30秒截止传到实际 HTTP 等待，不借供应商90秒墙延长', { timeout: 45000 }, async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const f = fixture('recovery-timeout-source'), conv = 'recovery-timeout';
+  // 后台忙碌30秒后可自行让出一次生成机会；此项只测前台截止，关闭生成但保留已知修订读取。
+  const before = { ...cfg.config.adaptiveMemory };
+  cfg.saveConfig({ adaptiveMemory: { ...before, enabled: false } });
+  let release!: () => void, started = 0;
+  script = async () => {
+    if (seen.length === 1) { await exclusive(() => f.correct()); return { content: 'OLD_TIMEOUT_DRAFT' }; }
+    started = performance.now();
+    await new Promise<void>((resolve) => { release = resolve; }); return { content: 'LATE_TIMEOUT_DRAFT' };
+  };
+  try {
+    const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
+    const elapsed = performance.now() - started;
+    assert.equal(seen.length, 2, JSON.stringify(seen.map((r) => ({ model: r.model, first: String(r.messages[0]?.content).slice(0, 100), tools: r.tools?.length }))));
+    assert.ok(elapsed >= 29000 && elapsed < 40000, `实际等待 ${elapsed}ms`);
+    assert.ok(!reply.includes('TIMEOUT_DRAFT'));
+    release(); await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(!store.sessionMessages(conv).some((m) => m.role === 'agent' && m.text.includes('TIMEOUT_DRAFT')));
+  } finally { release?.(); script = async () => ({ content: '完成' }); cfg.saveConfig({ adaptiveMemory: before }); }
+});
+
+test('恢复不能用重复调用编号覆盖原有执行记录', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const f = fixture('recovery-call-id-source'), conv = 'recovery-call-id';
+  const call = { id: 'existing-call', type: 'function', function: { name: 'memory_records', arguments: '{}' } };
+  script = async () => {
+    if (seen.length === 2) { await exclusive(() => f.correct()); return { content: 'OLD_CALL_ID_DRAFT' }; }
+    return { tool_calls: [call] };
+  };
+  try {
+    const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
+    assert.equal(seen.length, 3); assert.match(reply, /调用编号重复/);
+    const row = store.getToolCall('existing-call'); assert.ok(row); assert.equal(row.status, 'ok');
+    assert.equal(store.sessionMessages(conv).filter((m) => m.role === 'agent').length, 1);
+  } finally { script = async () => ({ content: '完成' }); }
 });

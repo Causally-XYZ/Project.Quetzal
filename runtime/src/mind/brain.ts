@@ -9,7 +9,7 @@ import crypto from "node:crypto";
 import { chat } from "../providers/router.ts";
 import type { Msg } from "../providers/types.ts";
 import { runTurn, type Step, type FinishTool } from "../../../engine/src/index.ts";
-import { createTurnContext, registerHistorySource } from "./context.ts";
+import { createTurnContext, registerHistorySource, hasHistorySource } from "./context.ts";
 import { processReading, PROCESS_READING_NOTICE } from "./process-reading.ts";
 import { answerDigest, mergeAnswerSources, type AnswerBasis } from "../memory/answer-basis.ts";
 import { learnEpisode, evolveMemory, type EpisodeInput } from "../memory/prime.ts";
@@ -17,6 +17,7 @@ import { readStructuredRecords } from "../memory/structured.ts";
 import type { ToolRecord } from "../../../engine/src/loop.ts";
 import { identity } from "../memory/identity.ts";
 import { adaptiveReadingRequired, withCurrentAnswer, AnswerSourcesChanged } from "../memory/adaptive.ts";
+import { rebuildAnswerMessages, recoveryToolAllowed, type AnswerRecovery } from "./answer-recovery.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemMessage, withSystemReading } from "./prompt.ts";
 import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, saveContextSource, type Attachment } from "../store.ts";
@@ -95,33 +96,44 @@ function learnTurn(s: Session, input: string, reply: string, userSourceRef?: str
 }
 
 /** limit：最多多少步（子 agent 的 maxSteps）。到了最后一步先提醒她写报告，再给 2 步收尾，仍没结束就停下。 */
-async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>, limit?: number) {
+async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Session, exclude?: Set<string>, limit?: number, recovery?: AnswerRecovery) {
   let n = 0;
-  const context = createTurnContext(s.id, s.conv, messages);
+  const context = createTurnContext(s.id, s.conv, messages, !!recovery);
   const tracked: NonNullable<ReturnType<typeof learnedTurns.get>> = learnedTurns.get(s) ?? { records: [], usedMemoryKeys: [], tags: [], phase: 'unknown' as const };
   learnedTurns.set(s, tracked);
   try { return await runTurn({
     messages, turn: s, maxOutputTokens: () => config.brain.maxOutputTokens,
-    tools: allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })),
+    tools: allTools().filter((t) => !exclude?.has(t.name) && (!recovery || recoveryToolAllowed(t.name))).map(({ name, description, parameters }) => ({ name, description, parameters })),
     finishTool: withFinish ? FINISH : undefined,
   }, {
     chat: async (request) => {
-      const result = await chat(request);
+      if (recovery && recovery.remaining-- <= 0) throw new Error('本轮重新核对已达到上限，暂时不能给出稳定结论');
+      const signal = recovery ? AbortSignal.any([recovery.signal, ...(request.signal ? [request.signal] : [])]) : request.signal;
+      const result = await chat({ ...request, signal });
+      if (recovery) {
+        const calls = new Set(tracked.records.map((record) => record.call));
+        if (result.toolCalls.some((call) => { if (calls.has(call.id)) return true; calls.add(call.id); return false; }))
+          throw new Error('重新核对中的工具调用编号重复，未执行新操作或覆盖原记录');
+      }
       const sources = context.snapshot().answerSources;
       // 供应商等待期间可能已接受纠正；在引擎发布最终文字或执行工具前检查。
       await withCurrentAnswer(sources ? { version: 1, agent: identity().id, answerHash: answerDigest(result.text), ...sources } : undefined,
-        result.text, () => {}, request.signal);
+        result.text, () => {}, signal);
       return result;
     },
-    prepareContext: context.prepare,
-    execute: (c) => callTool(c.name, c.args, reason, { session: s }),
+    prepareContext: (request) => context.prepare(recovery ? { ...request, signal: AbortSignal.any([recovery.signal, ...(request.signal ? [request.signal] : [])]) } : request),
+    execute: async (c) => {
+      recovery?.signal.throwIfAborted();
+      if (recovery && !recoveryToolAllowed(c.name)) return { status: 'denied' as const, text: '重新核对答复期间只允许记忆读取，未执行此操作。' };
+      return callTool(c.name, c.args, reason, { session: s, ...(recovery ? { signal: recovery.signal } : {}) });
+    },
     drain: async (context) => {
       if (limit && n === limit) context.push({ role: "user", content: `（基座提醒，不是对方说的话：这是第 ${n} 步，到了派出时给的 ${limit} 步上限。现在就调用 finish，把已有的结论、依据和没做完的事写进报告。）` });
       await drain(context, s);
     },
     pending: () => !!(s.inbox.length || s.images.length),
     incoming: () => !!s.inbox.length,
-    check: () => { if (stopped()) throw new Error("急停中，已停下"); if (limit && ++n > limit + 2) throw new Error(`到了 ${limit} 步上限仍没有写报告，已停下`); },
+    check: () => { recovery?.signal.throwIfAborted(); if (stopped()) throw new Error("急停中，已停下"); if (limit && ++n > limit + 2) throw new Error(`到了 ${limit} 步上限仍没有写报告，已停下`); },
     interrupted: (e) => e instanceof Interrupted,
     stopToolWait: (reason) => reason instanceof Stopped,
     moved: () => s.movedTo ? { title: `换到 ${s.movedTo} 上继续`, journal: `这次醒来换到 ${s.movedTo} 上接着做。` } : undefined,
@@ -475,44 +487,66 @@ export function converse(from: string, text: string, channel: string, o: Convers
             "回复对方。需要做事就调用工具，可以连续多步、边做边说；不再调用工具的那段文字就是你这次的回复，何时结束由你决定。之前回复里说过的段落对方都看得到，除非对方要你再说一遍，不要原样再贴。", s.seen),
       ];
       registerHistorySource(messages.at(-1)!, id, conv);
-      let r = await loop(messages, `回应${from}`, false, s);
-      while (s.inbox.length) { // 最后一步刚结束时又来了消息：继续处理
-        const more = await loop(messages, `回应${from}`, false, s);
-        r = { ...more, text: more.text || r.text, steps: [...r.steps, ...more.steps], tokens: r.tokens + more.tokens };
+      const initial = [...messages];
+      let recovery: AnswerRecovery | undefined;
+      for (;;) {
+        try {
+          let r = await loop(messages, `回应${from}`, false, s, undefined, undefined, recovery);
+          while (s.inbox.length) { // 最后一步刚结束时又来了消息：继续处理
+            const more = await loop(messages, `回应${from}`, false, s, undefined, undefined, recovery);
+            r = { ...more, text: more.text || r.text, steps: [...r.steps, ...more.steps], tokens: r.tokens + more.tokens };
+          }
+          const process = s.process();
+          if (s.movedTo) { running.delete(conv); // 换到另一具身体继续：那边在同一个会话里接着做，它的回复（经复制）就是这一轮的回复，这里不再另存
+            s.emit({ kind: "done", reply: "" }); // 这里的一轮立即结束：之后发到这个会话的话会路由到接手的那具身体
+            const reply = await (s.moveResult ?? Promise.resolve("")).catch((e: Error) => { const t = `（没能换到 ${s.movedTo}：${e.message}）`; addMessage("agent", channel, t, { session: conv }); return t; });
+            addTimeline("chat", `和${from}说话，换到 ${s.movedTo} 上继续`, { channel, conv, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model, movedTo: s.movedTo });
+            return reply;
+          }
+          if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，这句话标为 ignored（控制台隐藏），心流里记一笔
+            setMessageMode(id, "ignored");
+            s.emit({ kind: "done", reply: "" });
+            if (!NOTICE[channel]) noteSilence(conv, text);
+            addExperience(1);
+            return "";
+          }
+          // 提醒过仍没有一句话：说明这一轮没有回复，而不是留一个看不懂的空回复
+          const reply = r.text.trim() || (r.steps.length ? `（我做了 ${r.steps.length} 步，但最后没能把结果说出来。你可以问我一句「结果呢」。）` : "（模型连着几次什么也没输出，我没能回复。你可以再说一次。）");
+          const home = s.switchTo ?? conv; // session_new：回复放进新会话
+          const sources = learnedTurns.get(s)?.answerSources;
+          const basis: AnswerBasis | undefined = sources ? { version: 1, agent: identity().id, answerHash: answerDigest(reply), ...sources } : undefined;
+          // 重新等锁后核对：从已验证的本机快照到消息落盘 / done 不再有异步间隙。
+          let receivedInput = false;
+          await withCurrentAnswer(basis, reply, () => {
+            if (s.inbox.length) { receivedInput = true; return; }
+            const replyId = addMessage("agent", channel, reply, { session: home, process, attachments: s.outbox.splice(0), ...(basis ? { answerBasis: basis } : {}) });
+            saveContextSource(`message-tools:${replyId}`, home, JSON.stringify((learnedTurns.get(s)?.records ?? []).map((record) => ({ call: record.call, turn: s.id }))));
+            running.delete(conv);
+            s.emit({ kind: "done", reply });
+          }, recovery?.signal ?? s.signal);
+          if (receivedInput) continue;
+          if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });
+          addTimeline("chat", o.ambient ? (channel === "子agent" ? "收到子 agent 的报告，接着做了" : channel === "灵魂同步" ? "处理了基座关于灵魂同步的提醒" : "听到有人说话，回应了") : `和${from}说话`, { channel, conv: home, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model, answerRecovered: !!recovery });
+          addExperience(1);
+          nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
+          if (!o.ambient && !recovery) learnTurn(s, text, reply, `message:${id}`);
+          await soul.push("对话").catch(() => {});
+          return reply;
+        } catch (error) {
+          if (!(error instanceof AnswerSourcesChanged) || recovery || s.signal.aborted || s.movedTo || stopped()) throw error;
+          const tracked = learnedTurns.get(s);
+          const fresh = rebuildAnswerMessages(initial, messages, tracked?.records ?? [], (record) => {
+            const ref = `answer-recovery:${s.id}:${record.call}`;
+            if (!saveContextSource(ref, conv, JSON.stringify({ toolRef: { call: record.call, turn: record.session } }))) throw new Error('无法保存已执行工具的回查引用');
+            return ref;
+          }, hasHistorySource);
+          // 旧凭据留在原始工具记录中；只有移除旧草稿、摘要及工作状态后才能重新收集。
+          if (tracked) { tracked.answerSources = undefined; tracked.usedMemoryKeys = []; tracked.tags = []; }
+          messages.splice(0, messages.length, ...fresh);
+          recovery = { remaining: 3, signal: AbortSignal.any([s.signal, AbortSignal.timeout(30_000)]) };
+          s.flush(); s.emit({ kind: 'text', text: '刚才使用的资料有更新，我正在重新核对答复；已完成的操作不会重复执行。', final: false });
+        }
       }
-      running.delete(conv);
-      const process = s.process();
-      if (s.movedTo) { // 换到另一具身体继续：那边在同一个会话里接着做，它的回复（经复制）就是这一轮的回复，这里不再另存
-        s.emit({ kind: "done", reply: "" }); // 这里的一轮立即结束：之后发到这个会话的话会路由到接手的那具身体
-        const reply = await (s.moveResult ?? Promise.resolve("")).catch((e: Error) => { const t = `（没能换到 ${s.movedTo}：${e.message}）`; addMessage("agent", channel, t, { session: conv }); return t; });
-        addTimeline("chat", `和${from}说话，换到 ${s.movedTo} 上继续`, { channel, conv, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model, movedTo: s.movedTo });
-        return reply;
-      }
-      if (o.ambient && (SILENCE.test(r.text) || (!r.text.trim() && !process.length))) { // 她判断不必回应：不留她的话，这句话标为 ignored（控制台隐藏），心流里记一笔
-        setMessageMode(id, "ignored");
-        s.emit({ kind: "done", reply: "" });
-        if (!NOTICE[channel]) noteSilence(conv, text);
-        addExperience(1);
-        return "";
-      }
-      // 提醒过仍没有一句话：说明这一轮没有回复，而不是留一个看不懂的空回复
-      const reply = r.text.trim() || (r.steps.length ? `（我做了 ${r.steps.length} 步，但最后没能把结果说出来。你可以问我一句「结果呢」。）` : "（模型连着几次什么也没输出，我没能回复。你可以再说一次。）");
-      const home = s.switchTo ?? conv; // session_new：回复放进新会话
-      const sources = learnedTurns.get(s)?.answerSources;
-      const basis: AnswerBasis | undefined = sources ? { version: 1, agent: identity().id, answerHash: answerDigest(reply), ...sources } : undefined;
-      // 重新等锁后核对：从已验证的本机快照到消息落盘 / done 不再有异步间隙。
-      await withCurrentAnswer(basis, reply, () => {
-        const replyId = addMessage("agent", channel, reply, { session: home, process, attachments: s.outbox.splice(0), ...(basis ? { answerBasis: basis } : {}) });
-        saveContextSource(`message-tools:${replyId}`, home, JSON.stringify((learnedTurns.get(s)?.records ?? []).map((record) => ({ call: record.call, turn: s.id }))));
-        s.emit({ kind: "done", reply });
-      }, s.signal);
-      if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });
-      addTimeline("chat", o.ambient ? (channel === "子agent" ? "收到子 agent 的报告，接着做了" : channel === "灵魂同步" ? "处理了基座关于灵魂同步的提醒" : "听到有人说话，回应了") : `和${from}说话`, { channel, conv: home, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
-      addExperience(1);
-      nudge(`和${from}聊过`, { social: -0.6, expression: -0.3 });
-      if (!o.ambient) learnTurn(s, text, reply, `message:${id}`);
-      await soul.push("对话").catch(() => {});
-      return reply;
     } catch (e: any) {
       if (s.signal.reason instanceof HandedOver) { // 这具身体离线期间，这一轮已由另一具身体在同一个会话里接着做（mind/continuity.ts）：这里不留回复
         s.emit({ kind: "done", reply: "" });

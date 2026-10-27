@@ -17,7 +17,7 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 
 多身体开发入口可加 `--retrieval-cache` 启用真实中心向量路径、`--disconnect-step` 模拟卫星断线期间的输入。公开缓存只按固定摘要复制，准备、索引、查询、自动发布仍走生产链路。另有 `tool/adaptive-retrieval-probe/multibody.ts` 执行改述 / 撤回工程断言，生成模型为替身；具体参数、证据和边界见[运行器说明](../tool/adaptive-eval/README.md#显式真实向量与断线补做)。这些开发工具不进入 main，不新增生产依赖或配置。
 
-自适应读取启用时，新对话回答自动保存消息来源凭据并随消息复制。来源被纠正 / 编辑 / 排除后，默认历史、跨会话近况、context_read、recall 不再沿用旧回答正文；原始历史保留。SQLite 可空列自动迁移，无需人工操作，旧身体丢失的字段可由新版补齐，缺失时明确未核查。模型返回后先核对来源，再接受该结果；最终保存答复 / done 前另核对全轮凭据。已知变化只返回草稿失效说明，不保存旧结论或自动重跑操作。等锁超时 / 取消不迟到发布。凭据只表示消息依赖一致性，不证明回答正确或覆盖文件与外部工具。工程测试为 answer-basis / answer-basis-store / adaptive-query-host，以及独立身体运行器的真实网关 / 复制断言；无新依赖或启动配置，现有 package / tsconfig 已覆盖。
+自适应读取启用时，新对话回答自动保存消息来源凭据并随消息复制。来源被纠正 / 编辑 / 排除后，默认历史、跨会话近况、context_read、recall 不再沿用旧回答正文；原始历史保留。SQLite 可空列自动迁移，无需人工操作，旧身体丢失的字段可由新版补齐，缺失时明确未核查。模型返回后先核对来源，再接受该结果；最终保存答复 / done 前另核对全轮凭据。已知变化由正常 converse 自动尝试一次只读恢复答复，不保存旧草稿或重跑写操作。恢复最多三轮主模型请求、共享30秒取消信号；再次变化 / 超限 / 停止则终止，不无限重试。等锁超时 / 取消不迟到发布。凭据只表示消息依赖一致性，不证明回答正确或覆盖文件与外部工具。工程测试为 answer-basis / answer-basis-store / answer-recovery / adaptive-query-host，以及独立身体运行器的真实网关 / 复制断言；无新依赖或启动配置，现有 package / tsconfig 已覆盖。
 
 运行时依赖 `@modelcontextprotocol/client`（锁定 2.3.1，Apache-2.0）：官方 MCP 协议实现，stdio、Streamable HTTP、旧版 SSE 传输与 OAuth 客户端（`auth()`）都来自它，支持现代 / legacy 协商；远程与插件没有新增依赖（出站检查用 Node 内置 http / https，git 仓库用系统的 git）；没有引入服务端框架或将 SDK 放进 engine。
 
