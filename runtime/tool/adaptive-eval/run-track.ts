@@ -12,9 +12,9 @@ export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
-  // 负例和受控图需要专门执行端；不把未实现操作默默转换成普通输入。
+  // 受控图需要专门执行端；不把未实现操作默默转换成普通输入。
   if (options.track.setup !== 'empty' || !options.track.steps.length || options.track.steps.length > 8
-    || options.track.steps.some((s) => s.scope !== 'accessible' || s.operation || Object.hasOwn(s, 'checks')))
+    || options.track.steps.some((s) => !['accessible', 'denied', 'other-agent'].includes(s.scope) || s.operation || Object.hasOwn(s, 'checks')))
     throw new Error('evaluation-track-not-supported');
   const stepTimeoutMs = options.stepTimeoutMs ?? 180000, maxCalls = options.maxCalls ?? 36;
   if (!Number.isSafeInteger(stepTimeoutMs) || stepTimeoutMs < 1000 || stepTimeoutMs > 300000) throw new Error('evaluation-timeout-invalid');
@@ -23,8 +23,9 @@ export async function runTrack(options: TrackOptions) {
   write(options.root, 'execution.json', { schema: 'quetzal-m2-track-development-v1', inputHash: digest(options.track), kind: options.kind,
     model: options.model, maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
-    limits: '开发链路；不等于冻结正式计划或语义通过。当前不支持权限负例/其他agent/受控依赖图。' });
-  const clients: BodyClient[] = [], keys: Record<string, string> = {};
+    deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
+    limits: '开发链路；不等于冻结正式计划或语义通过。denied 检验既有 ignored 来源门禁，不代表新增会话 ACL；受控依赖图尚不支持。' });
+  const clients: BodyClient[] = [], bodyNames: string[] = [], keys: Record<string, string> = {};
   let sync: Awaited<ReturnType<typeof fakeSync>> | undefined;
   const report: any = { schema: 'quetzal-m2-track-development-result-v1', kind: options.kind, status: 'running', checkpoints: [], shutdown: [] };
   const started = Date.now();
@@ -59,24 +60,47 @@ export async function runTrack(options: TrackOptions) {
     for (const body of ['center', 'satellite']) keys[body] = loadNodeKey(path.join(options.root, body, 'secrets/mesh_ed25519')).nodeKey;
     sync = await fakeSync(keys);
     const remote = path.join(options.root, 'soul.git'), seed = path.join(options.root, 'seed');
-    git(options.root, 'init', '--bare', '-b', 'main', remote); fs.mkdirSync(seed); git(seed, 'init', '-b', 'main');
-    git(seed, 'config', 'user.name', '合成评测'); git(seed, 'config', 'user.email', 'synthetic@example.invalid');
-    fs.writeFileSync(path.join(seed, 'agent.json'), JSON.stringify({ id: 'x', name: 'synthetic', displayName: '合成评测' }));
-    git(seed, 'add', 'agent.json'); git(seed, 'commit', '-m', '合成评测初始灵魂'); git(seed, 'push', remote, 'main');
-    for (const body of ['center', 'satellite']) clients.push(await startBody(path.join(options.root, body), {
-      body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
-    }));
+    const seedSoul = (remote: string, seed: string, agent: string) => {
+      git(options.root, 'init', '--bare', '-b', 'main', remote); fs.mkdirSync(seed); git(seed, 'init', '-b', 'main');
+      git(seed, 'config', 'user.name', '合成评测'); git(seed, 'config', 'user.email', 'synthetic@example.invalid');
+      fs.writeFileSync(path.join(seed, 'agent.json'), JSON.stringify({ id: agent, name: 'synthetic', displayName: '合成评测' }));
+      git(seed, 'add', 'agent.json'); git(seed, 'commit', '-m', '合成评测初始灵魂'); git(seed, 'push', remote, 'main');
+    };
+    seedSoul(remote, seed, 'x');
+    for (const body of ['center', 'satellite']) {
+      clients.push(await startBody(path.join(options.root, body), {
+        body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
+      })); bodyNames.push(body);
+    }
+    let foreign: BodyClient | undefined;
+    if (options.track.steps.some((s) => s.scope === 'other-agent')) {
+      const remote = path.join(options.root, 'foreign.git');
+      seedSoul(remote, path.join(options.root, 'foreign-seed'), 'isolated-evaluation');
+      foreign = await startBody(path.join(options.root, 'foreign'), { body: 'foreign', agent: 'isolated-evaluation', storageOnly: true,
+        remote, sync: sync.url, keys: {}, kind: options.kind, model: options.model, maxCalls });
+      clients.push(foreign); bodyNames.push('foreign');
+    }
     const [center, satellite] = clients;
     await until(async () => (await satellite.call<string[]>('connected')).includes('center') ? true : undefined, 'connection', 25000);
-    report.bodies = clients.map((c) => ({ pid: c.pid, port: c.port }));
+    report.bodies = clients.map((c, i) => ({ name: bodyNames[i], pid: c.pid, port: c.port }));
     for (const [index, step] of options.track.steps.entries()) {
       const point = `${options.track.id}/${step.id}`, before = Date.now();
       await Promise.all(clients.map((c) => c.call('phase', { value: point })));
-      const producer = step.body === 'A' ? center : satellite, consumer = step.body === 'A' ? satellite : center;
-      const source = await producer.call<number>('source', { ...step, query: undefined, session: `source-${index + 1}` });
-      await until(async () => {
+      const producer = step.scope === 'other-agent' ? foreign! : step.body === 'A' ? center : satellite;
+      const consumer = step.body === 'A' ? satellite : center;
+      const source = await producer.call<number>('source', { ...step, scope: step.scope === 'other-agent' ? 'accessible' : step.scope,
+        query: undefined, session: `source-${index + 1}` });
+      let isolation: any = { policy: step.scope };
+      if (step.scope === 'other-agent') {
+        const state = await snapshot(foreign!);
+        if (state.agent !== 'isolated-evaluation' || state.calls.length || !(state.messages.some((m: any) => m.id === source && m.text === step.text)))
+          throw new Error('evaluation-foreign-input-failed');
+        isolation = { ...isolation, foreign: state, probe: await satellite.call('probeScope', { foreignAgent: state.agent, query: step.query }) };
+        if (!isolation.probe.rejected) throw new Error('evaluation-cross-agent-accepted');
+      } else await until(async () => {
         const a = await snapshot(center), b = await snapshot(satellite); checkFailures(a);
-        return [a, b].every((s) => s.messages.some((m: any) => m.id === source && m.text === step.text && m.ts === Date.parse(step.at))) ? true : undefined;
+        return [a, b].every((s) => s.messages.some((m: any) => m.id === source && m.text === step.text && m.ts === Date.parse(step.at)
+          && (step.scope !== 'denied' || m.mode === 'ignored'))) ? true : undefined;
       }, 'replication');
       const preAnswer = await settled(center, satellite);
       const session = `answer-${index + 1}`, answerStarted = Date.now();
@@ -84,7 +108,11 @@ export async function runTrack(options: TrackOptions) {
       const answerElapsedMs = Date.now() - answerStarted, plan = await consumer.call('plan', { session });
       // 查询和回答按正常产品历史留存；等待它们的后台处理，再发布下一步骤。
       const postAnswer = await settled(center, satellite);
-      const checkpoint = { point, source, producer: step.body, answerBody: step.body === 'A' ? 'B' : 'A', preAnswer, postAnswer, answer, plan,
+      if (step.scope === 'other-agent' && [preAnswer, postAnswer].some((states) => [states.center, states.satellite].some((s: any) =>
+        s.messages.some((m: any) => m.body === 'foreign') || s.calls.some((c: ObservedCall) => JSON.stringify(c.request).includes(step.text)))))
+        throw new Error('evaluation-foreign-source-leaked');
+      const checkpoint = { point, source, producer: step.scope === 'other-agent' ? 'foreign' : step.body, answerBody: step.body === 'A' ? 'B' : 'A',
+        isolation, preAnswer, postAnswer, answer, plan,
         elapsedMs: Date.now() - before, answerElapsedMs };
       write(options.root, `checkpoint-${index + 1}.json`, checkpoint);
       report.checkpoints.push({ point, source, file: `checkpoint-${index + 1}.json`, sha256: digest(checkpoint), elapsedMs: checkpoint.elapsedMs, answerElapsedMs });
@@ -97,7 +125,7 @@ export async function runTrack(options: TrackOptions) {
       try { write(options.root, `final-body-${index + 1}.json`, await snapshot(client)); } catch { report.finalSnapshotMissing = true; }
     }
     report.shutdown = await Promise.all(clients.map((c) => c.stop()));
-    for (const [index, body] of ['center', 'satellite'].entries()) if (clients[index]) {
+    for (const [index, body] of bodyNames.entries()) if (clients[index]) {
       try {
         const evidence = JSON.parse(fs.readFileSync(path.join(options.root, body, 'shutdown-evidence.json'), 'utf8'));
         report.shutdown[index].evidenceHash = digest(evidence);

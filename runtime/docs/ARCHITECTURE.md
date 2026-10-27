@@ -22,7 +22,7 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `tool/adaptive-eval/` 是独立的 M2 留出资料与评分工具：spec 校验50案例的逐步输入 / 权限 / 轨迹，cases 为冻结构造器，holdout / manifest 保存正式数据及摘要，score 核查回执证据定位并按固定分母统计，cli 提供只读检查和评分。这些数据 / 评分模块不启动宿主、不生成语义审核、不改变生产提示；完整正式运行器尚未完成。测试夹具的 live 标记只测试算术，不能当真实成绩；运行计划和审阅身份仍需受信流程核对。见[工具说明](../tool/adaptive-eval/README.md)。
 
-同目录新增 development / run-track 只运行公开开发案例；body 独立启动实际宿主、网关、复制与灵魂同步，process-client 管有界 IPC / 认证 RPC / 退出，model-observer 在适配器边界保存证据并以既有 ADC 传输调用真实模型或明确替身。历史来源同步注入记录时钟，正常后台安装后等待对端当前版本；每步对端网关回答及其后台处理完成后才释放下一步。它拒绝尚未支持的隔离 / 受控图操作，不生成正式评分或修改生产提示；完整正式运行器仍待完成。
+同目录新增 development / run-track 只运行公开开发案例；body 独立启动实际宿主、网关、复制与灵魂同步，process-client 管有界 IPC / 认证 RPC / 退出，model-observer 在适配器边界保存证据并以既有 ADC 传输调用真实模型或明确替身。历史来源同步注入记录时钟，正常后台安装后等待对端当前版本；每步对端网关回答及其后台处理完成后才释放下一步。它支持 ignored 来源门禁与第三个独立 agent 存储进程 / RPC 范围对照，仍拒绝受控图操作，不生成正式评分或修改生产提示；完整正式运行器仍待完成。
 
 执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 

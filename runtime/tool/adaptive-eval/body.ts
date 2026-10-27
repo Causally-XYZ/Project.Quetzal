@@ -1,25 +1,26 @@
 // 仅由评测控制进程启动。独立数据库、网关、真实 mesh 与后台；不读取数据集或预期答案。
 import fs from 'node:fs';
 import path from 'node:path';
-import { observeModel } from './model-observer.ts';
+import { observeModel, type ObservedCall } from './model-observer.ts';
 
 if (!process.send || !process.env.QUETZAL_EVAL_BODY) throw new Error('评测身体必须由控制进程启动');
 const settings = JSON.parse(process.env.QUETZAL_EVAL_BODY);
 const cfg = await import('../../src/config.ts'); cfg.loadConfig();
 cfg.saveConfig({ body: settings.body, gateway: { port: 0, host: '127.0.0.1', lan: false },
-  soul: { remote: settings.remote, branch: 'main' }, adaptiveMemory: { enabled: true, hostBody: 'center', semantic: true },
+  soul: { remote: settings.remote, branch: 'main' }, adaptiveMemory: { enabled: !settings.storageOnly, hostBody: 'center', semantic: true },
   brain: { memorySemantic: false, memoryLearning: false }, guard: { sentinel: { enabled: false } } }, { remote: true });
 const store = await import('../../src/store.ts'); store.openStore();
 await (await import('../../src/body/uuid.ts')).ensureBodyUuid();
 const soul = await import('../../src/memory/soul-sync.ts'); await soul.ensureSoul();
-const observer = await observeModel({ directory: path.join(cfg.paths.home, 'eval-calls'), model: settings.model,
-  kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt });
+const observer = settings.storageOnly ? { calls: [] as ObservedCall[], setPhase: (_value: string) => {}, abort: () => {}, close: async () => {} }
+  : await observeModel({ directory: path.join(cfg.paths.home, 'eval-calls'), model: settings.model,
+    kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt });
 cfg.saveConfig({ sharedRev: { providers: 1 } }, { remote: true });
 const { Mesh } = await import('../../src/mesh/mesh.ts');
 const { loadNodeKey } = await import('../../src/mesh/identity.ts');
 const ndc = (await import('node-datachannel')).default;
 const mesh = new Mesh({ me: settings.body, key: loadNodeKey(path.join(cfg.paths.secrets, 'mesh_ed25519')), ndc,
-  binding: { server: settings.sync, token: settings.body, agent: 'x', body: settings.body, account: 'synthetic' },
+  binding: { server: settings.sync, token: settings.body, agent: settings.agent ?? 'x', body: settings.body, account: 'synthetic' },
   keyOf: (body) => settings.keys[body], hello: () => ({ version: 'evaluation' }), log: () => {} });
 const uninstall = [
   (await import('../../src/mesh/replica.ts')).installReplica(mesh),
@@ -30,12 +31,13 @@ const uninstall = [
 const adaptive = await import('../../src/memory/adaptive.ts');
 const brain = await import('../../src/mind/brain.ts');
 const { identity } = await import('../../src/memory/identity.ts');
+if (identity().id !== (settings.agent ?? 'x')) throw new Error('评测灵魂身份不匹配');
 const { AdaptiveStore } = await import('../../src/memory/adaptive-store.ts');
 const { AdaptiveArchive } = await import('../../src/memory/adaptive-archive.ts');
 const { exclusive } = await import('../../src/memory/memory.ts');
 const queue = new AdaptiveStore(store.db, identity().id), archive = new AdaptiveArchive(queue, cfg.paths.soul);
 const gateway = (await import('../../src/gateway.ts')).startGateway(false); await gateway.ready;
-adaptive.startAdaptiveMemory(); mesh.start();
+if (!settings.storageOnly) { adaptive.startAdaptiveMemory(); mesh.start(); }
 let shutting = false;
 async function shutdown() {
   if (shutting) return; shutting = true;
@@ -52,22 +54,36 @@ const commands: Record<string, (args: any) => unknown> = {
   connected: () => mesh.connected(),
   phase: (a) => { if (!/^[a-zA-Z0-9._/-]{1,100}$/.test(a.value)) throw new Error(); observer.setPhase(a.value); return true; },
   source: (a) => {
-    if (!['user', 'assistant-summary'].includes(a.role) || a.scope !== 'accessible' || a.operation
+    if (!['user', 'assistant-summary'].includes(a.role) || !['accessible', 'denied'].includes(a.scope) || a.operation
       || typeof a.text !== 'string' || !a.text || a.text.length > 8000 || !Number.isFinite(Date.parse(a.at))
       || !/^[a-zA-Z0-9._-]{1,64}$/.test(a.session)) throw new Error('不支持的评测输入');
     store.ensureSession(a.session, '合成历史');
     // 只在同步写入/广播期间注入记录时钟，避免先广播当前时间、再仅修改本机时间的复制分叉。
     // 没有 await；所有异步后台与传输计时仍用真实时钟。不是用户界面发言时间模拟。
     const original = Date.now;
-    try { Date.now = () => Date.parse(a.at); return store.addMessage(a.role === 'user' ? 'user' : 'agent', '合成历史', a.text, { session: a.session }); }
+    try { Date.now = () => Date.parse(a.at); return store.addMessage(a.role === 'user' ? 'user' : 'agent', '合成历史', a.text,
+      { session: a.session, ...(a.scope === 'denied' ? { mode: 'ignored' } : {}) }); }
     finally { Date.now = original; }
   },
-  snapshot: () => exclusive(() => ({ records: archive.current(), generation: archive.generation(), calls: observer.calls,
+  snapshot: () => exclusive(() => ({ agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
     messages: store.db.prepare('SELECT id,ts,role,text,session,body,mode FROM messages ORDER BY id').all(),
     receipts: store.db.prepare('SELECT source,processor,revision,completed FROM adaptive_receipts').all(),
     publications: store.db.prepare('SELECT id,digest,state,error FROM adaptive_publications').all(), jobs: queue.jobs(1000),
     status: adaptive.adaptiveStatus(), sync: { unpushed: soul.syncStatus().unpushed }, pid: process.pid })),
   plan: (a) => store.kv.get(`context.plan.${a.session}`, null),
+  probeScope: async (a) => {
+    if (settings.storageOnly || settings.body !== 'satellite' || a.foreignAgent !== 'isolated-evaluation') throw new Error();
+    // 正对照必须成功。失联、超时、未知方法等错误不能冒充跨 agent 拒绝。
+    const allowed = await mesh.request<any>('center', 'memory.adaptive.semantic.query', { agent: identity().id, query: a.query }, 2000);
+    if (allowed.status !== 'ready' || allowed.agent !== identity().id) throw new Error();
+    try {
+      await mesh.request('center', 'memory.adaptive.semantic.query', { agent: a.foreignAgent, query: a.query }, 2000);
+      return { allowed, rejected: false };
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== '认识查询范围或形状不合法') throw new Error();
+      return { allowed, rejected: true, reason: 'agent-scope' };
+    }
+  },
 };
 process.on('message', async (message: any) => {
   if (!Number.isSafeInteger(message?.id)) return;
