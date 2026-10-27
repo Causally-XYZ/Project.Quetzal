@@ -17,6 +17,7 @@ import { kv, saveContextSource, readContextSource, getToolCall, getSessionMessag
 import { redactSecrets } from './secrets.ts';
 import * as taskStates from './task-states.ts';
 import { log } from '../log.ts';
+import { prepareSystemReading } from './prompt.ts';
 
 interface TurnContext { state: TaskWorkingState; tags: string[]; phase: MemoryStage | 'unknown'; phaseExplicit: boolean; manager: ContextManager; conv: string; shared: boolean; query: string; plan?: ContextPlan } // shared：属于一个真正的会话（工作状态全网同步，见 task-states.ts）
 const turns = new Map<string, TurnContext>();
@@ -42,9 +43,11 @@ async function historyReading(messages: Msg[], conv: string, projected: WeakMap<
   // 滚动历史不无限积累摘要依赖；超过单次核查预算就放弃继承，重新按当前原文压缩。
   const inheritedBasis = union.length <= 1000 ? previous : undefined;
   const historyIds = inheritedBasis ? union : currentIds;
-  const ids = [...new Set([...historyIds, ...records.flatMap(materialSources)])];
+  const system = prepareSystemReading(messages);
+  const ids = [...new Set([...historyIds, ...records.flatMap(materialSources), ...system.sources])];
   return withAdaptiveSources(ids, (view) => {
     if (!view) return { messages, records, key: '', basis: undefined, previousValid: true };
+    const systemViews = system.render(view);
     checkMaterialVersions(records);
     const checkedRecords = records.flatMap((record) => {
       const text = materialContext(record, view);
@@ -56,6 +59,12 @@ async function historyReading(messages: Msg[], conv: string, projected: WeakMap<
     const keyFor = (sourceIds: number[]) => crypto.createHash('sha256').update(JSON.stringify({ reading: readingKey(view, sourceIds),
       rows: [...sourceIds].sort((a, b) => a - b).map((id) => [id, rows.get(id)]) })).digest('hex');
     const fresh = messages.map((message) => {
+      if (systemViews.has(message)) {
+        let result = projected.get(message);
+        if (!result) { result = { ...message }; projected.set(message, result); }
+        result.content = systemViews.get(message)!;
+        return result;
+      }
       const ref = historySources.get(message); if (!ref) return message;
       if (ref.conv !== conv) throw new Error('历史来源不属于当前上下文');
       const row = rows.get(ref.id), source = sources.get(ref.id);
@@ -76,7 +85,7 @@ async function historyReading(messages: Msg[], conv: string, projected: WeakMap<
       if ((!row || !source?.hash || JSON.stringify(row) !== ref.original) && 'images' in result) delete result.images;
       return result;
     });
-    const key = crypto.createHash('sha256').update(JSON.stringify([keyFor(ids), checkedRecords])).digest('hex');
+    const key = crypto.createHash('sha256').update(JSON.stringify([keyFor(ids), checkedRecords, [...systemViews.values()]])).digest('hex');
     return { messages: fresh, records: checkedRecords, key, basis: { sources: historyIds, key: keyFor(historyIds) },
       previousValid: !!inheritedBasis && keyFor(inheritedBasis.sources) === inheritedBasis.key };
   }, signal);

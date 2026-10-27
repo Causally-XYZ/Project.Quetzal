@@ -16,7 +16,7 @@ import type { ToolRecord } from "../../../engine/src/loop.ts";
 import { identity } from "../memory/identity.ts";
 import { adaptiveReadingRequired } from "../memory/adaptive.ts";
 import { allTools, callTool } from "./tools.ts";
-import { systemPrompt } from "./prompt.ts";
+import { systemMessage, withSystemReading } from "./prompt.ts";
 import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, saveContextSource, type Attachment } from "../store.ts";
 import { userMessage, PLACED } from "./attachments.ts";
 import { config } from "../config.ts";
@@ -145,7 +145,7 @@ async function introspect(kind: WakeKind, reason: string, where?: Survey): Promi
       ? `你刚刚${kind === "dream" ? "进入梦境（整理记忆）" : `醒来（${reason}）`}。你此刻有几具身体在线：\n${where.text}\n基座推荐：${where.recommendText ?? where.recommend.join("、")}。\n先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡", "where": ["在哪具身体上做：填身体的 uuid，可以选一具或几具（几具会同时进行，都是你）"]}。${kind === "dream" ? "做梦只选一具。" : ""}`
       : `你刚刚醒来（${reason}）。先别急着做事：用一行 JSON 回答 {"engage": true/false, "intent": "想做什么，或者为什么想继续睡"}。`;
     const goalsHint = kind === "think" && goals.openCount() ? `\n可以做的事之一：回顾与推进你的长期目标（系统提示「内在状态」里列着进行中的目标与接下来的步骤）。` : "";
-    const r = await chat({ messages: [{ role: "system", content: systemPrompt(reason, { dynamic: true }) }, { role: "user", content: ask + goalsHint }], maxTokens: 300 }, { quick: true });
+    const r = await chat(withSystemReading({ messages: [systemMessage(reason, { dynamic: true }), { role: "user", content: ask + goalsHint }], maxTokens: 300 }), { quick: true });
     const j = JSON.parse(r.text.match(/\{[\s\S]*\}/)?.[0] ?? "{}");
     // where 填的是 uuid：和身体参数一样经 resolveBody 解析成身体名（登记、认证过的连接、自报一致）；解析不了的不算
     const picked = (Array.isArray(j.where) ? j.where : typeof j.where === "string" ? [j.where] : []).slice(0, 10).map((u: unknown) => { if (typeof u !== "string" || !u.trim()) return ""; const t = resolveBody(u); return "local" in t ? config.body : "remote" in t ? t.remote.body : ""; }).filter((b: string) => b && where?.bodies.includes(b));
@@ -202,7 +202,7 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
 3. 回顾最近的工具调用（recent_actions）：反复出现、步骤稳定的 shell 流程，可以用 tool_write 沉淀成工具，并写好技能文档；灵魂仓库里有技能文档而本机没有实现的，也可以按文档实现。
 
 梦可以是跳跃的、联想的。结束时调用 finish，把这个梦写进日记。`;
-  const messages: Msg[] = [{ role: "system", content: systemPrompt(`${reason} ${gate.intent}`, { dynamic: true }) }, { role: "user", content: task }];
+  const messages: Msg[] = [systemMessage(`${reason} ${gate.intent}`, { dynamic: true }), { role: "user", content: task }];
   const s = new Session(kind === "dream" ? "dream" : "think");
   s.emit({ kind: "start", text: reason });
   let r: Awaited<ReturnType<typeof loop>>;
@@ -441,7 +441,7 @@ export function converse(from: string, text: string, channel: string, o: Convers
     try {
       await soul.pull().catch(() => {});
       const messages: Msg[] = [
-        { role: "system", content: systemPrompt(text, { conv, dynamic: true }) },
+        systemMessage(text, { conv, dynamic: true }),
         ...history(conv, id),
         o.ambient && channel === "子agent"
           ? await userMessage(text, [], AGENT_REPORT_PROMPT, s.seen)

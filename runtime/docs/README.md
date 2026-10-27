@@ -46,6 +46,8 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 
 `adaptive-material.ts` 核对旧结构化候选 / 缓存的消息出处和当前文件，主模型发送前附局部修订；memory_records 保留原审核记录并另给 reading 状态，来源不可访问时不返回正文与旧引语。note_read 对受管记录及实际文件别名执行同一门禁，处理存档先核对权威文件 / 输入；普通无出处 Markdown 不猜语义来源，保留原文并标明未核实。recall 的文档命中复用同一来源 / 范围核查，在有界200项候选内过滤后再取条数；返回前核对文件，不能使用变动前的搜索片段。旧语义选择模型输入另附完整 reading 字段，不发送不可访问正文；缓存覆盖全部参与选择的候选来源，模型返回后再核对，词面降级也过滤失效访问。新测试为 `test/adaptive-material.test.ts`、`test/adaptive-recall.test.ts` 和 `test/adaptive-selection.test.ts`，现有测试 / 构建 glob 自动包含；没有新增依赖、环境变量、服务、数据库表或灵魂格式。
 
+`mind/prompt.ts` 的生产 systemMessage 保留来源绑定，不能在交给上下文宿主前将对象序列化或展开成另一个对象。跨会话近况仍最多取五个会话各四条消息，在灵魂锁 / SQLite 快照内附当前修订；无绑定的实时发言和草稿只显示运行状态，旧手动摘要不作当前依据。原文节选仍最多160字符，修订完整，4000字符局部预算下整项省略并提示回查。模型准备前后核对跨会话变化，quick 内省的每个候选 / 故障转移也刷新。`test/adaptive-prompt.test.ts` 覆盖实际 converse / wake、HTTP 模型替身、竞态、预算、取消与存档异常。没有新增依赖、配置、服务或格式，现有类型检查 / 测试 glob / 构建入口直接覆盖。
+
 **semantic 生成与默认上下文仍处于受控试验**：前台语义读取 / 纠正覆盖尚未完成，开启时新增的 adaptive 来源查询返回 unavailable、不注入旧观察。关闭 semantic 恢复 M1 来源路径。旧记忆路径保持既有行为，这不是全局纠正一致性验收通过。多身体与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
 
 真实开发工具 `adaptive-semantic-pilot.ts` 与 `adaptive-review-pilot.ts` 使用仓库外隔离数据，见[评测登记](../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。开源探针与边界见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。Graphiti 提示适配副本的许可证与修改说明位于 `third_party/graphiti/`；`tool/build-main.mjs` 将完整许可和说明嵌入所有平台共用的 main.cjs。未新增生产运行依赖、独立服务或生产环境变量；已有 TypeScript / 测试模式覆盖实现，构建入口已同步更新。

@@ -262,6 +262,8 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 修订模式下 `memory_records` 与读取受管结构化笔记的 `note_read` 返回原 key / kind / state / scope / validation，并新增 `reading`：status 为 historical / unverifiable / unavailable，附 generation、local-snapshot、来源 hash / notices 和说明。state / validation 只表示原审核；unavailable 时省略 text / evidence，保留管理元数据。普通笔记仍返回带无法核对说明的原文；自适应批次存档核对权威文件和全部输入，输入不可访问时不返回旧 payload。工具参数与 RPC 不变，纯存储读取 API 不改变。 `recall` 的笔记结果复用同一读取视图和会话范围；不可访问结果整项跳过，不输出旧片段或标题，随后再取请求条数。普通笔记 / 日记 / 常驻文档在返回前核对当前正文，无出处材料仍只作历史资料。候选最多200项、最终输出512 KiB，未承诺全库检索无遗漏。
 
+生产系统提示的跨会话近况在每个模型候选准备时核对来源，原文节选与完整修订提示整项保留或省略；快速内省的故障转移也重新读取。不改变外部 RPC。字符串 systemPrompt 仅作兼容预览，修订模式下不包含未经核查的跨会话正文；内部生产入口为 systemMessage，来源绑定由上下文宿主消费。此能力只保证本机已收到的状态，不保证中心最新或覆盖任意无出处派生资料。
+
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic 为默认关闭的后台语义试验开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
