@@ -6,11 +6,11 @@
 
 开发中的自适应记忆见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)，M1 工程验收情况以阶段验证记录为准，语义认识仍待 M2。`memory/adaptive-store.ts` 管来源修订、持久任务、租约与处理回执；`memory/adaptive.ts` 管固定身体后台处理和有界读取；`mesh/adaptive-memory.ts` 复用正式成员认证；`mind/context.ts` 在模型准备阶段注入原文观察。`main.ts` 在非安全模式初始化灵魂后启动宿主，退出时停止，默认配置关闭。发布协议见[存储与恢复](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)：结果接受与任务完成同事务，文件安装和本地 Git 确认分别可恢复；受管存档不进入普通笔记召回。SQLite 数据与任务均在 `QUETZAL_HOME/data/quetzal.db`，没有新增守护进程或依赖。多身体验收使用本机独立进程与网关，不能以两个浏览器标签替代两具身体；桌面 / 移动视口交互留待对应阶段。
 
-M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原文引用，计算带反证的依赖状态；`memory/adaptive-graph.ts` 将版本投影与任务 / 发件箱同事务安装。见[语义格式与边界](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。当前仅由合成工程测试实例化，后台仍用 source-v1，未新增语义查询接口。
+M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原文引用，计算带反证的依赖状态；`memory/adaptive-graph.ts` 将版本投影与任务 / 发件箱同事务安装。见[语义格式与边界](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。默认仍用 source-v1；显式开启 adaptiveMemory.semantic 后后台整合与重评会调用这些库。前台语义查询尚未开放。
 
-`memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；宿主接线时须持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
+`memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
 
-`memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。本机开发工具顺序调用真实模型和已有存储，不代表宿主后台已接线。
+`memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
 执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
@@ -90,15 +90,17 @@ src/
 │   ├── retrieval.ts      记忆检索宿主：收集文件、FTS5 / 降级路径及时间；纯分词、打分、摘录与字符预算选择调用根级 engine
 │   ├── structured.ts     notes/QuetzalMemory版本读写、来源/状态校验、scope与条件门禁、旧材料标注映射、归档回滚，原私有正文不脱敏
 │   ├── adaptive-store.ts 来源修订、持久任务、租约与回执；与 messages 同事务失效
-│   ├── adaptive-evidence.ts  M2 记录格式、精确出处、证据状态与纠正影响范围计算（未接入后台）
+│   ├── adaptive-evidence.ts  M2 记录格式、精确出处、证据状态与纠正影响范围计算（受控后台试验）
+│   ├── adaptive-worker.ts    持久增量整合、完整输入与代次门禁，当前有工作量上限
+│   ├── adaptive-model.ts     现有供应商路由、脱敏、窗口校验、严格 JSON 与时间墙
 │   ├── adaptive-proposal.ts  M2 提案提示 / schema、宿主身份与引文规范化（开发试跑）
-│   ├── adaptive-review.ts    M2 旧引用工作发现、持久队列复用与有界模型重评（开发入口）
+│   ├── adaptive-review.ts    M2 旧引用工作发现、持久队列复用与有界模型重评（后台与开发共用）
 │   ├── prompts/adaptive-graphiti.ts 固定上游抽取 / 时间规则的许可副本与适配
-│   ├── adaptive-archive.ts   M2 权威文件核对、重建与备份检查点（未接入后台）
-│   ├── adaptive-graph.ts     M2 有版本 SQLite 投影、事务安装和快照读取（未接入后台）
+│   ├── adaptive-archive.ts   M2 权威文件核对、重建与备份检查点（受控后台试验）
+│   ├── adaptive-graph.ts     M2 有版本 SQLite 投影、事务安装和快照读取（受控后台试验）
 │   ├── adaptive-artifact.ts  有版本结果信封与来源引用，不确认语义
 │   ├── adaptive-publication.ts SQLite 发件箱到私有 Markdown，原子安装与 Git 回执恢复
-│   ├── adaptive.ts       固定中心来源处理与认证读取；候选 LIMIT 前排除未处理 / 失效来源；对照本机状态 / hash 过滤中心过期快照，当前没有语义推理
+│   ├── adaptive.ts       固定中心来源处理与认证读取；候选 LIMIT 前排除未处理 / 失效来源；对照本机状态 / hash 过滤中心过期快照，semantic 开关控制后台试验；前台覆盖未完成时不返回原文观察
 │   ├── semantic.ts       合格有界候选的quick语义选择，缓存/每日预留预算/取消/超时，失败退回词面检索
 │   ├── prime.ts          真实轨迹与用户来源、候选蒸馏/个人确认/独立结果评价/经验演化/反馈，预算与自动灵魂同步
 │   ├── portable-path.ts  灵魂仓库里的路径在每一种身体上都放得下（规范 v13 §3.13）：Windows 的保留名、结尾的点与空格、非法字符、只差大小写的路径

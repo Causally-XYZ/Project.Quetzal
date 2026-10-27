@@ -30,16 +30,14 @@ agent 的命令在沙箱里运行（`src/sandbox.ts`）：Linux 用 `bwrap`（bu
 
 架构见 [ARCHITECTURE.md](ARCHITECTURE.md)，接口见 [../../docs/API.md](../../docs/API.md)。内核专项开发与实现现状见 [../../docs/engine/README.md](../../docs/engine/README.md)，包含上下文、记忆、执行循环、工具接口和基线验证。
 
-M2 的开源契约探针与指定 Gemini 模型 ADC 连通性工具位于 `tool/adaptive-oss-probe.py`、`tool/adaptive-oss-checkpoint.mjs`、`tool/adaptive-vertex-smoke.py`。用法、固定版本、真实 / 替身边界及执行结果见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。它们是开发验证工具，不由生产后台启动；本批没有新增 runtime 依赖或修改模型路由，ADC 连接成功不代表语义记忆已实现。
+自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进，M1 已放行、M2 尚未放行。`adaptiveMemory.enabled` 和固定 `hostBody` 管来源处理，新增 `semantic` 默认 false：显式开启后，同一 runtime 后台运行 `adaptive-worker.ts` 增量整合与 `adaptive-review.ts` 依赖重评，使用控制台已配置的供应商主顺序。状态 / 开关仍经既有 `memory.adaptive.*` 管理接口；UI 与真人试用尚未验收。
 
-M2 另有 `src/memory/adaptive-evidence.ts` 与 `adaptive-graph.ts`：版本化记录、支持 / 反证依赖与事务安装，详见[语义数据结构](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。目前仅测试调用，不自动启用语义处理；真实模型理解和灵魂投影重建仍待完成。
+`adaptive-model.ts` 复用模型路由、出站脱敏、实际用量和取消信号；完整输入装不进候选模型窗口时不发请求，不截掉必要依据。它严格拒绝截断、工具调用和非 JSON 输出。当前 ADC 仅由 `tool/adaptive-vertex-smoke.py` / `adaptive-vertex-proposal.py` 用于开发，不被后台读取或复制到其他身体。
 
-`src/memory/adaptive-archive.ts` 是内部存档入口：每次操作核对权威文件和未交付结果，重放版本链；缺失 / 冲突时停止语义读取，文件完整后自动恢复。已有新数据库恢复与损坏边界测试，尚未接线或做前台负载验收。
+认识的版本与支持 / 反证规则在 `adaptive-evidence.ts`、`adaptive-graph.ts`；`adaptive-archive.ts` 在灵魂 exclusive 内核对权威文件和发件箱再重建。接受结果后沿用[文件 / Git 自动发布](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)。增量处理目前最多 1000 条记录 / 100 个来源且提示不超过 256 KiB，原文失效或超限进入有界失败重试；尚缺大历史候选选择和失效原文的自动重新整合。每次新整合回执最多资助五次重评，预算在本机 KV 保留；没有可用模型时显示 unconfigured。本机忙碌时等待空闲，连续等待 30 秒后允许处理，模型时间墙 150 秒；性能尚未验收。
 
-真实语义开发入口为 `tool/adaptive-semantic-pilot.ts` 与 `tool/adaptive-vertex-proposal.py`，使用已有 ADC、仓库外合成数据。提案规范化在 `src/memory/adaptive-proposal.ts`；Graphiti 提示词规则的来源和许可证在 `third_party/graphiti/`。操作及失败边界见[评测登记](../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。该 TypeScript 工具已加入 tsconfig 的类型检查，不进入 main 生产入口。
+**semantic 开关目前只用于后台接线试验**：前台语义读取 / 纠正覆盖尚未完成，开启时新增的 adaptive 来源查询返回 unavailable、不注入旧观察。关闭 semantic 恢复 M1 来源路径。旧记忆路径保持既有行为，这不是全局纠正一致性验收通过。多身体与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
 
-`adaptive-evidence.ts` 的 `dependentRecords` 提供有界的版本依赖影响计算。`adaptive-review.ts` 从存档中的旧引用发现工作，复用现有队列并检查取消 / 超时 / 来源与代次；`tool/adaptive-review-pilot.ts` 在独立合成库副本上调用真实模型重评。尚未接入 main 定时器，不能将库与开发脚本称为部署完成。没有新增依赖、环境变量或部署入口；tsconfig 已纳入重评开发工具，已有测试模式覆盖新测试。
-
-自适应记忆按 [M0–M5 计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)推进：多身体输入、一处集中处理，全部在本机模拟验证。M1 已有默认关闭的来源处理骨架，随 runtime 自动启动，固定主机配置为 `adaptiveMemory`，认证管理接口见 [API](../../docs/API.md)。结果发布已具备[持久发件箱和文件 / Git 恢复边界](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)，目前只有合成发布测试，尚无语义处理器产出。离线旧消息状态、编号缺口、进程恢复、开关 / 急停与一万条历史下的查询负载已有专项验证，最终 M1 放行及 push 状态见验证记录；当前只返回带出处的原文观察，没有新增语义模型、图数据库或独立服务。依赖和构建入口沿用现有配置，新测试自动由 `npm test` 的文件模式纳入。验收命令、真实传输 / 假模型边界、已知缺口见[验证记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
+真实开发工具 `adaptive-semantic-pilot.ts` 与 `adaptive-review-pilot.ts` 使用仓库外隔离数据，见[评测登记](../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。开源探针与边界见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。Graphiti 提示适配副本的许可证与修改说明位于 `third_party/graphiti/`；`tool/build-main.mjs` 将完整许可和说明嵌入所有平台共用的 main.cjs。未新增运行依赖、独立服务或环境变量；已有 TypeScript / 测试模式覆盖实现，构建入口已同步更新。
 
 发布前真实模型验收可在显式隔离的 `QUETZAL_HOME` 中运行 `node --experimental-strip-types tool/verify-memory-real.ts`。须先建立 `.release-verification` 标记并配置模型；只用合成资料，结果写本机，不复制真实人格或记忆。此检查会产生真实API费用，推理quick模型验收使用2400选择输出tokens、30秒语义选择与4096摘要生成tokens／60秒摘要预算，并为学习使用4096输出tokens与120秒模型会话预算；不是默认5秒延迟通过或长期收益证明。

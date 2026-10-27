@@ -95,9 +95,9 @@ async function main() {
   startAdaptiveMemory(); // 默认关闭；指定记忆主机启用后后台补扫，复用运行基座进程的守护与恢复
   void startMcp(); // 网关已就绪；启动审批不阻塞心脏与其他来源
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
-    stopAdaptiveMemory();
+    const stoppedMemory = stopAdaptiveMemory();
     const deadline = setTimeout(() => process.exit(0), 3000);
-    void closeMcp().finally(() => { clearTimeout(deadline); process.exit(0); });
+    void Promise.allSettled([stoppedMemory, closeMcp()]).finally(() => { clearTimeout(deadline); process.exit(0); });
   });
   bus.on("body.uuid", () => void soulPush("身体 uuid 换成由设备标识派生的值").catch(() => {})); // 身体登记随之更新
   wireMesh();

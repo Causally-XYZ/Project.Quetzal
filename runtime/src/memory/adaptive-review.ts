@@ -1,6 +1,6 @@
 // 从仍引用旧版本的记录重建待重评工作；队列是派生状态，认识和依据仍由存档负责。
 import crypto from 'node:crypto';
-import { AdaptiveStore } from './adaptive-store.ts';
+import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
 import { directSpans, recordRefs, type SemanticRecord } from './adaptive-evidence.ts';
 import { normalizeProposal, proposalPrompt, type ProposalContext } from './adaptive-proposal.ts';
@@ -77,6 +77,7 @@ export async function reviewNext(options: {
   exclusive: <T>(run: () => T) => Promise<T>;
   enabled: () => boolean;
   signal?: AbortSignal; timeoutMs?: number;
+  claimed?: (job: MemoryJob) => void;
 }): Promise<ReviewResult> {
   const { archive, queue, exclusive, enabled } = options;
   const timeoutMs = options.timeoutMs ?? 120_000;
@@ -99,6 +100,7 @@ export async function reviewNext(options: {
   });
   if (!('plan' in selected) || !selected.plan || !selected.job) return { status: options.signal?.aborted ? 'cancelled' : selected.unavailable };
   const { plan, job } = selected, controller = new AbortController();
+  options.claimed?.(job);
   let timer: ReturnType<typeof setTimeout> | undefined, cancel: (() => void) | undefined;
   try {
     // 即使供应商忽略 AbortSignal，超时 / 用户取消也不再等待或安装迟到响应。

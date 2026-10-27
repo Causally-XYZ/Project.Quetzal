@@ -434,15 +434,11 @@ flowchart LR
 
 ### 6.1 结构化记忆、语义选择与原文检索
 
-开发中的[自适应记忆计划](engine/ADAPTIVE_MEMORY_PLAN.md)采用多身体输入、一处集中记忆计算。M1 已接入默认关闭的来源处理骨架：`memory/adaptive-store.ts` 在现有 SQLite 保存来源修订、持久任务和处理回执；`memory/adaptive.ts` 在固定身体后台处理，通过 `mesh/adaptive-memory.ts` 提供认证读取，`mind/context.ts` 把原文观察送入当前上下文。检索在候选 LIMIT 前筛选当前版本已处理的来源，避免待处理新输入挤空可用记忆；FTS 和无 FTS 候选都采用同一资格条件。消息事务内触发器与启动补扫覆盖本机和复制写入，不依赖进程内事件作为唯一任务来源。原文仍在 messages，不写入公共仓库或灵魂 Git；当前不产生长期认识，不改变灵魂规范 v14，也不替代旧 PRIME 学习器。结果发布边界已增加持久发件箱、不可变文件安装及 Git HEAD 内容确认，详见[发布与恢复协议](engine/ADAPTIVE_MEMORY_STORAGE.md)；当前 source-v1 不调用语义生成器，发布测试使用合成结果。M1 的来源链路、发布恢复及负载门禁证据见[阶段验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)；以下既有结构化记忆机制保持原有职责。
+开发中的[自适应记忆计划](engine/ADAPTIVE_MEMORY_PLAN.md)采用多身体输入、一处集中记忆计算。M1 已接入默认关闭的来源处理骨架：`memory/adaptive-store.ts` 在现有 SQLite 保存来源修订、持久任务和处理回执；`memory/adaptive.ts` 在固定身体后台处理，通过 `mesh/adaptive-memory.ts` 提供认证读取，`mind/context.ts` 把原文观察送入当前上下文。检索在候选 LIMIT 前筛选当前版本已处理的来源，避免待处理新输入挤空可用记忆；FTS 和无 FTS 候选都采用同一资格条件。消息事务内触发器与启动补扫覆盖本机和复制写入，不依赖进程内事件作为唯一任务来源。原文仍在 messages，不写入公共仓库或灵魂 Git；source-v1 本身不产生长期认识，不改变灵魂规范 v14，也不替代旧 PRIME 学习器。结果发布边界已增加持久发件箱、不可变文件安装及 Git HEAD 内容确认，详见[发布与恢复协议](engine/ADAPTIVE_MEMORY_STORAGE.md)；当前 source-v1 不调用语义生成器，发布测试使用合成结果。M1 的来源链路、发布恢复及负载门禁证据见[阶段验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)；以下既有结构化记忆机制保持原有职责。
 
-M2 阶段内新增[认识版本与证据依赖库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)：保存对象、提及和认识的连续版本，计算支持 / 反证分组及纠正后的依赖失效，与任务发件箱原子接受。当前只由合成工程测试使用，尚未接入语义模型、后台调度或前台查询，不能据此宣布语义记忆已运行。
+M2 的[认识内核](engine/ADAPTIVE_MEMORY_SEMANTICS.md)、存档入口、提案规范化、增量整合和依赖重评已接到固定主机后台，新增 `adaptiveMemory.semantic` 默认 false。显式开启后复用控制台模型路由和灵魂 exclusive，接受后的长期记录继续自动发布。处理单飞，普通输入优先于依赖重评；未配置供应商时不消耗任务尝试。来源、代次、取消和急停门禁仍生效；Graphiti 提示副本的完整许可随 main.cjs 分发。
 
-M2 内部 `AdaptiveArchive` 已支持从权威文件及未交付结果原子重建，已知文件缺失 / 改动时拒绝旧投影，恢复完整后重放；新数据库不伪造本机任务。此入口尚未接入宿主，完整备份与大历史性能仍待验收。
-
-M2 提案层 `adaptive-proposal.ts` 已在独立开发工具中接入真实 Gemini：模型输出局部句柄与引文，宿主分配身份 / 版本 / 偏移并校验，抽取规则改编自固定版 Graphiti。开发试跑暴露语境和纠正重评缺口，见[评测登记](engine/ADAPTIVE_MEMORY_EVAL.md)；尚未接入生产模型路由或后台。
-
-纠正影响计算现可按具体版本遍历支持 / 反证下游；内部重评执行器从旧引用重建任务，复用持久队列，调用模型后以来源与代次门禁安装新版本，空提案同样核对快照。它不机械改写或撤回结论，目前由开发工具驱动，生产定时调度与完整语义质量仍待验收。
+目前这是受控后台试验：完整候选检索、失效原文重新整合、跨语境引用、前台纠正覆盖、真实语义留出集与多身体接线验收仍未完成。开启 semantic 时 adaptive 查询暂返回 unavailable，避免新增旧原文观察路径绕过已接受的纠正；没有借此宣称其他既有记忆路径已经满足纠正一致性。默认关闭保持 M1 行为。实际模型开发和本机协议替身测试分别见[评测登记](engine/ADAPTIVE_MEMORY_EVAL.md)与[阶段记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。
 
 长期真相仍在仓库外的私有 `QUETZAL_HOME/soul/`，对话、上下文引用与派生状态在本机 SQLite。结构化版本存入规范已有的 `notes/QuetzalMemory/<id>_v<version>.md`，含可读正文、来源与 fenced JSON；不增加灵魂顶层目录，不把索引提交进灵魂。私有正文原样存储，脱敏发生在模型输入、客户端输出和日志边界。
 
