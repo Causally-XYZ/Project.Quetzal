@@ -266,6 +266,8 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 TypeScript ADC 开发传输回执补充成功 / 失败 / 取消终态与阶段计时，响应头前等待不能进一步判定网络或服务端原因；只保存固定分类与数值，不记录端点、认证值、响应头或原始错误。这是仓库外评测证据，不是产品 RPC；现有模型时限、路由、队列重试及控制台配置未变。
 
+正式评测的 plan / code / receipt 文件为仓库外工具协议，不增加产品 RPC。formal 入口核对干净提交、完整配置与代码字节；每条轨迹使用独立身体，实际请求与来源证据导出到未审核回执。五类材料齐全及工程完成不表示语义通过，reviews 默认空；只读评分拒绝配置不完整的草稿计划，详见[工具说明](../runtime/tool/adaptive-eval/README.md#严格计划与实际证据入口)。
+
 ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 urllib / curl 对照；不是服务配置或 RPC 参数，不改变生产 TypeScript 模型路由。实际传输、失败阶段及未知用量在独立评测报告中保存。
 
 内部 `reviewNext` 复用现有队列执行来源修订 / 依赖重评，由宿主注入模型、灵魂 exclusive 与启用 / 取消状态。提供同语境已有对象候选和定义，仍不按同名合并；旧引文须重新核对当前原文。semantic 开关显式开启后后台调用；无需修改的结果也核对完整输入快照后才记任务完成，不恢复失效依据。它不是模型可直接调用的工具。内部准入回调在领取前核对目标额度，生成回调附带目标 ID 以持久预扣；状态中的 reviewBudget 为 version 2，含 epoch / remaining / resumeAt / attempts。后台每五次调用冷却 60 秒后继续，同轮每目标五次、至多 1000 个目标；review-cooldown 是待到期续做，review-limit 是目标额度耗尽，都不表示认识已经修复。

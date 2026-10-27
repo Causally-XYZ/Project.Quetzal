@@ -27,6 +27,7 @@
     "tool/adaptive-retrieval-probe/multibody.ts",
     "tool/adaptive-eval/cli.ts",
     "tool/adaptive-eval/body.ts",
-    "tool/adaptive-eval/development.ts"
+    "tool/adaptive-eval/development.ts",
+    "tool/adaptive-eval/formal.ts"
   ]
 }

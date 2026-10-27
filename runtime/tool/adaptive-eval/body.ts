@@ -88,7 +88,8 @@ const commands: Record<string, (args: any) => unknown> = {
       { session: a.session, ...(a.scope === 'denied' ? { mode: 'ignored' } : {}) }); }
     finally { Date.now = original; }
   },
-  snapshot: () => exclusive(() => ({ agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
+  snapshot: () => exclusive(() => ({ ...(settings.fullEvidence ? { history: archive.current().flatMap((r) => archive.history(r.id)),
+      evidence: Object.fromEntries(archive.assess()) } : {}), agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
     ...(vector ? { retrievalCalls: vector.calls,
       retrievalExpected: semanticDigest(archive.candidates().map(({ key, title, text }) => ({ key, title, text }))) } : {}),
     ...(controlled ? { controlled: controlled.snapshot(), held } : {}),

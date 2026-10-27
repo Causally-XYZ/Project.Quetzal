@@ -10,7 +10,7 @@ import type { ObservedCall } from './model-observer.ts';
 import { seedPublicRetrievalCache } from './retrieval-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
 export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number;
-  retrievalCache?: string; disconnectStep?: number }
+  retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
@@ -31,7 +31,7 @@ export async function runTrack(options: TrackOptions) {
     model: options.model, maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
     deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
-    retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
+    fullEvidence: !!options.fullEvidence, retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
     controlledPolicy: controlled ? 'pause-idle-host-before-input; archive-accept-seed-or-withdrawal; resume-normal-publication-and-model-review' : null,
     limits: '开发链路；不等于冻结正式计划或语义通过。denied 检验既有 ignored 来源门禁，不代表新增会话 ACL；受控图输入不计为模型构图能力。' });
   const clients: BodyClient[] = [], bodyNames: string[] = [], keys: Record<string, string> = {};
@@ -88,7 +88,7 @@ export async function runTrack(options: TrackOptions) {
     for (const body of ['center', 'satellite']) {
       clients.push(await startBody(path.join(options.root, body), {
         body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
-        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache,
+        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence,
       })); bodyNames.push(body);
     }
     let foreign: BodyClient | undefined;

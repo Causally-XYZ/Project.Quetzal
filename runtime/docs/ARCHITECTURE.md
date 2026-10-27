@@ -224,3 +224,6 @@ adapters/
 
 
 开发专用 `adcFetch` 在 credentials / headers / body 阶段记录终态回执，取消监听只报告一次并清理；流异常保留已收到的白名单计量，认证值与错误正文继续隔离。成功状态仅描述传输结束，模型版本 / STOP 仍需上层核查。宿主既有失败任务最多五次尝试、持久退避不变；新增双身体恢复测试验证首次失败后无需控制端干预即可重试、发布和读取。公开语义试跑仍遇首次失败立即收尾；恢复测试是独立工程证据。
+
+
+`tool/adaptive-eval/plan.ts` 复用冻结清单校验，绑定干净提交和完整执行配置；formal.ts 只按指定案例 / 重复顺序执行独立 runTrack，不给模型预期断言。receipt.ts 从已核验的原始 input / execution / result / checkpoint 导出五类材料，绑定文件字节摘要，缺失完成证据拒绝计 complete，语义 reviews 保持空。body 的可选 fullEvidence 在既有 exclusive 中获取完整认识历史和当前支持评估，仅在评测开启；生产模块不变。评分 CLI 同样核对完整归档计划，不用字段存在代替执行 / 语义证明。

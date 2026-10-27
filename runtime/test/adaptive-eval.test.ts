@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { makePlan } from '../tool/adaptive-eval/plan.ts';
 import { buildSuite } from '../tool/adaptive-eval/cases.ts';
 import { digest, releasedActions, validateSuite, type Case, type Surface } from '../tool/adaptive-eval/spec.ts';
 import { scoreSuite, checkpoints, type Receipt, type Artifact } from '../tool/adaptive-eval/score.ts';
@@ -112,14 +113,16 @@ test('实际只读入口校验冻结数据，空结果保持150组分母并非�
   assert.equal(JSON.parse(checked.stdout).checks, 800);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-eval-cli-test-'));
   try {
-    fs.writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ schema: 'quetzal-m2-plan-v1', suiteHash: digest(suite),
-      processorRevision: '0'.repeat(40), configuration: { syntheticUnitFixture: true } }));
+    const entries = [{ file: 'runtime/src/synthetic-test-fixture.ts', sha256: '0'.repeat(64) }];
+    const code = { revision: '0'.repeat(40), code: entries, codeHash: digest(entries) };
+    fs.writeFileSync(path.join(root, 'code.json'), JSON.stringify(code));
+    fs.writeFileSync(path.join(root, 'plan.json'), JSON.stringify(makePlan(suite, code, 'live')));
     const scored = run(['--score', root]); assert.equal(scored.status, 1, scored.stderr);
     const result = JSON.parse(scored.stdout);
     assert.equal(result.execution.expected, 150); assert.equal(result.execution.missing, 150);
     assert.equal(result.semanticGate, false); assert.equal(result.total.invariant.pass, 0);
     assert.equal(Object.values(result.total).reduce((n, value: any) => n + value.expected, 0), 2400);
-    assert.deepEqual(fs.readdirSync(root), ['plan.json']);
+    assert.deepEqual(fs.readdirSync(root).sort(), ['code.json', 'plan.json']);
     const plan = JSON.parse(fs.readFileSync(path.join(root, 'plan.json'), 'utf8')); plan.suiteHash = 'b'.repeat(64);
     fs.writeFileSync(path.join(root, 'plan.json'), JSON.stringify(plan));
     const wrong = run(['--score', root]); assert.notEqual(wrong.status, 0); assert.equal(wrong.stdout, '');
