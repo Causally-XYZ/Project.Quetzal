@@ -12,6 +12,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照。默认历史由 `mind/context.ts` 在模型准备前重建；来源或认识版本变化会清摘要缓存，发送前复核，至多重建一次。无来源版本的持久摘要不继承；`adaptive-material.ts` 在发送前核对旧候选文件及消息来源，工具 memory_records / note_read 同样附当前读取状态；原审核不能充当新证据，不可访问来源的派生正文不输出。recall 文档命中与笔记读取共用准备 / 快照呈现逻辑，旧语义选择器在模型调用前、返回后和缓存命中时核查来源；`mind/prompt.ts` 的 systemMessage 通过对象来源绑定保留跨会话读取能力，context 在同一快照核对近况并纳入准备前后摘要值，quick 内省在每个候选上重新读取；未绑定来源的其他派生资料和远端语义读取仍待接入。
 
+`memory/read-receipt.ts` 用 AsyncLocalStorage 记录记忆工具实际读取的来源 hash / 文档摘要，拒绝混合或超限的可用凭据；`mind/tool-reading.ts` 核查作用域、原结果和当前来源，生成当前投影。store 启动自动为 tool_calls 补 reading 可空列；engine 仅原样把不透明凭据交给 recordTool。context 准备和 context_read 工具回查共用投影，atomic 标记防止修订被头尾节选裁掉。无新依赖 / 服务，既有构建自动包含；灵魂格式不变。
+
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
 开发评测在 `tool/adaptive-vertex-*.py` 保留安全失败分类和可选 curl 传输，未报告用量为 null；取消会结束 HTTP 子进程。`tool/adaptive-checkpoint-probe/` 单独锁定开源探针的开发依赖，实际执行真实 MemorySaver 契约，不加入生产依赖 / 打包路径；范围和复现命令见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。

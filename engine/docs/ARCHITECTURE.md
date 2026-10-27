@@ -24,7 +24,7 @@ FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供
 
 ## 兼容行为
 
-工具定义在入口快照，工具执行串行；finish 不调用普通工具端口，同一响应中 finish 后的其他工具仍执行。最终 text 只取终止步骤，空对话最多提醒两次。interrupt 保留部分文字；pending 输入或图片使循环继续。模型侧工具结果截取 12000 字符，简短步骤记录截取 1500，完整记录由宿主保存。失败与 denied 注入错误标记，同参数重复失败追加提醒。
+工具定义在入口快照，工具执行串行；finish 不调用普通工具端口，同一响应中 finish 后的其他工具仍执行。最终 text 只取终止步骤，空对话最多提醒两次。interrupt 保留部分文字；pending 输入或图片使循环继续。模型侧工具结果截取 12000 字符，简短步骤记录截取 1500，完整记录由宿主保存。ToolResult 可带 reading 不透明元数据，循环仅原样交给 recordTool，不塞进原消息或解释其内容。宿主重建的工具消息可设置 atomic，ContextManager 不做头尾节选，但仍遵守整组摘要 / 引用和固定组溢出规则。失败与 denied 注入错误标记，同参数重复失败追加提醒。
 
 取消判定由宿主注入：现有普通 Stopped 能提前结束正在等待的工具，子 agent 的普通 Error 保持已有差异。工具本身的取消和副作用仍由宿主管理。执行循环不增加总步数、总消费或绝对时长上限；自动压缩由新增 ContextManager 与宿主 prepareContext／prepareForModel 接线实施，子 agent 的 maxSteps 由宿主经 check／drain 端口计数，引擎不感知。
 

@@ -2,8 +2,9 @@
 import type { ChatRequest, ChatResult, Msg, ToolCall, ToolDef } from "./types.ts";
 
 export interface Step { tool: string; args: unknown; result: string; status: string }
-export interface ToolResult { text: string; status: "ok" | "error" | "denied" }
-export interface ToolRecord { call: string; session: string; ts: number; tool: string; args: unknown; result: string; status: ToolResult["status"]; ms: number }
+// reading 是宿主定义的不透明读取凭据，只传给记录端口，引擎不解释或注入模型。
+export interface ToolResult { text: string; status: "ok" | "error" | "denied"; reading?: unknown }
+export interface ToolRecord { call: string; session: string; ts: number; tool: string; args: unknown; result: string; status: ToolResult["status"]; ms: number; reading?: unknown }
 export type TurnEvent =
   | { kind: "step"; step: number }
   | { kind: "text"; step: number; text: string; final: boolean }
@@ -127,7 +128,7 @@ export async function runTurn(options: RunOptions, ports: EnginePorts): Promise<
       const out = await s.hold(() => untilStopped(ports.execute(c), s, ports)); // 执行工具即在工作：暂停会话时间墙；对方停止时不等工具做完
       s.emit({ kind: "tool", ...card, status: out.status, ms: Date.now() - t0, result: out.text.split("\n").find((l) => l.trim())?.slice(0, 120) ?? "" });
       steps.push({ tool: c.name, args: ports.redactArgs(c.args), result: out.text.slice(0, 1500), status: out.status });
-      try { ports.recordTool({ call: c.id, session: s.id, ts: Date.now(), tool: c.name, args: ports.redactArgs(c.args), result: out.text, status: out.status, ms: Date.now() - t0 }); } catch (e) { ports.warning(`没能存下工具调用的完整记录：${(e as Error).message}`); }
+      try { ports.recordTool({ call: c.id, session: s.id, ts: Date.now(), tool: c.name, args: ports.redactArgs(c.args), result: out.text, status: out.status, ms: Date.now() - t0, ...(out.reading !== undefined ? { reading: out.reading } : {}) }); } catch (e) { ports.warning(`没能存下工具调用的完整记录：${(e as Error).message}`); }
       // 失败（含被拒绝）写在结果的最前面：只给原文时，「exit 1」之类的结果她容易当成做成了
       let content = out.text.slice(0, 12000);
       if (out.status !== "ok") {

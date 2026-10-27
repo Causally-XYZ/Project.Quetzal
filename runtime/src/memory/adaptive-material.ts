@@ -1,5 +1,6 @@
 // 旧结构化记忆保留原审核与正文；当前读取状态单独计算，不能把 active/verified 当成新证据。
 import fs from 'node:fs';
+import { observeReadDocument } from './read-receipt.ts';
 import path from 'node:path';
 import { memoryKey, validateMemoryRecord, type MemoryRecord } from '../../../engine/src/memory.ts';
 import { readStructuredRecords, readLegacyRecords } from './structured.ts';
@@ -45,8 +46,10 @@ export function checkMaterialVersions(records: MemoryRecord[]): void {
   // 不能凭 legacy_ 名字跳过核查：受管 id 也允许这个前缀。
   if (records.some((r) => !current.has(memoryKey(r)))) for (const record of readLegacyRecords())
     if (!current.has(memoryKey(record))) current.set(memoryKey(record), record);
-  for (const record of records) if (JSON.stringify(current.get(memoryKey(record))) !== JSON.stringify(record))
-    throw new Error('旧记忆候选版本已改变，请重新读取');
+  for (const record of records) {
+    if (JSON.stringify(current.get(memoryKey(record))) !== JSON.stringify(record)) throw new Error('旧记忆候选版本已改变，请重新读取');
+    observeReadDocument('record', memoryKey(record), record);
+  }
 }
 
 export function materialContext(record: MemoryRecord, view: SourceReading | null): string | undefined {
@@ -93,6 +96,7 @@ export function prepareNoteReading(name: string, allowed: (record: MemoryRecord)
   const ids = record ? materialSources(record) : artifact ? artifact.inputs.map((input) => input.id) : [];
   return { sources: ids, render(view, options = {}) {
     if (readNote(name) !== text) throw new Error('笔记在读取期间已改变，请重新读取');
+    observeReadDocument('note', normalized, text);
     let result: string;
     if (record) {
       checkMaterialVersions([record]);

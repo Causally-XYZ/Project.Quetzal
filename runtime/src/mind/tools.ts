@@ -50,6 +50,7 @@ import { addTimeline, addMessage } from "../store.ts";
 import { remoteBodies, bodiesHooks, earOf, type RemoteBody } from "./bodies.ts";
 import * as claims from "./claims.ts";
 import * as ws from "./workspace.ts";
+import { captureMemoryRead, MEMORY_READ_TOOLS, type ReadReceipt } from '../memory/read-receipt.ts';
 import { goalTool } from "./goals.ts";
 import { hostActive, touchHost, requestHost, exitHost, IDLE_MS as HOST_IDLE_MS } from "../host-mode.ts";
 import { canvasTools } from "./canvas-tools.ts";
@@ -779,7 +780,11 @@ export function strictest(perms: string[]): string {
   return perms.reduce((a, b) => (RANK[level(b)] > RANK[level(a)] ? b : a));
 }
 
-export async function callTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext = {}): Promise<{ text: string; status: ToolStatus }> {
+export async function callTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext = {}): Promise<{ text: string; status: ToolStatus; reading?: ReadReceipt }> {
+  if (!MEMORY_READ_TOOLS.has(name)) return executeTool(name, args, reason, ctx);
+  return captureMemoryRead({ agent: identity().id, body: config.body, conv: ctx.session?.conv ?? '', tool: name }, () => executeTool(name, args, reason, ctx));
+}
+async function executeTool(name: string, args: Record<string, any>, reason: string, ctx: ToolContext): Promise<{ text: string; status: ToolStatus }> {
   if (mcpBindings().some((b) => b.name === name) && [...core, ...canvasTools(), ...deliverableTools(), ...bodyOwn(), ...bodyTools()].some((t) => t.name === name)) return { text: "MCP 工具名与本机工具冲突，未执行", status: "error" };
   const t = allTools().find((x) => x.name === name);
   if (!t) return { text: `没有这个工具：${name}`, status: "error" };

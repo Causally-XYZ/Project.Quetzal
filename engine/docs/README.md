@@ -33,3 +33,5 @@ npm run build --prefix engine
 边界、接口与后续迁移见 [ARCHITECTURE.md](ARCHITECTURE.md)。完整的运行基座行为与已知限制见 [内核现状](../../docs/engine/README.md)。
 
 生产宿主的现实现见 [动态上下文](../../docs/engine/DYNAMIC_CONTEXT.md)、[结构化记忆](../../docs/engine/STRUCTURED_MEMORY.md) 与 [PRIME](../../docs/engine/PRIME_CORE.md)。窗口预算是字节保守估计；内核状态与端口可执行不等于真实模型质量或论文收益已经得到验证。
+
+宿主可在 ToolResult.reading 返回不透明读取凭据，引擎仅传给 recordTool，不解释或注入模型。工具 Msg.atomic 由宿主在准备视图时设置，使 ContextManager 保留完整工具内容而不做头尾节选；完整组仍按既有规则摘要 / 引用，固定组放不下则溢出。无新依赖，类型检查和现有构建入口包含这些可选协议字段。

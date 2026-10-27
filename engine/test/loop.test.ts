@@ -172,3 +172,13 @@ test("JS 宿主配置其他结束工具名称时早报错，未提供 schema 的
   legacy.ports.execute = async () => { throw new Error("finish 不应进普通工具"); };
   assert.deepEqual((await runTurn(legacy.options, legacy.ports)).finish, { title: "完成" });
 });
+
+
+test('宿主读取凭据原样交给完整记录端口，不作为工具结果协议发送', async () => {
+  const f = fixture([answer('', [call('search')]), answer('完成')]);
+  const reading = { version: 1, opaque: ['host-defined'] };
+  f.ports.execute = async () => ({ text: '资料', status: 'ok', reading });
+  await runTurn(f.options, f.ports);
+  assert.deepEqual(f.records[0].reading, reading);
+  assert.ok(!JSON.stringify(f.messages).includes('host-defined'));
+});

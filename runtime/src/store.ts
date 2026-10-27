@@ -47,6 +47,7 @@ export function openStore() {
     CREATE TABLE IF NOT EXISTS context_sources(ref TEXT PRIMARY KEY, conv TEXT, ts INTEGER, content TEXT);
   `);
   db.exec("CREATE INDEX IF NOT EXISTS tool_calls_ts ON tool_calls(ts)");
+  if (!(db.prepare("PRAGMA table_info(tool_calls)").all() as any[]).some((c) => c.name === 'reading')) db.exec('ALTER TABLE tool_calls ADD COLUMN reading TEXT');
   db.exec("CREATE INDEX IF NOT EXISTS context_sources_ts ON context_sources(ts)");
   // 对话归属会话，并保存执行过程与附件（旧库补列；此前没有会话的对话归入「最初的对话」）
   const cols = (db.prepare("PRAGMA table_info(messages)").all() as any[]).map((c) => c.name);
@@ -482,10 +483,10 @@ export function applyRemote(table: ReplicaTable, rows: any[], o: { from: string;
 // ---------- 工具调用的完整记录：每次调用的完整参数（保密值已替换）与完整结果，只存在这具身体上，不复制给其他身体、不进灵魂仓库。
 //   控制台点开一张工具卡片时取它（本机没有就经网状层问做那一轮的身体）。过程记录（会复制）里只有摘要与结果开头。
 const TOOL_CALLS_KEEP = 50_000; // 最多留这么多条，超出删最旧的
-export interface ToolCallRow { call: string; session: string; ts: number; tool: string; args: unknown; result: string; status: string; ms: number }
+export interface ToolCallRow { call: string; session: string; ts: number; tool: string; args: unknown; result: string; status: string; ms: number; reading?: unknown }
 export function saveToolCall(r: Omit<ToolCallRow, "args"> & { args: unknown }) {
-  db.prepare("INSERT OR REPLACE INTO tool_calls(call,session,ts,tool,args,result,status,ms) VALUES(?,?,?,?,?,?,?,?)")
-    .run(r.call, r.session, r.ts, r.tool, JSON.stringify(r.args ?? null), r.result, r.status, r.ms);
+  db.prepare("INSERT OR REPLACE INTO tool_calls(call,session,ts,tool,args,result,status,ms,reading) VALUES(?,?,?,?,?,?,?,?,?)")
+    .run(r.call, r.session, r.ts, r.tool, JSON.stringify(r.args ?? null), r.result, r.status, r.ms, r.reading === undefined ? null : JSON.stringify(r.reading));
   if (Math.random() < 0.01) db.prepare("DELETE FROM tool_calls WHERE ts < (SELECT ts FROM tool_calls ORDER BY ts DESC LIMIT 1 OFFSET ?)").run(TOOL_CALLS_KEEP);
 }
 /** 一次工具调用的完整记录（同一个调用编号以最新的为准）；没有返回 undefined。 */
@@ -495,7 +496,7 @@ export function getToolCall(call: string, session?: string): ToolCallRow | undef
     : db.prepare("SELECT * FROM tool_calls WHERE call = ? ORDER BY ts DESC LIMIT 1").get(call)) as any;
   if (!r) return undefined;
   let args: unknown = null; try { args = JSON.parse(r.args); } catch { args = r.args; }
-  return { call: r.call, session: r.session, ts: r.ts, tool: r.tool, args, result: r.result, status: r.status, ms: r.ms };
+  return { call: r.call, session: r.session, ts: r.ts, tool: r.tool, args, result: r.result, status: r.status, ms: r.ms, ...(r.reading !== null ? { reading: JSON.parse(r.reading) } : {}) };
 }
 
 export function audit(actor: string, action: string, reason: string, args: unknown, result: string) {

@@ -48,6 +48,8 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 
 `mind/prompt.ts` 的生产 systemMessage 保留来源绑定，不能在交给上下文宿主前将对象序列化或展开成另一个对象。跨会话近况仍最多取五个会话各四条消息，在灵魂锁 / SQLite 快照内附当前修订；无绑定的实时发言和草稿只显示运行状态，旧手动摘要不作当前依据。原文节选仍最多160字符，修订完整，4000字符局部预算下整项省略并提示回查。模型准备前后核对跨会话变化，quick 内省的每个候选 / 故障转移也刷新。`test/adaptive-prompt.test.ts` 覆盖实际 converse / wake、HTTP 模型替身、竞态、预算、取消与存档异常。没有新增依赖、配置、服务或格式，现有类型检查 / 测试 glob / 构建入口直接覆盖。
 
+`memory/read-receipt.ts` 捕获四类本机记忆读取的消息 / 文档摘要；`mind/tool-reading.ts` 在模型准备和 context_read 中核查历史工具结果，不重放工具。凭据通过引擎不透明 reading 字段与完整结果一起保存至 tool_calls.reading，启动自动补列，旧记录不伪造来源，记录淘汰同时删除凭据。原始结果不改；修订视图标为 atomic，不能头尾节选。测试见 `test/read-receipt.test.ts`、`test/adaptive-tool-reading.test.ts` 与 engine 的 loop / context-manager 测试。使用 Node 内置 AsyncLocalStorage / crypto，无新增依赖、环境变量或服务；现有类型检查、测试 glob 和部署打包包含新模块。仅本机数据库增加可空列，不改变灵魂格式或复制协议，旧程序仍可读取原有列。
+
 **semantic 生成与默认上下文仍处于受控试验**：前台语义读取 / 纠正覆盖尚未完成，开启时新增的 adaptive 来源查询返回 unavailable、不注入旧观察。关闭 semantic 恢复 M1 来源路径。旧记忆路径保持既有行为，这不是全局纠正一致性验收通过。多身体与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
 
 真实开发工具 `adaptive-semantic-pilot.ts` 与 `adaptive-review-pilot.ts` 使用仓库外隔离数据，见[评测登记](../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。开源探针与边界见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。Graphiti 提示适配副本的许可证与修改说明位于 `third_party/graphiti/`；`tool/build-main.mjs` 将完整许可和说明嵌入所有平台共用的 main.cjs。未新增生产运行依赖、独立服务或生产环境变量；已有 TypeScript / 测试模式覆盖实现，构建入口已同步更新。

@@ -1,5 +1,6 @@
 // 固定身体登记来源；默认保留 M1 观察路径，semantic 开关运行受控后台整合 / 重评。
 import fs from 'node:fs';
+import { observeReadSources, observeReadDocument } from './read-receipt.ts';
 import { config, paths, saveConfig } from '../config.ts';
 import { db, messageMode, kv } from '../store.ts';
 import { log } from '../log.ts';
@@ -222,7 +223,7 @@ export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceR
       if (Date.now() > deadline) throw new Error('原文修订读取超时');
       const value = read(view);
       if (Date.now() > deadline) throw new Error('原文修订读取超时');
-      store.db.exec('RELEASE adaptive_source_read'); return value;
+      store.db.exec('RELEASE adaptive_source_read'); observeReadSources(view); return value;
     } catch (error) { store.db.exec('ROLLBACK TO adaptive_source_read'); store.db.exec('RELEASE adaptive_source_read'); throw error; }
   }), timed);
 }
@@ -270,6 +271,7 @@ export async function searchAdaptiveHistory(query: string, options: SearchOption
       } else {
         const current = currentDocs.get(h.source);
         if (!current || current.text !== h.text || current.title !== h.title) throw new Error('文档召回来源已改变，请重新检索');
+        observeReadDocument('document', current.source, { title: current.title, text: current.text });
         parts.push(formatSearchEntries([entry], () => sourceReadingHeader(view)));
       }
       if (parts.length >= limit) break;

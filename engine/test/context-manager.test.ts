@@ -134,3 +134,14 @@ test("摘要服务不处理signal时，取消仍及时终止prepare，不继续�
   const manager = new ContextManager({ reference: options.reference, summarize: async () => { queueMicrotask(() => controller.abort(new Error("摘要取消"))); return new Promise(() => {}); } });
   await assert.rejects(manager.prepare({ ...input(), signal: controller.signal }), /摘要取消/);
 });
+
+
+test('宿主原子工具资料不做头尾节选，固定组放不下时明确溢出', async () => {
+  const text = 'OLD_BODY' + 'x'.repeat(3000) + 'FULL_CORRECTION';
+  const messages: Msg[] = [{ role: 'user', content: '请求' }, { role: 'assistant', content: '', toolCalls: [{ id: 'atomic', name: 'read', args: {} }] },
+    { role: 'tool', toolCallId: 'atomic', name: 'read', content: text, atomic: true }];
+  const manager = new ContextManager(options);
+  const large = await manager.prepare({ messages, contextWindow: 8000, maxOutputTokens: 100 });
+  assert.equal(large.projections.length, 0); assert.ok(large.messages.some((m) => m.content === text));
+  await assert.rejects(manager.prepare({ messages, contextWindow: 1500, maxOutputTokens: 100 }), ContextOverflow);
+});

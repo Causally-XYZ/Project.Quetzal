@@ -4,7 +4,7 @@ export interface ImagePart { mime: string; data: string } // data：base64
 export type Msg =
   | { role: "system" | "user"; content: string; images?: ImagePart[] } // images 只用于 user
   | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
-  | { role: "tool"; content: string; toolCallId: string; name: string; error?: boolean }; // error：这次调用失败（Anthropic 传 is_error；各家的内容开头都写明）
+  | { role: "tool"; content: string; toolCallId: string; name: string; error?: boolean; atomic?: boolean }; // error：调用失败；atomic：宿主要求内容完整，不做头尾节选（仍可整组摘要 / 引用）
 export interface ToolDef { name: string; description: string; parameters: Record<string, unknown> }
 export interface ChatRequest {
   messages: Msg[]; tools?: ToolDef[]; maxTokens?: number; temperature?: number;

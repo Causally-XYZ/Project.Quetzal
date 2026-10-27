@@ -189,7 +189,7 @@ export class ContextManager {
     const projections: ContextPlan["projections"] = [];
     const projectionLimit = Math.min(this.options.toolResultTokens ?? 1024, Math.max(128, Math.floor(input.contextWindow / 8)));
     for (const entry of entries) {
-      if (entry.message.role !== "tool" || estimateTextTokens(entry.message.content) <= projectionLimit) continue;
+      if (entry.message.role !== "tool" || entry.message.atomic || estimateTextTokens(entry.message.content) <= projectionLimit) continue;
       const ref = this.reference(entry);
       if (!ref) continue; // 没有真实引用时不截取唯一证据，必要时明确 overflow。
       const content = entry.message.content;
