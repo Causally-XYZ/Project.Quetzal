@@ -21,7 +21,7 @@ test('合法语义信封保留性质、状态、来源与版本，返回独立�
 });
 test('拒绝其他请求、身份、版本、过时信封和额外字段', () => {
   const { packet } = fixture();
-  for (const delta of [{ agent: 'other' }, { host: 'other' }, { version: 2 }, { queryHash: semanticDigest('另一个查询') }, { generatedAt: Date.now() - 61_000 }, { verified: true }, { generation: -1 }])
+  for (const delta of [{ agent: 'other' }, { host: 'other' }, { version: 3 }, { queryHash: semanticDigest('另一个查询') }, { generatedAt: Date.now() - 61_000 }, { verified: true }, { generation: -1 }])
     assert.throws(() => decode({ ...packet, ...delta }), /信封/);
 });
 test('拒绝缺少依赖版本或来源、重复条目与伪造 supported 正文形状', () => {

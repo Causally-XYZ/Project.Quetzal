@@ -1,8 +1,8 @@
 // M2 语义投影：有版本记录与 M1 发件箱同事务接受；查询不相信持久化的 active 标记。
-// 长期格式由 semantic-v1 payload 定义；本表是可重建的投影，不替代灵魂文件。
+// 长期格式由 semantic-v2 payload 定义，兼容 v1；本表是可重建的投影，不替代灵魂文件。
 import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { artifactDigest, artifactDocument, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
-import { SEMANTIC_SCHEMA, validateBatch, validateRecord, directSpans, recordRefs, spanCurrent, sameRealm,
+import { SEMANTIC_SCHEMA, LEGACY_SEMANTIC_SCHEMA, semanticSchema, realmBoundRefs, validateBatch, validateRecord, directSpans, recordRefs, spanCurrent, sameRealm,
   evaluateEvidence, type SemanticBatch, type SemanticRecord, type SourceReader, type ClaimRecord } from './adaptive-evidence.ts';
 import { sourceReading } from './adaptive-reading.ts';
 import { selectSemantic, semanticBasis } from './adaptive-query.ts';
@@ -89,13 +89,14 @@ export class AdaptiveGraph {
 
   private install(artifact: MemoryArtifact, replay = false, replayState?: Map<string, SemanticRecord>): boolean {
     const batch = artifact.payload.data; validateBatch(batch);
-    if (artifact.payload.schema !== SEMANTIC_SCHEMA || artifact.agent !== this.queue.agent || batch.baseGeneration !== this.generation()) return false;
+    if (artifact.payload.schema === LEGACY_SEMANTIC_SCHEMA && batch.records.some((r) => Object.hasOwn(r, 'references'))) return false;
+    if (!semanticSchema(artifact.payload.schema) || artifact.agent !== this.queue.agent || batch.baseGeneration !== this.generation()) return false;
     const previous = replayState ?? new Map(this.current().map((r) => [r.id, r]));
     const patch = new Map<string, SemanticRecord>();
     const next = (id: string) => patch.get(id) ?? previous.get(id);
     for (const r of batch.records) {
       const old = previous.get(r.id);
-      if (r.revision !== (old?.revision ?? 0) + 1 || old && old.kind !== r.kind) return false;
+      if (r.revision !== (old?.revision ?? 0) + 1 || old && (old.kind !== r.kind || r.kind === 'node' && !sameRealm(old.realm, r.realm))) return false;
       patch.set(r.id, r);
     }
     const inputHashes = new Map(artifact.inputs.map((i) => [i.id, i.hash]));
@@ -104,13 +105,14 @@ export class AdaptiveGraph {
       for (const span of directSpans(r)) {
         if (inputHashes.get(span.source) !== span.hash || (!replay && !spanCurrent(span, source))) return false;
       }
-      for (const ref of recordRefs(r)) {
+      for (const { ref, crossRealm } of [...realmBoundRefs(r).map((ref) => ({ ref, crossRealm: false })),
+        ...(r.kind === 'claim' ? (r.references ?? []).map((p) => ({ ref: p.mention, crossRealm: true })) : [])]) {
         const target = next(ref.id);
         if (!target || target.kind !== ref.kind) return false;
         if (r.state === 'withdrawn') {
           // 撤回记录可以保留旧依据供回查，但不能捏造不存在的版本。
           if (target.revision !== ref.revision && !this.queue.db.prepare('SELECT 1 FROM adaptive_graph_records WHERE id=? AND revision=? AND kind=?').get(ref.id, ref.revision, ref.kind)) return false;
-        } else if (target.revision !== ref.revision || target.state !== 'present' || !sameRealm(r.realm, target.realm)) return false;
+        } else if (target.revision !== ref.revision || target.state !== 'present' || !crossRealm && !sameRealm(r.realm, target.realm)) return false;
       }
     }
     // 所有被读取的递归来源必须被信封锁定；关联到旧记录不能绕开输入 hash 门禁。
@@ -162,7 +164,7 @@ export class AdaptiveGraph {
       const document = artifactDocument(artifact);
       bytes += Buffer.byteLength(document);
       if (bytes > 64 * 1024 * 1024) throw new Error('认识重建超过工作上限');
-      if (artifact.agent !== this.queue.agent || artifact.payload.schema !== SEMANTIC_SCHEMA || candidates.has(artifact.id))
+      if (artifact.agent !== this.queue.agent || !semanticSchema(artifact.payload.schema) || candidates.has(artifact.id))
         throw new Error('认识重建结果身份或格式不合法');
       validateBatch(artifact.payload.data);
       candidates.set(artifact.id, artifact);
@@ -217,7 +219,7 @@ export class AdaptiveGraph {
     return records.filter((r): r is ClaimRecord => r.kind === 'claim' && states.get(r.id)?.status === 'supported' && global.get(r.id)?.status === 'supported')
       .map((record) => ({ record: { id: record.id, revision: record.revision, realm: record.realm,
         text: record.text, nature: record.nature, occurred: record.occurred, valid: record.valid,
-        participants: record.participants,
+        participants: record.participants, ...(record.references ? { references: record.references } : {}),
         supports: record.supports.filter((g) => states.get(record.id)!.groups.includes(g.id)) },
         evidence: states.get(record.id)! })); // 不返回已失效 / 无权来源的其他依据组、反证或审计正文
     });

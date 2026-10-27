@@ -6,7 +6,7 @@ import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { AdaptiveGraph } from './adaptive-graph.ts';
 import { ARTIFACT_ID, artifactDigest, parseArtifact, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
 import { publicationRoot, readPublication } from './adaptive-publication.ts';
-import { SEMANTIC_SCHEMA, type SemanticBatch, type SourceReader } from './adaptive-evidence.ts';
+import { semanticSchema, type SemanticBatch, type SourceReader } from './adaptive-evidence.ts';
 
 export interface ArchiveCheckpoint { generation: number; artifact: string; digest: string }
 export class AdaptiveArchive {
@@ -58,7 +58,7 @@ export class AdaptiveArchive {
           const id = entry.name.endsWith('.md') ? entry.name.slice(0, -3) : '';
           if (!ARTIFACT_ID.test(id)) throw new Error('认识存档包含未知文件');
           const artifact = readPublication(this.soul, id, this.queue.agent);
-          if (artifact.payload.schema === SEMANTIC_SCHEMA) put(artifact);
+          if (semanticSchema(artifact.payload.schema)) put(artifact);
         }
       } finally { dir.closeSync(); }
     }
@@ -68,7 +68,7 @@ export class AdaptiveArchive {
       if (++localCount > 10000) throw new Error('认识发件箱核对超过工作上限');
       if (typeof row.document !== 'string' || typeof row.id !== 'string') throw new Error('认识发件箱格式不合法');
       const artifact = parseArtifact(row.document, this.queue.agent);
-      if (artifact.payload.schema !== SEMANTIC_SCHEMA) continue;
+      if (!semanticSchema(artifact.payload.schema)) continue;
       if (artifact.id !== row.id || artifactDigest(row.document) !== row.digest) throw new Error('认识发件箱完整性不符');
       const file = artifacts.get(row.id);
       if (file && artifactDigest(JSON.stringify(file)) !== row.digest) throw new Error('认识文件与已接受结果不同');

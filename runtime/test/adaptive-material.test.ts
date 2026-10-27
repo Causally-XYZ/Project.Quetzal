@@ -243,8 +243,8 @@ test('直接读取旧自适应存档也核对当前修订；忽略输入后不�
   assert.equal(queue.pendingPublications().length, 0);
   const name = `QuetzalMemory/Adaptive/${checkpoint.artifact}`;
   const result = await callTool('note_read', { name }, '合成'); assert.equal(result.status, 'ok');
-  assert.match(result.text, /记忆修订核对/); assert.match(result.text, /饭友是弟弟/); assert.match(result.text, /quetzal-adaptive-result-v1/);
+  assert.match(result.text, /记忆修订核对/); assert.match(result.text, /饭友是弟弟/); assert.match(result.text, /quetzal-adaptive-result-v2/);
   store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source);
   const hidden = await callTool('note_read', { name }, '合成'); assert.equal(hidden.status, 'ok');
-  assert.match(hidden.text, /来源不可访问/); assert.ok(!hidden.text.includes('quetzal-adaptive-result-v1')); assert.ok(!hidden.text.includes('饭友是弟弟'));
+  assert.match(hidden.text, /来源不可访问/); assert.ok(!hidden.text.includes('quetzal-adaptive-result-v2')); assert.ok(!hidden.text.includes('饭友是弟弟'));
 });

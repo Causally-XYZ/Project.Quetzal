@@ -27,9 +27,13 @@ export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { p
     });
     const changedSources = directSpans(target).filter((p) => !spanCurrent(p, (id) => queue.source(id)));
     if (!stale.length && !changedSources.length) continue;
-    // 纠正可能重新指向旧闭包之外的对象；给出同语境的已有候选与定义，不能迫使模型重复造人。
+    // 纠正可能重新指向旧闭包之外的对象；给出本语境和显式引用语境的候选，不能迫使模型重复造人。
     // 第一版完整加入有可读来源的对象，超过闭包上限显式延后，后续由大历史检索替代。
-    const candidates = records.filter((r) => r.kind === 'node' && r.state === 'present' && sameRealm(r.realm, target.realm) &&
+    const referenceRealms = target.kind === 'claim' ? (target.references ?? []).flatMap((p) => {
+      const mention = current.get(p.mention.id); return mention?.kind === 'mention' ? [mention.realm] : [];
+    }) : [];
+    const candidates = records.filter((r) => r.kind === 'node' && r.state === 'present' &&
+      [target.realm, ...referenceRealms].some((realm) => sameRealm(r.realm, realm)) &&
       directSpans(r).every((p) => { const s = queue.source(p.source); return s && s.role !== 'agent'; }));
     const closure = new Map<string, SemanticRecord>(), pending = [target, ...candidates];
     let missing = false, versions = 0, references = 0;
@@ -72,7 +76,7 @@ The target is not automatically false: another independent support group may sti
 You may revise the target or introduce necessary new records. Do not revise other existing records. Never undo an accepted correction using its superseded source alone.
 Return an empty patch if the evidence is insufficient to make a justified change; the target will retain its existing evidence status. Do not mark a record supported or verified yourself.
 The host lists newer dependency handles as review candidates, not equivalent identities or proof. Withdrawn dependencies cannot be reused as current support.\n`;
-    prompt.system += 'Existing same-realm object candidates are included with their source definitions. Consider them before creating a new object, but a matching name alone never proves identity. Do not merge objects or revise a candidate node other than the specified target.\n';
+    prompt.system += 'Existing object candidates in the target realm and its explicit reference realms are included with their source definitions. Consider them before creating a new object, but a matching name alone never proves identity. Do not merge objects or revise a candidate node other than the specified target.\n';
     prompt.system += 'Context also includes CURRENT versions of dependencies found in historical branches, including withdrawn records and their correction sources. A branch removed by an earlier revision remains subject to those corrections. Do not recreate withdrawn premises under new keys from their old source, or treat historical dependency inclusion as renewed support.\n';
     const data = JSON.parse(prompt.user);
     data.review = { target: targetKey, candidates: candidates.map((r) => `r${selected.findIndex((s) => s.id === r.id) + 1}`), dependencies: stale.map((ref) => ({

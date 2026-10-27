@@ -1,7 +1,9 @@
 // 认识的版本与依据规则。不把模型置信度、同名或结构校验转换成世界事实确认。
 import { ARTIFACT_ID } from './adaptive-artifact.ts';
 
-export const SEMANTIC_SCHEMA = 'quetzal-adaptive-semantic-v1';
+export const SEMANTIC_SCHEMA = 'quetzal-adaptive-semantic-v2';
+export const LEGACY_SEMANTIC_SCHEMA = 'quetzal-adaptive-semantic-v1';
+export const semanticSchema = (value: unknown) => value === SEMANTIC_SCHEMA || value === LEGACY_SEMANTIC_SCHEMA;
 export interface SourceSpan { kind: 'source'; source: number; hash: string; start: number; end: number; quote: string }
 export interface RecordRef { kind: 'node' | 'mention' | 'claim'; id: string; revision: number }
 export type Premise = SourceSpan | RecordRef;
@@ -16,6 +18,7 @@ export interface TimeDescription { text: string; earliest: string | null; latest
 export interface ClaimRecord extends BaseRecord {
   kind: 'claim'; text: string; nature: 'reported' | 'inferred' | 'hypothesis';
   participants: { role: string; mention: RecordRef }[];
+  references?: { role: string; mention: RecordRef }[]; // 被谈论对象；不作为跨语境事实前提。
   occurred: TimeDescription; valid: TimeDescription;
   supports: EvidenceGroup[]; counters: EvidenceGroup[];
 }
@@ -59,7 +62,7 @@ export function validateRecord(v: unknown): asserts v is SemanticRecord {
   const base = ['id', 'revision', 'state', 'realm', 'reasons', 'kind'];
   if (v.kind === 'node') fields(v, [...base, 'name', 'labels']);
   else if (v.kind === 'mention') fields(v, [...base, 'anchor', 'candidates', 'unknown', 'resolved']);
-  else if (v.kind === 'claim') fields(v, [...base, 'text', 'nature', 'participants', 'occurred', 'valid', 'supports', 'counters']);
+  else if (v.kind === 'claim') fields(v, [...base, 'text', 'nature', 'participants', 'occurred', 'valid', 'supports', 'counters', ...(Object.hasOwn(v, 'references') ? ['references'] : [])]);
   else fail();
   if (typeof v.id !== 'string' || !ARTIFACT_ID.test(v.id) || !integer(v.revision, 1) || !['present', 'withdrawn'].includes(v.state)) fail();
   fields(v.realm, ['world', 'context']);
@@ -79,6 +82,10 @@ export function validateRecord(v: unknown): asserts v is SemanticRecord {
   } else {
     if (!text(v.text, 8000) || !['reported', 'inferred', 'hypothesis'].includes(v.nature) || !Array.isArray(v.participants) || v.participants.length > 30) fail();
     for (const p of v.participants) { fields(p, ['role', 'mention']); if (!text(p.role, 100)) fail(); reference(p.mention); if (p.mention.kind !== 'mention') fail(); }
+    if (Object.hasOwn(v, 'references')) {
+      if (!Array.isArray(v.references) || v.references.length > 30) fail();
+      for (const p of v.references) { fields(p, ['role', 'mention']); if (!text(p.role, 100)) fail(); reference(p.mention); if (p.mention.kind !== 'mention') fail(); }
+    }
     time(v.occurred); time(v.valid);
     if (!Array.isArray(v.supports) || v.supports.length > 20 || !Array.isArray(v.counters) || v.counters.length > 20) fail();
     const groups = new Set<string>();
@@ -103,9 +110,13 @@ export function directSpans(r: SemanticRecord): SourceSpan[] {
   return [...r.reasons, ...(r.kind === 'mention' ? [r.anchor] : r.kind === 'claim'
     ? [...r.supports, ...r.counters].flatMap((g) => g.premises.filter((p): p is SourceSpan => p.kind === 'source')) : [])];
 }
-export function recordRefs(r: SemanticRecord): RecordRef[] {
+export function realmBoundRefs(r: SemanticRecord): RecordRef[] {
   return r.kind === 'mention' ? r.candidates : r.kind === 'claim'
     ? [...r.participants.map((p) => p.mention), ...[...r.supports, ...r.counters].flatMap((g) => g.premises.filter((p): p is RecordRef => p.kind !== 'source'))] : [];
+}
+
+export function recordRefs(r: SemanticRecord): RecordRef[] {
+  return [...realmBoundRefs(r), ...(r.kind === 'claim' ? r.references?.map((p) => p.mention) ?? [] : [])];
 }
 
 /** 返回需重评的当前下游，不改变记录或证据状态。只跟随确切版本，支持 / 反证同等处理。
@@ -164,9 +175,9 @@ export function evaluateEvidence(records: SemanticRecord[], read: SourceReader, 
   const grounded = (p: SourceSpan) => { step(); return spanCurrent(p, source) && ['user', 'ambient'].includes(source(p.source)!.role); };
   // Claim reasons 是版本审计来源；证明所需条件只能放进 supports / counters，避免把 OR 偷换成全局 AND。
   const eligible = (r: SemanticRecord) => r.state === 'present' && (r.kind === 'claim' || r.reasons.every((p) => spanCurrent(p, source)));
-  const target = (r: SemanticRecord, ref: RecordRef) => {
+  const target = (r: SemanticRecord, ref: RecordRef, crossRealm = false) => {
     step(); const found = current.get(ref.id);
-    return found?.kind === ref.kind && found.revision === ref.revision && sameRealm(r.realm, found.realm) ? found : undefined;
+    return found?.kind === ref.kind && found.revision === ref.revision && (crossRealm || sameRealm(r.realm, found.realm)) ? found : undefined;
   };
   const ready = (r: SemanticRecord, p: Premise, known: ReadonlySet<string>) => p.kind === 'source' ? grounded(p) : !!target(r, p) && known.has(p.id);
   const counter = (r: ClaimRecord, known: ReadonlySet<string>) => r.counters.some((g) => !g.assumptions.length && g.premises.every((p) => ready(r, p, known)));
@@ -194,13 +205,13 @@ export function evaluateEvidence(records: SemanticRecord[], read: SourceReader, 
           if (n?.kind === 'node' && roots.has(n.id) && grounded(r.anchor) && r.reasons.every(grounded))
             add([...r.reasons.map(sourceRoot), sourceRoot(r.anchor), ...roots.get(n.id)!]);
         } else if (r.kind === 'claim') {
-          const proof = (p: Premise): Set<string> | undefined => p.kind === 'source'
-            ? grounded(p) ? new Set([sourceRoot(p)]) : undefined : target(r, p) ? roots.get(p.id) : undefined;
-          const participants = r.participants.map((p) => proof(p.mention));
+          const proof = (p: Premise, crossRealm = false): Set<string> | undefined => p.kind === 'source'
+            ? grounded(p) ? new Set([sourceRoot(p)]) : undefined : target(r, p, crossRealm) ? roots.get(p.id) : undefined;
+          const participants = [...r.participants.map((p) => proof(p.mention)), ...(r.references ?? []).map((p) => proof(p.mention, true))];
           if (participants.some((p) => !p)) continue;
           for (const group of r.supports) {
             step(); if (group.assumptions.length) continue;
-            const evidence = group.premises.map(proof);
+            const evidence = group.premises.map((p) => proof(p));
             if (evidence.every((p) => !!p)) {
               groups.get(r.id)!.add(group.id);
               add([...evidence.flatMap((p) => [...p!]), ...participants.flatMap((p) => [...p!])]);
@@ -230,6 +241,7 @@ export function evaluateEvidence(records: SemanticRecord[], read: SourceReader, 
     else if (eligible(r)) {
       if (r.kind === 'mention' && !r.resolved && spanCurrent(r.anchor, source)) status = 'ambiguous';
       if (r.kind === 'claim' && r.participants.every((p) => ready(r, p.mention, definite.ids)) &&
+          (r.references ?? []).every((p) => !!target(r, p.mention, true) && definite.ids.has(p.mention.id)) &&
           r.supports.some((g) => g.assumptions.length && g.premises.every((p) => ready(r, p, definite.ids)))) status = 'conditional';
     }
     result.set(r.id, { status, roots: [...(definite.roots.get(r.id) ?? [])].sort(), groups: [...(definite.groups.get(r.id) ?? [])].sort() });

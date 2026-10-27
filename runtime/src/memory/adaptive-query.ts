@@ -6,7 +6,8 @@ import { directSpans, evaluateEvidence, spanCurrent, type SemanticRecord, type S
 interface BaseItem { id: string; revision: number; realm: Realm; roots: { id: number; hash: string }[] }
 export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported'; text: string;
   nature: ClaimRecord['nature']; occurred: ClaimRecord['occurred']; valid: ClaimRecord['valid']; supports: ClaimRecord['supports'];
-  participants: { role: string; mention: ClaimRecord['participants'][number]['mention']; object: { id: string; revision: number; name: string } }[] }
+  participants: { role: string; mention: ClaimRecord['participants'][number]['mention']; object: { id: string; revision: number; name: string } }[];
+  references?: { role: string; mention: ClaimRecord['participants'][number]['mention']; realm: Realm; object: { id: string; revision: number; name: string } }[] }
   | { kind: 'mention'; status: 'ambiguous'; anchor: SourceSpan; unknown: boolean;
     candidates: { id: string; revision: number; name: string }[] });
 export interface SemanticSelection { generation: number; items: SemanticItem[]; matched: number }
@@ -86,8 +87,15 @@ export function selectSemantic(records: SemanticRecord[], query: string, generat
         return node?.kind === 'node' && node.revision === mention.resolved.revision && supported(node.id)
           ? [{ role: p.role, mention: p.mention, object: { id: node.id, revision: node.revision, name: node.name } }] : [];
       });
+      const references = (r.references ?? []).flatMap((p) => {
+        const mention = byId.get(p.mention.id);
+        if (mention?.kind !== 'mention' || mention.revision !== p.mention.revision || !mention.resolved || !supported(mention.id)) return [];
+        const node = byId.get(mention.resolved.id);
+        return node?.kind === 'node' && node.revision === mention.resolved.revision && supported(node.id)
+          ? [{ role: p.role, mention: p.mention, realm: mention.realm, object: { id: node.id, revision: node.revision, name: node.name } }] : [];
+      });
       candidates.push({ item: { ...base, kind: 'claim', status: 'supported', text: r.text, nature: r.nature, occurred: r.occurred, valid: r.valid,
-        participants, supports: groups(r) }, title: participants.map((p) => p.object.name).join(' '), text: `${r.text}\n${evidenceText(r)}` });
+        participants, ...(r.references ? { references } : {}), supports: groups(r) }, title: [...participants, ...references].map((p) => p.object.name).join(' '), text: `${r.text}\n${evidenceText(r)}` });
     } else if (r.kind === 'mention' && state.status === 'ambiguous' && globalStates.get(r.id)?.status === 'ambiguous' && spanCurrent(r.anchor, read)) {
       const names = r.candidates.flatMap((ref) => {
         const node = byId.get(ref.id);

@@ -6,7 +6,8 @@ export interface SourceNotice {
   status: EvidenceState['status'] | 'unavailable';
   spans: { hash: string; start: number; end: number }[];
   current: { text: string; realm: SemanticRecord['realm']; nature?: string;
-    occurred?: ClaimRecord['occurred']; valid?: ClaimRecord['valid']; sources: { id: number; hash: string }[] } | null;
+    occurred?: ClaimRecord['occurred']; valid?: ClaimRecord['valid'];
+    references?: { role: string; realm: SemanticRecord['realm']; name: string }[]; sources: { id: number; hash: string }[] } | null;
 }
 export interface SourceReading {
   generation: number; freshness: 'local-snapshot';
@@ -48,7 +49,10 @@ export function sourceReading(history: SemanticRecord[], ids: number[], generati
     if (status === 'supported') {
       const roots = states.get(record.id)!.roots.map((key) => { const [id, hash] = key.split(':'); return { id: Number(id), hash }; });
       if (record.kind === 'claim') current = { text: record.text, realm: record.realm, nature: record.nature,
-        occurred: record.occurred, valid: record.valid, sources: roots };
+        occurred: record.occurred, valid: record.valid, sources: roots, ...(record.references ? { references: record.references.flatMap((p) => {
+          const mention = latest.get(p.mention.id), node = mention?.kind === 'mention' && mention.resolved ? latest.get(mention.resolved.id) : undefined;
+          return mention?.kind === 'mention' && node?.kind === 'node' ? [{ role: p.role, realm: mention.realm, name: node.name }] : [];
+        }) } : {}) };
       if (record.kind === 'node') current = { text: record.name, realm: record.realm, sources: roots };
       if (record.kind === 'mention' && record.resolved) {
         const node = latest.get(record.resolved.id);

@@ -250,6 +250,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接入受控后台。现有网络 query 协议不变：semantic=false 返回 M1 来源观察，semantic=true 仍返回 unavailable，不在 version 1 中混入图记录。queryAdaptiveSemantic 通过本机入口或新的 memory.adaptive.semantic.query 正式身体 RPC 读取当前 supported 陈述及 ambiguous 提及，带认识版本、语境、性质、时间与来源；最多6项，模型准备前后核查。接收身体核对本机认识版本与原文快照，冲突或来源未复制 / 已删除时返回空 unavailable。新方法不改变 M1 packet，也不新增配置或灵魂格式；传输工程测试通过不等于多身体完整语义验收。
 
+语义查询信封现发送 version 2；新版接收器仍接受不带 references 的 version 1。claim 可带 references，每项含 role、mention、引用对象的 realm 与 object（id / revision / name）；对象指向不是事实前提，仍核对全部依赖及来源版本。旧版本查询失败时空降级，不删字段冒充兼容。M1 原文 packet 仍为 version 1。内部存档升为 result-v2 / semantic-v2 并兼容旧记录，详见语义与发布协议；灵魂规范的 Markdown 路径不变。
+
 认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。仍为词面检索，不能宣称完整多语言语义召回。
 
 内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。

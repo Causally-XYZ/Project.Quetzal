@@ -30,6 +30,7 @@ All new or revised records need a unique local p-key. replace is REQUIRED: null 
 References may use existing r-keys or this patch's p-keys. To reference a revised record, use its p-key. Do not silently redirect old dependencies.
 A quote must be an exact source substring; if repeated, specify its zero-based occurrence.
 Premises within a group are AND; support groups are OR. A group needs at least one premise; a node alone is never a proof.
+Claim participants are same-realm actors in the event. Claim references is a separate array of {role,mention} for explicitly discussed, created, quoted or otherwise referenced objects. A reference may cross realms; its mention and resolved node retain their own realm and identity. Reference roles are open descriptions, not a fixed domain taxonomy. References are required bindings, never fact premises: a fictional event cannot support or counter a real-world claim. Do not duplicate a fictional person as a real node to bypass this boundary. A real speaker discussing a fictional character belongs in a real claim, with the speaker as participant and the character mention as reference. A reference requires source evidence of the act of referring, not merely a matching name.
 Use participant mentions and record premises to express all necessary bindings; a sentence referring to an unresolved person cannot support a determinate attribution.
 A participant's corrected identity invalidates old dependent claims; revise the actual attribution when supported, do not just replace names in a causal conjecture.
 Corrections revise only the stated target. Preserve independent claims and earlier nickname definitions. A changed state and a correction of the past are different.
@@ -152,7 +153,7 @@ export function normalizeProposal(value: unknown, context: ProposalContext): Sem
   const records = proposal.records.map((r: any) => {
     const base = ['key', 'replace', 'kind', 'state', 'realm', 'reasons'];
     shape(r, [...base, ...(r.kind === 'node' ? ['name', 'labels'] : r.kind === 'mention' ? ['anchor', 'candidates', 'unknown', 'resolved']
-      : ['text', 'nature', 'participants', 'occurred', 'valid', 'supports', 'counters'])]);
+      : ['text', 'nature', 'participants', 'occurred', 'valid', 'supports', 'counters', ...(Object.hasOwn(r, 'references') ? ['references'] : [])])]);
     if (!Array.isArray(r.reasons) || !scopes.has(r.realm)) throw new Error('认识提案来源或语境不合法');
     const reasons = r.reasons.map(quote);
     if (scopeReasons.has(r.realm)) reasons.push(scopeReasons.get(r.realm)!);
@@ -162,9 +163,10 @@ export function normalizeProposal(value: unknown, context: ProposalContext): Sem
       if (!Array.isArray(r.candidates)) throw new Error('认识提案候选不合法');
       return { ...common, anchor: quote(r.anchor), candidates: r.candidates.map(ref), unknown: r.unknown, resolved: r.resolved === null ? null : ref(r.resolved) };
     }
-    if (!Array.isArray(r.participants)) throw new Error('认识提案参与者不合法');
+    if (!Array.isArray(r.participants) || Object.hasOwn(r, 'references') && !Array.isArray(r.references)) throw new Error('认识提案参与者不合法');
+    const bindings = (values: any[]) => values.map((p: any) => { shape(p, ['role', 'mention']); return { role: p.role, mention: ref(p.mention) }; });
     return { ...common, text: r.text, nature: r.nature, occurred: r.occurred, valid: r.valid,
-      participants: r.participants.map((p: any) => { shape(p, ['role', 'mention']); return { role: p.role, mention: ref(p.mention) }; }),
+      participants: bindings(r.participants), ...(r.references ? { references: bindings(r.references) } : {}),
       supports: groups(r.supports), counters: groups(r.counters) };
   });
   const batch = { baseGeneration: context.generation, records }; validateBatch(batch); return batch;
@@ -189,5 +191,6 @@ export function proposalResponseSchema() {
     records: array({ anyOf: [object({ ...base('node'), name: string, labels: strings }),
       object({ ...base('mention'), anchor: quote, candidates: array({ ...string, description: 'Node record p-key or r-key only, never a person name' }), unknown: { type: 'BOOLEAN' }, resolved: { ...string, nullable: true, description: 'One candidate node key or null; never a name' } }),
       object({ ...base('claim'), text: string, nature: enumeration('reported', 'inferred', 'hypothesis'), participants: array(object({ role: string, mention: { ...string, description: 'Mention record p-key or r-key only, never a node key or a name' } })),
+        references: array(object({ role: string, mention: { ...string, description: 'Mention of an explicitly referenced object, may belong to another realm; never a fact premise or identity merge' } })),
         occurred: time, valid: time, supports: array(group), counters: array(group) })] }) });
 }

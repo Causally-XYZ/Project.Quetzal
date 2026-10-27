@@ -7,7 +7,7 @@ import { readStructuredRecords, readLegacyRecords } from './structured.ts';
 import { withAdaptiveSources, adaptiveReadingRequired } from './adaptive.ts';
 import { sourceReadingHeader, type SourceReading } from './adaptive-reading.ts';
 import { readNote, notePath } from './memory.ts';
-import { ARTIFACT_FORMAT, parseArtifact, type MemoryArtifact } from './adaptive-artifact.ts';
+import { artifactFormat, parseArtifact, type MemoryArtifact } from './adaptive-artifact.ts';
 import { readPublication } from './adaptive-publication.ts';
 import { identity } from './identity.ts';
 import { paths } from '../config.ts';
@@ -91,7 +91,7 @@ export function prepareNoteReading(name: string, allowed: (record: MemoryRecord)
   if (parsed?.format === 'quetzal-memory-v1' && (managed || readStructuredRecords().some((r) => JSON.stringify(r) === JSON.stringify(parsed.record)))) {
     validateMemoryRecord(parsed.record); record = parsed.record;
     if (!allowed(record!)) throw new MaterialAccessDenied('记忆版本不属于当前Agent、用户或会话范围');
-  } else if (parsed?.format === ARTIFACT_FORMAT && managed) artifact = parseArtifact(json![1], identity().id);
+  } else if (artifactFormat(parsed?.format) && managed) artifact = parseArtifact(json![1], identity().id);
   else if (managed) throw new Error('受管笔记格式未知，不能作为普通资料读取');
   const ids = record ? materialSources(record) : artifact ? artifact.inputs.map((input) => input.id) : [];
   return { sources: ids, render(view, options = {}) {

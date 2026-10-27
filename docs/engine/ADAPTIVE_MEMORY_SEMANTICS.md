@@ -10,15 +10,21 @@
 
 ## 2. 最小记录
 
-信封 `payload.schema` 为 `quetzal-adaptive-semantic-v1`，`data` 为 `{baseGeneration, records}`。一个批次 1～100 条记录；每条记录共有宿主 UUID v4、连续递增 `revision`、`present / withdrawn`、`realm` 和审计出处 `reasons`。拒绝未知字段，不接受模型自行写入 `active` 或 `verified`。
+新信封 `payload.schema` 为 `quetzal-adaptive-semantic-v2`（读取仍兼容没有 references 的 v1），`data` 为 `{baseGeneration, records}`。一个批次 1～100 条记录；每条记录共有宿主 UUID v4、连续递增 `revision`、`present / withdrawn`、`realm` 和审计出处 `reasons`。拒绝未知字段，不接受模型自行写入 `active` 或 `verified`。
 
 | 记录 | 主要字段 | 含义 |
 |---|---|---|
 | node | name、labels | 同名可有多个对象；标签开放，不预设职业、家庭或创作主题树 |
 | mention | anchor、candidates、unknown、resolved | 具体的一次提及；候选引用对象的具体版本，允许未知、多个候选和未解歧 |
-| claim | text、nature、participants、occurred、valid、supports、counters | 有来源的陈述 / 推论 / 假设；参与者经 mention 引用，支持与反证分别成组 |
+| claim | text、nature、participants、references、occurred、valid、supports、counters | 有来源的陈述 / 推论 / 假设；参与者经 mention 引用，支持与反证分别成组 |
 
-`realm={world,context}`：world 为 real / fiction / hypothetical / unknown；context 是宿主维护的语境标识，不用模型随意拼写的标签当世界身份。提案由模型识别语境、宿主分配标识。需求方已于 2026-10-27 确认允许有来源的明确跨语境谈论 / 创作 / 引用关系，身份与事实依据仍严格隔离（行为契约 C04）。当前格式 / 校验仍要求 present 记录引用同语境；关系指向与证明前提的分离尚待实现和验收，不能把需求确认当作现有功能已支持。不同语境的对象不能直接互相代入；跨语境比较应另行明确表达，不能靠复用同名节点暗中连接。
+`realm={world,context}`：world 为 real / fiction / hypothetical / unknown；context 是宿主维护的语境标识，不用模型随意拼写的标签当世界身份。提案由模型识别语境、宿主分配标识。需求方已于 2026-10-27 确认允许有来源的明确跨语境谈论 / 创作 / 引用关系，身份与事实依据仍严格隔离（行为契约 C04）。v2 将关系指向放在 claim.references（可省略，等于空数组），格式为 `{role,mention}`；role 开放，mention 必须引用具体版本的提及。references 可以跨语境，participants 与支持 / 反证仍要求同语境。node 的 realm 不允许在同一 ID 的修订中改变；重新解释身份需要独立对象和明确修订，不能靠改 realm 把角色变成现实亲属。不同语境的对象不能直接互相代入；跨语境比较应另行明确表达，不能靠复用同名节点暗中连接。
+
+references 只接受 mention，不能直接放 node 或 claim；提及的候选 / resolved 对象仍须属于提及自身语境。查询保留引用角色、名称、语境和版本；原文修订视图保留当前引用的角色、语境与名称，并标明关系自身的修订版本。关系要有自己成立的支持组，且其全部参与者和被引用提及均有当前、可访问且解歧的绑定；仅有 references 而没有 supports 不成立。被引用对象的身份来源参与读取完整性核查，不把该世界的其他 claim 当作事实证明。引用目标被纠正后，旧版本关系立即退出当前结果，需有依据的关系修订才能恢复，不自动换名字。
+
+这些是结构与版本保证；原文到底在叙述事实还是引用故事、提案的 realm 及指向是否准确仍由 LLM 提议并经真实语义评测，宿主不能仅凭合法 JSON 证明语言理解正确。不能用新建同名节点或把故事文字直接标成现实陈述来规避契约。
+
+新批次使用外层 result-v2；新读取器兼容 result-v1 / semantic-v1 的原始历史，不重写旧文件或哈希。v1 语义批次携带 references、新语义藏在 result-v1、未知外层版本均拒绝。旧读取器遇到 result-v2 在解析入口失败，不能跳过新结果后使用旧投影。SQLite 投影 schema 2 与灵魂规范 v14 的 Markdown 目录不变；混合版本的全套部署 / 回滚仍须 M4 验收。
 
 出处为 `{kind:'source',source,hash,start,end,quote}`，位置按 JavaScript UTF-16 偏移，必须与当前来源 hash、原文切片完全一致，边界不得劈开代理对。模型端未来可提供原文引用，但最终位置应由宿主对齐；重复引文不能任意挑选。目前已有 `adaptive-proposal.ts` 规范化器，严格检查重复引文定位、宿主 ID / 版本和当前句柄，见[评测与提案接口](ADAPTIVE_MEMORY_EVAL.md)。
 
@@ -80,7 +86,7 @@ recall 文档命中复用 prepareNoteReading / 快照 render，先按当前会�
 
 SQLite 可选投影保存 meta（格式版本 2、整体 generation）、batches（结果 ID / 摘要 / 代次）和 records（记录 ID / revision / 文档 / 结果 ID）。初始化失败整体回滚；未知版本或损坏元数据拒读。投影 schema 1 原子迁移到 2，记录的外键从本机发件箱改为结果批次表，使另一具身体无需伪造本机任务 / 发件箱即可重建。该版本独立于 M1 队列 schema 2，也不改变灵魂规范 v14。
 
-`AdaptiveGraph.accept` 在已有任务接受事务内校验全部来源与递归依赖输入。批次 baseGeneration 必须等于当前 generation，每条版本必须连续，当前引用须同语境且存在；允许撤回记录保留实际存在的历史引用用于审计。发件箱、记录、代次、处理回执和任务完成同时提交，安装返回 false 或抛异常都整体回滚。整体代次 CAS 较保守，可能拒绝本来互不冲突的并发批次；先保正确，后续按冲突率决定是否细化。
+`AdaptiveGraph.accept` 在已有任务接受事务内校验全部来源与递归依赖输入。批次 baseGeneration 必须等于当前 generation，每条版本必须连续，当前引用须存在；身份候选、participants、支持 / 反证须同语境，只有显式 references 的对象指向可跨语境；允许撤回记录保留实际存在的历史引用用于审计。发件箱、记录、代次、处理回执和任务完成同时提交，安装返回 false 或抛异常都整体回滚。整体代次 CAS 较保守，可能拒绝本来互不冲突的并发批次；先保正确，后续按冲突率决定是否细化。
 
 读取使用 SQLite savepoint 快照，一次计算缓存来源，避免跨连接更新造成同轮混合版本。默认工作上限 100000 个计算步骤；超限抛错，不能把半算结果当成有效证据。当前全图读取尚未做大历史性能验收；本机受控查询已复用此入口，不据此承诺生产前台延迟。
 
@@ -94,7 +100,7 @@ SQLite 可选投影保存 meta（格式版本 2、整体 generation）、batches
 
 不把事件时间当作记录新鲜度加权。至多返回6条完整材料，每项最多100个根来源，结果256 KiB上限；超限报错，不截断后伪装完整证据。matched 记录命中数。当前仍为词面召回；这修复了遗漏已有来源表达的问题，不等于查询与来源完全不共享词语时的多语言语义召回，也不是向量 / 开放主题发现。空查询不任意挑认识，条件、争议、撤回记录暂不作为本入口的当前材料，历史问题仍走带修订的原文回查。
 
-`queryAdaptiveSemantic` 只在功能开启、semantic=true、服务已启动时读取；指定主机读本机存档，其他正式身体经独立语义方法请求主机。与原文读取共用灵魂 exclusive / SQLite savepoint / 含等锁的500毫秒截止，先核对权威存档。错误或超限返回空 unavailable，用户取消继续传播，急停 / 关闭分别降级。新增 mesh 方法 `memory.adaptive.semantic.query` 使用独立 version 1 信封，不将 M1 原文 packet 伪装成认识结果。
+`queryAdaptiveSemantic` 只在功能开启、semantic=true、服务已启动时读取；指定主机读本机存档，其他正式身体经独立语义方法请求主机。与原文读取共用灵魂 exclusive / SQLite savepoint / 含等锁的500毫秒截止，先核对权威存档。错误或超限返回空 unavailable，用户取消继续传播，急停 / 关闭分别降级。新增 mesh 方法 `memory.adaptive.semantic.query` 发送独立 version 2 信封，接收器兼容不带 references 的 version 1，不将 M1 原文 packet 伪装成认识结果。
 
 `mind/context.ts` 在每个候选模型准备前查询，按窗口选择完整认识，明确 supported 不是事实确认，推论 / 假设必须标注推测，歧义不能擅自选对象，也不产生通知。发送前再次查询；选择内容或代次变化时清摘要缓存并至多重建一次，持续变化拒绝过期请求。不是所有路径已经完成 C07，也未验证真实模型一定遵循这些提示。默认开关仍关闭；全图文件核对与同步计算的实际前台成本、真实语义与真人试用仍须验收。
 
@@ -130,7 +136,7 @@ SQLite 可选投影保存 meta（格式版本 2、整体 generation）、batches
 
 后台单飞，普通整合优先，连续本机忙碌最多等待 30 秒后尝试；每次生成有 150 秒时间墙。重评预算以最新整合回执为轮次保存在本机 KV：每五次调用启动 60 秒冷却，到期无需新输入自动续做；每个目标同轮至多五次，至多登记 1000 个不同目标，避免靠不断换任务键 / 新造对象无限调用。调用前预扣，失败 / 崩溃不退款；新整合回执开始新轮次。旧的整轮五次 KV 预算一次升级为 version 2；未知版本或损坏的新预算显式失败，不重置额度。状态分别显示 review-cooldown 和 review-limit。窗口校验使用既有保守 UTF-8 字节估计，不是真实 tokenizer。
 
-尚须完成跨语境关系、真实语义留出集、大历史选择、前台纠正覆盖、跨身体资源优先级与性能门禁。失效来源重整合已有工程闭环，真实语义成功率尚未验收。完整备份、远端同步和检查点保存仍须 M4 验收；开源组件完整选择和集成也未结束。
+尚须完成跨语境真实语义门禁、真实语义留出集、大历史选择、前台纠正覆盖、跨身体资源优先级与性能门禁。失效来源重整合已有工程闭环，真实语义成功率尚未验收。完整备份、远端同步和检查点保存仍须 M4 验收；开源组件完整选择和集成也未结束。
 
 没有新增守护进程或运行依赖。配置与既有管理 RPC 增加 semantic 字段；main 引入相关库后，构建脚本将完整 Graphiti 许可 / 修改说明嵌入跨平台分发的 main.cjs。当前只做受控后台试验，默认不启用，不能据构建或合成 HTTP 测试宣称 M2 通过。
 
