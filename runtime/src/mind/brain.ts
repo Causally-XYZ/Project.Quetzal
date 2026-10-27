@@ -16,7 +16,7 @@ import { learnEpisode, evolveMemory, type EpisodeInput } from "../memory/prime.t
 import { readStructuredRecords } from "../memory/structured.ts";
 import type { ToolRecord } from "../../../engine/src/loop.ts";
 import { identity } from "../memory/identity.ts";
-import { adaptiveReadingRequired } from "../memory/adaptive.ts";
+import { adaptiveReadingRequired, withCurrentAnswer, AnswerSourcesChanged } from "../memory/adaptive.ts";
 import { allTools, callTool } from "./tools.ts";
 import { systemMessage, withSystemReading } from "./prompt.ts";
 import { addTimeline, addMessage, ensureSession, getSession, updateSession, sessionMessages, setMessageMode, saveToolCall, saveContextSource, type Attachment } from "../store.ts";
@@ -105,7 +105,14 @@ async function loop(messages: Msg[], reason: string, withFinish: boolean, s: Ses
     tools: allTools().filter((t) => !exclude?.has(t.name)).map(({ name, description, parameters }) => ({ name, description, parameters })),
     finishTool: withFinish ? FINISH : undefined,
   }, {
-    chat,
+    chat: async (request) => {
+      const result = await chat(request);
+      const sources = context.snapshot().answerSources;
+      // 供应商等待期间可能已接受纠正；在引擎发布最终文字或执行工具前检查。
+      await withCurrentAnswer(sources ? { version: 1, agent: identity().id, answerHash: answerDigest(result.text), ...sources } : undefined,
+        result.text, () => {}, request.signal);
+      return result;
+    },
     prepareContext: context.prepare,
     execute: (c) => callTool(c.name, c.args, reason, { session: s }),
     drain: async (context) => {
@@ -491,11 +498,14 @@ export function converse(from: string, text: string, channel: string, o: Convers
       // 提醒过仍没有一句话：说明这一轮没有回复，而不是留一个看不懂的空回复
       const reply = r.text.trim() || (r.steps.length ? `（我做了 ${r.steps.length} 步，但最后没能把结果说出来。你可以问我一句「结果呢」。）` : "（模型连着几次什么也没输出，我没能回复。你可以再说一次。）");
       const home = s.switchTo ?? conv; // session_new：回复放进新会话
-      const basis = learnedTurns.get(s)?.answerSources;
-      const replyId = addMessage("agent", channel, reply, { session: home, process, attachments: s.outbox.splice(0),
-        ...(basis ? { answerBasis: { version: 1, agent: identity().id, answerHash: answerDigest(reply), ...basis } } : {}) }); // 这一轮生成的文件（deliverable_create）随回复交给对方
-      saveContextSource(`message-tools:${replyId}`, home, JSON.stringify((learnedTurns.get(s)?.records ?? []).map((record) => ({ call: record.call, turn: s.id }))));
-      s.emit({ kind: "done", reply });
+      const sources = learnedTurns.get(s)?.answerSources;
+      const basis: AnswerBasis | undefined = sources ? { version: 1, agent: identity().id, answerHash: answerDigest(reply), ...sources } : undefined;
+      // 重新等锁后核对：从已验证的本机快照到消息落盘 / done 不再有异步间隙。
+      await withCurrentAnswer(basis, reply, () => {
+        const replyId = addMessage("agent", channel, reply, { session: home, process, attachments: s.outbox.splice(0), ...(basis ? { answerBasis: basis } : {}) });
+        saveContextSource(`message-tools:${replyId}`, home, JSON.stringify((learnedTurns.get(s)?.records ?? []).map((record) => ({ call: record.call, turn: s.id }))));
+        s.emit({ kind: "done", reply });
+      }, s.signal);
       if (s.switchTo) bus.emit("session.switch", { from: conv, to: s.switchTo, title: getSession(s.switchTo)?.title ?? "", done: true });
       addTimeline("chat", o.ambient ? (channel === "子agent" ? "收到子 agent 的报告，接着做了" : channel === "灵魂同步" ? "处理了基座关于灵魂同步的提醒" : "听到有人说话，回应了") : `和${from}说话`, { channel, conv: home, text, reply, process, steps: r.steps, tokens: r.tokens, model: r.model });
       addExperience(1);
@@ -514,6 +524,14 @@ export function converse(from: string, text: string, channel: string, o: Convers
         addMessage("agent", channel, reply, { session: conv, process, attachments: s.outbox.splice(0) }); // 停下之前已经生成的文件照样交出
         s.emit({ kind: "done", reply });
         addTimeline("chat", `和${from}说话，被对方停止`, { channel, conv, text, reply, process });
+        return reply;
+      }
+      if (e instanceof AnswerSourcesChanged) {
+        // 流式草稿可能已显示；终态明确撤销其结论，不保存旧答复或送入学习。
+        const reply = `（${e.message}）`;
+        s.flush(); s.emit({ kind: "text", text: reply, final: true });
+        addMessage("agent", channel, reply, { session: conv, process: s.process(), attachments: s.outbox.splice(0) });
+        s.emit({ kind: "done", reply });
         return reply;
       }
       const timeout = e instanceof SessionTimeout || s.signal.aborted;

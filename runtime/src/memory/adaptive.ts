@@ -321,7 +321,24 @@ export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceR
   observeReadSources(result.view); return result.value;
 }
 
-async function withAdaptiveSnapshot<T>(read: (store: AdaptiveStore, archive: AdaptiveArchive, visible: SourceReader, check: () => void) => T, signal?: AbortSignal): Promise<T> {
+export class AnswerSourcesChanged extends Error {
+  constructor() { super('生成期间使用的资料已变化，刚才的草稿不能作为当前结论。需要根据最新资料重新核对。'); this.name = 'AnswerSourcesChanged'; }
+}
+
+/** 最后一次本机版本检查与同步发布之间不让出事件循环；不承诺未收到的远端状态。
+ * commit 必须同步，且只在读取成功、预算核对及只读 SAVEPOINT 释放后执行。
+ */
+export async function withCurrentAnswer<T>(basis: AnswerBasis | undefined, text: string, commit: () => T, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  if (!basis) return commit(); // 旧路径没有来源凭据，不把它升级为“已核查”。
+  let result!: T;
+  await withAdaptiveSnapshot((store, archive, visible) =>
+    answerBasisStatus(basis, text, store.agent, archive.readSources(basis.sources.map((s) => s.id), visible)) === 'unchanged', signal,
+  (current) => { signal?.throwIfAborted(); if (!current) throw new AnswerSourcesChanged(); result = commit(); });
+  return result;
+}
+
+async function withAdaptiveSnapshot<T>(read: (store: AdaptiveStore, archive: AdaptiveArchive, visible: SourceReader, check: () => void) => T, signal?: AbortSignal, commit?: (value: T) => void): Promise<T> {
   signal?.throwIfAborted();
   const deadline = Date.now() + 500;
   const timed = AbortSignal.any([AbortSignal.timeout(500), ...(signal ? [signal] : [])]);
@@ -331,6 +348,7 @@ async function withAdaptiveSnapshot<T>(read: (store: AdaptiveStore, archive: Ada
     if (fs.existsSync(paths.stop)) throw new Error('急停中，停止原文修订读取');
     const store = localStore();
     store.db.exec('SAVEPOINT adaptive_source_read');
+    let value: T;
     try {
       const visible = (id: number) => {
         const row = store.db.prepare('SELECT id,session,role,channel,text,ts,body,via,mode,attachments FROM messages WHERE id=?').get(id) as SourceSnapshot | undefined;
@@ -338,10 +356,12 @@ async function withAdaptiveSnapshot<T>(read: (store: AdaptiveStore, archive: Ada
           ? { text: row.text, role: row.role, hash: sourceHash(store.agent, row) } : undefined;
       };
       check();
-      const value = read(store, new AdaptiveArchive(store, paths.soul), visible, check);
+      value = read(store, new AdaptiveArchive(store, paths.soul), visible, check);
       check();
-      store.db.exec('RELEASE adaptive_source_read'); return value;
+      store.db.exec('RELEASE adaptive_source_read');
     } catch (error) { store.db.exec('ROLLBACK TO adaptive_source_read'); store.db.exec('RELEASE adaptive_source_read'); throw error; }
+    commit?.(value);
+    return value;
   }), timed);
 }
 

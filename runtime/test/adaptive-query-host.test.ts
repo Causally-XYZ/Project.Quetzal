@@ -301,3 +301,80 @@ test('实际回答保存跨会话来源，后续派生回答继承；纠正后�
     } finally { ctx.close(); }
   } finally { script = async () => ({ content: '完成' }); }
 });
+
+test('模型等待期间接受纠正或撤回来源，不发布旧结论、不执行该输出的工具', async () => {
+  configure([{ id: 'large', context: 131072 }]);
+  const { bus } = await import('../src/bus.ts');
+  for (const action of ['correct', 'ignored', 'tool'] as const) {
+    const f = fixture(`answer-race-origin-${action}`), conv = `answer-race-${action}`, events: any[] = [];
+    const listen = (event: any) => { if (event.conv === conv) events.push(event); };
+    bus.on('activity', listen); seen.length = 0;
+    script = async (request) => {
+      assert.match(joined(request), /饭友是编辑/);
+      if (action === 'ignored') store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source);
+      else await exclusive(() => f.correct());
+      return { content: 'STALE_GENERATION 不可发布的旧结论', ...(action === 'tool' ? { tool_calls: [
+        { id: 'stale-call', type: 'function', function: { name: 'missing_fixture_tool', arguments: '{}' } },
+      ] } : {}) };
+    };
+    try {
+      const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
+      assert.match(reply, /资料已变化/); assert.ok(!reply.includes('STALE_GENERATION'));
+      assert.equal(seen.length, 1, '不能重新执行可能已有副作用的工具轨迹');
+      assert.ok(!events.some((e) => e.kind === 'text' && e.text?.includes('STALE_GENERATION')));
+      assert.ok(!events.some((e) => e.kind === 'tool' && e.call === 'stale-call'));
+      assert.equal(events.findLast((e) => e.kind === 'done')?.reply, reply);
+      const stored = store.sessionMessages(conv).filter((m) => m.role === 'agent');
+      assert.equal(stored.length, 1); assert.equal(stored[0].text, reply);
+      assert.ok(!stored[0].answerBasis, '终止通知不能冒充有事实依据的回答');
+    } finally { bus.off('activity', listen); script = async () => ({ content: '完成' }); }
+  }
+});
+
+test('模型结果核查后到最终落盘前发生修订，最终再核查拒绝旧答复；无关新增不误拒绝', async () => {
+  configure([{ id: 'large', context: 131072 }]);
+  const { bus } = await import('../src/bus.ts');
+  for (const related of [true, false]) {
+    const f = fixture(`answer-publish-origin-${related}`), conv = `answer-publish-${related}`;
+    let changed = false;
+    const listen = (event: any) => {
+      if (changed || event.conv !== conv || event.kind !== 'text' || !event.final || !event.text?.includes('PUBLISH_CANDIDATE')) return;
+      changed = true;
+      if (related) f.correct();
+      else store.addMessage('user', '合成', '另一件事：窗台上的绿萝长出新叶。', { session: conv });
+    };
+    bus.on('activity', listen); seen.length = 0;
+    script = async () => ({ content: 'PUBLISH_CANDIDATE 饭友是编辑。' });
+    try {
+      const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
+      assert.equal(changed, true); assert.equal(seen.length, 1);
+      const stored = store.sessionMessages(conv).filter((m) => m.role === 'agent');
+      assert.equal(stored.length, 1); assert.equal(stored[0].text, reply);
+      if (related) { assert.match(reply, /资料已变化/); assert.ok(!reply.includes('PUBLISH_CANDIDATE')); }
+      else { assert.match(reply, /PUBLISH_CANDIDATE/); assert.ok(stored[0].answerBasis?.consistent); }
+    } finally { bus.off('activity', listen); script = async () => ({ content: '完成' }); }
+  }
+});
+
+test('最终核查等锁取消或超时后不能迟到发布；发布异常不会再次回滚已释放的读取快照', async () => {
+  const f = fixture('answer-guard-lock');
+  const { answerSource, answerDigest } = await import('../src/memory/answer-basis.ts');
+  const sources = await adaptive.withAdaptiveSources([f.source], (view) => view!.sources.map(answerSource));
+  const text = '核查后的合成回答', basis = { version: 1 as const, agent: identity().id, answerHash: answerDigest(text), consistent: true, sources };
+  for (const cancel of [true, false]) {
+    let release!: () => void, entered!: () => void, committed = false;
+    const ready = new Promise<void>((resolve) => { entered = resolve; });
+    const held = exclusive(async () => { entered(); await new Promise<void>((resolve) => { release = resolve; }); });
+    await ready;
+    const controller = new AbortController();
+    const pending = adaptive.withCurrentAnswer(basis, text, () => { committed = true; }, controller.signal);
+    if (cancel) controller.abort(new Error('合成取消'));
+    try { await assert.rejects(pending); }
+    finally { release(); await held; await exclusive(() => {}); }
+    assert.equal(committed, false);
+  }
+  const failure = new Error('合成发布失败'); let called = 0;
+  await assert.rejects(adaptive.withCurrentAnswer(basis, text, () => { called++; throw failure; }), (error) => error === failure);
+  assert.equal(called, 1); assert.equal(store.db.isTransaction, false);
+  assert.equal(await adaptive.withCurrentAnswer(basis, text, () => '已发布'), '已发布');
+});
