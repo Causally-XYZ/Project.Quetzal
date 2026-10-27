@@ -9,6 +9,7 @@ import { AdaptiveStore } from '../src/memory/adaptive-store.ts';
 import { AdaptiveArchive } from '../src/memory/adaptive-archive.ts';
 import { normalizeProposal, proposalPrompt } from '../src/memory/adaptive-proposal.ts';
 import { publishPending } from '../src/memory/adaptive-publication.ts';
+import { dependentRecords } from '../src/memory/adaptive-evidence.ts';
 
 const model = process.argv[2], home = process.argv[3], resume = process.argv[4] === '--resume';
 if (!['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'].includes(model) || !home || !path.isAbsolute(home)) throw new Error('请提供指定模型及仓库外绝对输出目录');
@@ -61,6 +62,9 @@ try {
     try {
       if (!response.ok) throw new Error(response.error);
       const batch = normalizeProposal(response.proposal, context);
+      const revised = new Set(batch?.records.map((r) => r.id) ?? []);
+      report.reviewCandidates = dependentRecords(context.records, context.records.filter((r) => revised.has(r.id)))
+        .filter((r) => !revised.has(r.id));
       report.accepted = batch ? archive.accept(job, context.sources.map((s) => ({ id: s.id, revision: s.revision, hash: s.hash })), batch) : queue.complete(job);
       if (!report.accepted) throw new Error('宿主拒绝安装');
       publishPending(queue, soul, () => true);

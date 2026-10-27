@@ -90,7 +90,7 @@ src/
 │   ├── retrieval.ts      记忆检索宿主：收集文件、FTS5 / 降级路径及时间；纯分词、打分、摘录与字符预算选择调用根级 engine
 │   ├── structured.ts     notes/QuetzalMemory版本读写、来源/状态校验、scope与条件门禁、旧材料标注映射、归档回滚，原私有正文不脱敏
 │   ├── adaptive-store.ts 来源修订、持久任务、租约与回执；与 messages 同事务失效
-│   ├── adaptive-evidence.ts  M2 记录格式、精确出处、支持 / 反证依赖计算（未接入后台）
+│   ├── adaptive-evidence.ts  M2 记录格式、精确出处、证据状态与纠正影响范围计算（未接入后台）
 │   ├── adaptive-proposal.ts  M2 提案提示 / schema、宿主身份与引文规范化（开发试跑）
 │   ├── prompts/adaptive-graphiti.ts 固定上游抽取 / 时间规则的许可副本与适配
 │   ├── adaptive-archive.ts   M2 权威文件核对、重建与备份检查点（未接入后台）

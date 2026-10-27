@@ -107,6 +107,41 @@ export function recordRefs(r: SemanticRecord): RecordRef[] {
   return r.kind === 'mention' ? r.candidates : r.kind === 'claim'
     ? [...r.participants.map((p) => p.mention), ...[...r.supports, ...r.counters].flatMap((g) => g.premises.filter((p): p is RecordRef => p.kind !== 'source'))] : [];
 }
+
+/** 返回需重评的当前下游，不改变记录或证据状态。只跟随确切版本，支持 / 反证同等处理。
+ * 调用者应在安装纠正前保存快照及被替代版本；结果不是应撤回的记录列表。
+ */
+export function dependentRecords(records: SemanticRecord[], changed: RecordRef[], maxWork = 100_000): RecordRef[] {
+  if (!Number.isSafeInteger(maxWork) || maxWork < 1) throw new Error('认识依赖工作上限不合法');
+  let work = 0;
+  const step = () => { if (++work > maxWork) throw new Error('认识依赖计算超过工作上限'); };
+  const reverse = new Map<string, RecordRef[]>(), ids = new Set<string>();
+  for (const r of records) {
+    step();
+    if (ids.has(r.id)) throw new Error('认识快照包含重复 ID');
+    ids.add(r.id);
+    if (r.state === 'withdrawn') continue;
+    const self: RecordRef = { kind: r.kind, id: r.id, revision: r.revision };
+    for (const ref of recordRefs(r)) {
+      step(); const key = refKey(ref), targets = reverse.get(key) ?? [];
+      targets.push(self); reverse.set(key, targets);
+    }
+  }
+  const queue: RecordRef[] = [], seen = new Set<string>(), result = new Map<string, RecordRef>();
+  for (const ref of changed) {
+    step(); const key = refKey(ref);
+    if (!seen.has(key)) { seen.add(key); queue.push(ref); }
+  }
+  for (let i = 0; i < queue.length; i++) {
+    step();
+    for (const dependent of reverse.get(refKey(queue[i])) ?? []) {
+      step(); const key = refKey(dependent);
+      if (seen.has(key)) continue;
+      seen.add(key); queue.push(dependent); result.set(key, dependent);
+    }
+  }
+  return [...result.values()].sort((a, b) => refKey(a).localeCompare(refKey(b)));
+}
 export function spanCurrent(span: SourceSpan, read: SourceReader): boolean {
   const source = read(span.source);
   const splitsPair = (i: number) => !!source && i > 0 && i < source.text.length &&

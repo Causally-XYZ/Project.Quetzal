@@ -7,7 +7,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { AdaptiveStore } from '../src/memory/adaptive-store.ts';
 import { AdaptiveGraph } from '../src/memory/adaptive-graph.ts';
-import { validateBatch, evaluateEvidence, spanCurrent, type SemanticRecord, type ObjectRecord, type MentionRecord,
+import { validateBatch, evaluateEvidence, spanCurrent, dependentRecords, type SemanticRecord, type ObjectRecord, type MentionRecord,
   type ClaimRecord, type SourceSpan, type RecordRef, type EvidenceGroup } from '../src/memory/adaptive-evidence.ts';
 
 const realm = { world: 'real' as const, context: '合成现实会话' };
@@ -21,6 +21,39 @@ const group = (id: string, ...premises: (SourceSpan | RecordRef)[]): EvidenceGro
 const claim = (text: string, reason: SourceSpan, supports = [group('direct', reason)]): ClaimRecord => ({
   ...base([reason]), kind: 'claim', text, nature: 'reported', participants: [], supports, counters: [],
   occurred: { text: '', earliest: null, latest: null }, valid: { text: '', earliest: null, latest: null },
+});
+
+test('纠正影响沿精确版本、参与者、支持和反证传递，不撤回独立依据', (t) => {
+  const f = fixture(t); f.add(1, '编辑'); f.add(2, '吃饭并说了一句话'); f.add(3, '独立证明');
+  const person = node('编辑', f.span(1)), m = mention(f.span(2), [person], person);
+  const dinner = claim('一起吃饭', f.span(2)); dinner.participants = [{ role: '饭友', mention: ref(m) }];
+  const quotation = claim('饭友说了一句话', f.span(2), [group('speaker', ref(m))]);
+  const derived = claim('待重新检查的推论', f.span(2), [group('quote', ref(quotation))]);
+  const alternate = claim('另有独立依据', f.span(3), [group('original', ref(quotation)), group('independent', f.span(3))]);
+  const countered = claim('被引语反驳', f.span(3)); countered.counters = [group('against', ref(quotation))];
+  const writing = claim('独立写作决定', f.span(3));
+  const records = [person, m, dinner, quotation, derived, alternate, countered, writing];
+  const copy = structuredClone(records);
+  assert.deepEqual(new Set(dependentRecords(records, [ref(m)]).map((r) => r.id)), new Set([dinner, quotation, derived, alternate, countered].map((r) => r.id)));
+  assert.deepEqual(dependentRecords(records, [{ ...ref(m), revision: 99 }]), [], '不同版本不是同一个变更目标');
+  assert.deepEqual(records, copy, '影响检查不改变认识');
+  const after = records.map((r) => r.id === m.id ? { ...r, revision: 2 } : r);
+  const states = evaluateEvidence(after, (id) => f.queue.source(id));
+  assert.equal(states.get(dinner.id)?.status, 'unsupported');
+  assert.equal(states.get(alternate.id)?.status, 'supported', '受影响不等于撤回');
+  assert.equal(states.get(writing.id)?.status, 'supported');
+});
+
+test('纠正影响遍历有界、去重、与排列无关；撤回历史不再传播', (t) => {
+  const f = fixture(t); f.add(1, '合成依据');
+  const a = claim('A', f.span(1)), b = claim('B', f.span(1)), c = claim('C', f.span(1));
+  a.supports = [group('cycle', ref(b))]; b.supports = [group('cycle', ref(a), ref(a))];
+  c.supports = [group('history', ref(b))]; c.state = 'withdrawn';
+  assert.deepEqual(dependentRecords([a, b, c], [ref(a), ref(a)]), [ref(b)]);
+  assert.deepEqual(dependentRecords([c, b, a], [ref(a)]), [ref(b)]);
+  assert.throws(() => dependentRecords([a, b], [ref(a)], 1), /工作上限/);
+  assert.throws(() => dependentRecords([a, a], []), /重复 ID/);
+  assert.throws(() => dependentRecords([], [], 0), /工作上限/);
 });
 
 function fixture(t: TestContext) {

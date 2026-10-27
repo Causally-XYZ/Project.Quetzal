@@ -63,3 +63,16 @@ test('输入记录引用用可见句柄，旧版本和缺失来源不能被重�
   assert.deepEqual(JSON.parse(proposalPrompt(c).user).records[0].reasons, [{ unavailableSource: true }]);
   assert.equal(normalizeProposal({ contexts: [], records: [] }, c), null);
 });
+
+test('提示携带精确版本下游句柄，重复候选去重，旧版本与撤回历史不混入', () => {
+  const c = context(); const r = normalizeProposal(patch(), c)!.records[0]; c.records.push(r);
+  const ref = { kind: 'node' as const, id: r.id, revision: r.revision };
+  c.records.push({ id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', revision: 1, kind: 'mention', state: 'present', realm: r.realm,
+    reasons: r.reasons, anchor: r.reasons[0], candidates: [ref], resolved: ref, unknown: false });
+  assert.deepEqual(JSON.parse(proposalPrompt(c).user).dependents, { r1: ['r2'] });
+  const mention = c.records[1]; if (mention.kind !== 'mention') throw new Error('测试类型');
+  mention.candidates[0].revision = 99;
+  assert.deepEqual(JSON.parse(proposalPrompt(c).user).dependents, {});
+  mention.candidates[0].revision = 1; mention.state = 'withdrawn';
+  assert.deepEqual(JSON.parse(proposalPrompt(c).user).dependents, {});
+});
