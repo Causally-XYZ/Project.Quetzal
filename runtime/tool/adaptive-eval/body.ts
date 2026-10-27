@@ -17,7 +17,7 @@ await (await import('../../src/body/uuid.ts')).ensureBodyUuid();
 const soul = await import('../../src/memory/soul-sync.ts'); await soul.ensureSoul();
 const observer = settings.storageOnly ? { calls: [] as ObservedCall[], setPhase: (_value: string) => {}, abort: () => {}, close: async () => {} }
   : await observeModel({ directory: path.join(cfg.paths.home, 'eval-calls'), model: settings.model,
-    kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt, stubReviewDelayMs: settings.stubReviewDelayMs });
+    kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt, stubReviewDelayMs: settings.stubReviewDelayMs, thinkingLevel: settings.thinkingLevel });
 cfg.saveConfig({ sharedRev: { providers: 1 } }, { remote: true });
 const { Mesh } = await import('../../src/mesh/mesh.ts');
 const { loadNodeKey } = await import('../../src/mesh/identity.ts');

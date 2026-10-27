@@ -12,6 +12,16 @@ const input: InputTrack = { id: 'development', setup: 'empty', steps: [
   { id: 'S2', at: '2026-06-10T12:00:00Z', body: 'A', role: 'user', scope: 'accessible', speaker: 'owner',
     text: '后来采风还看到了紫色灯塔。', query: '前面两次采风分别提到了什么？' },
 ] };
+test('思考强度对照不能混入替身、其他模型或正式证据轨迹', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-thinking-boundary-'));
+  try {
+    for (const overrides of [{ kind: 'stub' as const }, { model: 'gemini-4-argon' }, { fullEvidence: true }]) {
+      await assert.rejects(runTrack({ root: path.join(tmp, 'track'), track: input, kind: 'live', model: 'gemini-3.8-flash',
+        thinkingLevel: 'LOW', ...overrides }), /evaluation-thinking-experiment-invalid/);
+    }
+    assert.deepEqual(fs.readdirSync(tmp), []);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
 test('评测执行链逐步释放并经真实网关回答，记录复制/自动发布/材料且结束全部身体', { timeout: 120000 }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-eval-runner-test-'));
   try {

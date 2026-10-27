@@ -34,7 +34,11 @@ node --experimental-strip-types --test runtime/test/adaptive-eval.test.ts
 ```bash
 npm run pilot:adaptive-multibody --prefix runtime -- --kind=stub
 GCLOUD_BIN="$(command -v gcloud)" npm run pilot:adaptive-multibody --prefix runtime -- --kind=live --model=gemini-3.8-flash --steps=3
+# 仅公开开发对照；主力模型显式 LOW，与默认结果分开保存
+GCLOUD_BIN="$(command -v gcloud)" npm run pilot:adaptive-multibody --prefix runtime -- --kind=live --model=gemini-3.8-flash --case=realm --steps=3 --thinking=low
 ```
+
+`--thinking=default|low` 缺省 default，保持供应商默认设置。low 只允许 live 主力模型；由 ADC 开发传输明确加入 `thinkingConfig.thinkingLevel=LOW`，所有提案和回答均适用。开发计划、轨迹配置、每次调用及传输回执都记录此差异；原 messages / schema / token 上限不变。不得与默认结果混合评分，正式 fullEvidence 轨迹拒绝此实验覆盖。它不是生产模型配置，也不表示低思考质量合格。既有脚本、类型检查和打包边界不变，无新依赖。
 
 缺省 stub，不触网调用模型；live 会产生真实模型费用，模型仅允许已授权的 Flash / Argon / Lite，缺省 Flash。steps 可为1～3，截短的开发运行不能当成完整纠正通过。缺省使用公开的周宁 / 周宇 / 阿舟开发案例，新增每步查询；--case=scope 选择独立公开的余晨 / 恶意引文 / 来源隔离案例，不读取正式留出集；不同于旧 live-pilot 的仅末步查询，不能直接比较调用量或质量。ADC 只在开发子进程内存认证，沿用现有 GCLOUD_BIN / GOOGLE_CLOUD_PROJECT，不代表生产配置支持。QUETZAL_EVAL_BODY 是父子进程内部启动参数，不是产品配置，含测试信令与本机路径，不提交其实际值。
 

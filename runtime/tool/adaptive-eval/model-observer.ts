@@ -7,12 +7,15 @@ import { adcFetch, loadAdc, vertexPlaceholder, vertexModels, type VertexReceipt 
 import type { ChatRequest, ChatResult } from '../../src/providers/types.ts';
 
 export interface ObservedCall {
+  thinkingLevel?: 'LOW';
   id: number; phase: string; purpose: 'proposal' | 'conversation'; model: string; start: number;
   request: { messages: ChatRequest['messages']; tools: ChatRequest['tools']; maxTokens: number | undefined; responseSchema?: ChatRequest['responseSchema'] };
   state: 'running' | 'returned' | 'failed'; elapsedMs?: number; firstTextMs?: number; firstChunkMs?: number;
   result?: ChatResult; failure?: { category: string; status: number | null; reason?: string; usage: null }; transport: VertexReceipt[];
 }
-export async function observeModel(options: { directory: string; model: string; kind: 'live' | 'stub'; maxCalls: number; stubFailAt?: number; stubReviewDelayMs?: number }) {
+export async function observeModel(options: { directory: string; model: string; kind: 'live' | 'stub'; maxCalls: number; stubFailAt?: number; stubReviewDelayMs?: number; thinkingLevel?: 'LOW' }) {
+  if (options.thinkingLevel !== undefined && (options.thinkingLevel !== 'LOW' || options.kind !== 'live' || options.model !== 'gemini-3.8-flash'))
+    throw new Error('开发思考设置不合法');
   if (!vertexModels.includes(options.model) || !Number.isSafeInteger(options.maxCalls) || options.maxCalls < 1 || options.maxCalls > 100)
     throw new Error('评测模型或调用预算不合法');
   if (options.stubFailAt && options.kind !== 'stub') throw new Error('故障注入只允许替身');
@@ -31,10 +34,10 @@ export async function observeModel(options: { directory: string; model: string; 
   const save = (id: number, stage: string, value: unknown) => fs.writeFileSync(path.join(options.directory, `${id}-${stage}.json`), JSON.stringify(value, null, 2), { flag: 'wx' });
   if (options.kind === 'live') globalThis.fetch = adcFetch(native, loadAdc, (receipt) => {
     const call = context.getStore(); if (!call) throw new Error('模型传输缺少调用关联'); call.transport.push(receipt);
-  });
+  }, options.thinkingLevel);
   adapters['google-generative-ai'] = (target, request) => {
     const call: ObservedCall = { id: calls.length + 1, phase, purpose: request.messages[0]?.content.includes('Return exactly one JSON object conforming to this response schema.') ? 'proposal' : 'conversation',
-      model: target.model, start: Date.now(), request: { messages: structuredClone(request.messages), tools: structuredClone(request.tools), maxTokens: request.maxTokens,
+      model: target.model, start: Date.now(), ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}), request: { messages: structuredClone(request.messages), tools: structuredClone(request.tools), maxTokens: request.maxTokens,
         ...(request.responseSchema ? { responseSchema: structuredClone(request.responseSchema) } : {}) }, state: 'running', transport: [] };
     calls.push(call); save(call.id, 'start', call);
     const task = context.run(call, async () => {

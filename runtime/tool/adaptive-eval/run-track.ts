@@ -10,10 +10,12 @@ import type { ObservedCall } from './model-observer.ts';
 import { seedPublicRetrievalCache } from './retrieval-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
 export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number;
-  retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean }
+  retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean; thinkingLevel?: 'LOW' }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
+  if (options.thinkingLevel !== undefined && (options.thinkingLevel !== 'LOW' || options.kind !== 'live'
+    || options.model !== 'gemini-3.8-flash' || options.fullEvidence)) throw new Error('evaluation-thinking-experiment-invalid');
   const controlled = options.track.setup === 'and-or-graph';
   if (!['empty', 'and-or-graph'].includes(options.track.setup) || !options.track.steps.length || options.track.steps.length > (controlled ? 3 : 8)
     || options.track.steps.some((s, i) => !['accessible', 'denied', 'other-agent'].includes(s.scope) || Object.hasOwn(s, 'checks')
@@ -28,7 +30,7 @@ export async function runTrack(options: TrackOptions) {
   fs.mkdirSync(options.root); // 不复用旧目录，不覆盖失败证据。
   write(options.root, 'input.json', options.track);
   write(options.root, 'execution.json', { schema: 'quetzal-m2-track-development-v1', inputHash: digest(options.track), kind: options.kind,
-    model: options.model, maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
+    model: options.model, ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}), maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent', inputPath: 'store-with-synchronous-record-clock',
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
     deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
     fullEvidence: !!options.fullEvidence, retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
@@ -88,7 +90,7 @@ export async function runTrack(options: TrackOptions) {
     for (const body of ['center', 'satellite']) {
       clients.push(await startBody(path.join(options.root, body), {
         body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
-        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence,
+        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence, thinkingLevel: options.thinkingLevel,
       })); bodyNames.push(body);
     }
     let foreign: BodyClient | undefined;

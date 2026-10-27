@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 export const vertexModels = ['gemini-4-argon', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'];
 export const vertexPlaceholder = 'https://quetzal-adc.invalid';
 export interface VertexReceipt {
+  thinkingLevel?: 'LOW';
   model: string; versions: string[]; finish: string[]; usage: unknown[]; elapsedMs: number;
   state: 'complete' | 'http' | 'failed' | 'cancelled'; phase: 'credentials' | 'headers' | 'body';
   status: number | null; credentialsMs?: number; headersMs?: number; firstByteMs?: number; bytes: number;
@@ -26,12 +27,23 @@ export async function loadAdc(): Promise<Credentials> {
 }
 
 /** 只截获保留域名的 Google 流式请求；错误正文、账号和认证值不交给路由或报告。 */
-export function adcFetch(native: typeof fetch, credentials: () => Promise<Credentials>, report: (r: VertexReceipt) => void): typeof fetch {
+export function adcFetch(native: typeof fetch, credentials: () => Promise<Credentials>, report: (r: VertexReceipt) => void,
+  thinkingLevel?: 'LOW'): typeof fetch {
+  if (thinkingLevel !== undefined && thinkingLevel !== 'LOW') throw new Error('开发思考设置不合法');
   return async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith(`${vertexPlaceholder}/`)) return native(input, init);
     const match = /^https:\/\/quetzal-adc\.invalid\/models\/([^/:?]+):streamGenerateContent\?alt=sse$/.exec(url);
     if (!match || !vertexModels.includes(match[1]) || init?.method !== 'POST') throw new Error('开发试验请求不在许可范围');
+    // 显式开发对照，不能偷偷改默认请求；实际覆盖同时进入传输回执。
+    let body = init.body;
+    if (thinkingLevel) {
+      if (match[1] !== 'gemini-3.8-flash' || typeof body !== 'string') throw new Error('开发思考对照仅支持主力模型');
+      const value = JSON.parse(body);
+      if (!value.generationConfig || typeof value.generationConfig !== 'object'
+        || Array.isArray(value.generationConfig) || value.generationConfig.thinkingConfig !== undefined) throw new Error('开发思考配置冲突');
+      value.generationConfig.thinkingConfig = { thinkingLevel }; body = JSON.stringify(value);
+    }
     const start = Date.now();
     let phase: VertexReceipt['phase'] = 'credentials', status: number | null = null, reported = false;
     let credentialsMs: number | undefined, headersMs: number | undefined, firstByteMs: number | undefined;
@@ -42,7 +54,7 @@ export function adcFetch(native: typeof fetch, credentials: () => Promise<Creden
       if (reported) return;
       reported = true; init?.signal?.removeEventListener('abort', aborted);
       report({ model: match[1], versions: [...versions], finish: [...finish], usage: structuredClone(usage), elapsedMs: Date.now() - start,
-        state, phase, status, credentialsMs, headersMs, firstByteMs, bytes });
+        state, phase, status, credentialsMs, headersMs, firstByteMs, bytes, ...(thinkingLevel ? { thinkingLevel } : {}) });
     };
     const aborted = () => done('cancelled');
     init.signal?.addEventListener('abort', aborted, { once: true });
@@ -52,7 +64,7 @@ export function adcFetch(native: typeof fetch, credentials: () => Promise<Creden
       const { project, token } = await credentials(); credentialsMs = Date.now() - start;
       init.signal?.throwIfAborted(); phase = 'headers';
       response = await native(`https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/${match[1]}:streamGenerateContent?alt=sse`,
-        { ...init, redirect: 'error', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
+        { ...init, body, redirect: 'error', headers: { 'content-type': 'application/json', accept: 'text/event-stream',
           authorization: `Bearer ${token}`, 'x-goog-user-project': project } });
       status = response.status; headersMs = Date.now() - start;
       init.signal?.throwIfAborted();
