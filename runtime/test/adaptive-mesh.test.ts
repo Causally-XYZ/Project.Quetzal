@@ -16,7 +16,7 @@ const until = async (f: () => Promise<boolean>, ms = 15_000) => {
   while (!await f()) { if (Date.now() > end) throw new Error('等待合成身体状态超时'); await new Promise((r) => setTimeout(r, 100)); }
 };
 
-test('AM-11/12/15/20/21：真实双身体聊天、认证查询、集中处理、断线降级和进程重启补做', { timeout: 60_000 }, async (t) => {
+test('AM-11/12/15/20/21：真实双身体聊天、认证查询、集中处理、断线降级和进程重启补做', { timeout: 100_000 }, async (t) => {
   // 此门禁不能靠跳过可选原生依赖通过。
   await import('node-datachannel');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-adaptive-mesh-'));
@@ -28,6 +28,7 @@ test('AM-11/12/15/20/21：真实双身体聊天、认证查询、集中处理、
   }
   const sync = await fakeSync(keys);
   const processes: ChildProcess[] = [], sockets: WebSocket[] = [];
+  const uuids = new Map<string, string>();
   t.after(async () => {
     for (const ws of sockets) ws.terminate();
     await Promise.all(processes.map(async (p) => {
@@ -69,10 +70,15 @@ test('AM-11/12/15/20/21：真实双身体聊天、认证查询、集中处理、
     const rpc = <T = any>(method: string, params?: unknown) => new Promise<T>((resolve, reject) => {
       const id = ++seq; responses.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params }));
     });
+    const uuid = JSON.parse(fs.readFileSync(path.join(tmp, name, 'state', 'body-uuid'), 'utf8')).uuid;
+    assert.match(uuid, /^[a-f0-9-]{36}$/);
+    if (uuids.has(name)) assert.equal(uuid, uuids.get(name), '重启保持身体 UUID');
+    else { assert.ok(![...uuids.values()].includes(uuid), '隔离身体 UUID 不相同'); uuids.set(name, uuid); }
     return { p, call, rpc, port };
   }
   let center = await spawn('center');
   const satellite = await spawn('satellite');
+  assert.notEqual(center.port, satellite.port); assert.notEqual(keys.center, keys.satellite);
   await until(async () => (await satellite.call<string[]>('connected')).includes('center'));
   await center.rpc('memory.adaptive.configure', { enabled: true, hostBody: 'center' });
   await until(async () => (await satellite.rpc('memory.adaptive.status')).enabled);
@@ -151,4 +157,66 @@ test('AM-11/12/15/20/21：真实双身体聊天、认证查询、集中处理、
     await satellite.call('mode', { id: sourceId, mode: 'ignored' });
     await until(async () => !(await satellite.rpc<MemoryPacket>('memory.adaptive.query', { query: '蓝色船屋' })).observations.some((s) => s.id === sourceId));
   });
+
+  await t.test('领取来源任务后真实强杀，重启自动回收租约且只产生一个完成回执', async () => {
+    await center.call('seedGap'); await satellite.call('seedGap');
+    const leased = await center.call<any>('lease');
+    const dead = once(center.p, 'exit'); center.p.kill('SIGKILL'); await dead;
+    center = await spawn('center');
+    await until(async () => (await center.rpc<any[]>('memory.adaptive.jobs')).some((j) => j.id === leased.id && j.state === 'done'));
+    const jobs = (await center.rpc<any[]>('memory.adaptive.jobs')).filter((j) => j.id === leased.id);
+    await until(async () => (await center.call<any[]>('messages', { session: 'gap' })).length === 2);
+    assert.equal(jobs.length, 1); assert.equal(jobs[0].attempts, 2); assert.equal(jobs[0].token, null);
+    assert.ok((await center.rpc<MemoryPacket>('memory.adaptive.query', { query: '租约恢复测试来源' })).observations.some((o) => o.id === leased.source));
+    await until(async () => (await satellite.call<string[]>('connected')).includes('center'));
+  });
+
+  await t.test('管理网关的开关与全网急停实际传播；解除后自动补做', async () => {
+    await satellite.rpc('memory.adaptive.configure', { enabled: false, hostBody: 'center' });
+    await until(async () => !(await center.rpc('memory.adaptive.status')).enabled);
+    assert.equal((await center.rpc<MemoryPacket>('memory.adaptive.query', { query: '港口' })).status, 'disabled');
+    await satellite.rpc('memory.adaptive.configure', { enabled: true, hostBody: 'center' });
+    await until(async () => (await center.rpc('memory.adaptive.status')).enabled);
+    await satellite.rpc('stop', { scope: 'all', reason: '合成多身体急停' });
+    await until(async () => (await center.rpc('memory.adaptive.status')).stopped);
+    assert.equal((await center.rpc<MemoryPacket>('memory.adaptive.query', { query: '港口' })).status, 'stopped');
+    await satellite.rpc('unstop');
+    await until(async () => !(await center.rpc('memory.adaptive.status')).stopped);
+    assert.equal((await satellite.rpc<MemoryPacket>('memory.adaptive.query', { query: '港口' })).status, 'ready');
+  });
+
+  await t.test('一万条历史的冷查询与有无后台增量对照，各 100 次真实跨身体查询', async () => {
+    assert.equal((await center.call('seedHistory')).count, 10_000);
+    // 冷查询来自真实重启后的中心，而不是只换一个未见过的查询词。
+    const exited = once(center.p, 'exit'); center.p.kill('SIGKILL'); await exited;
+    await until(async () => !(await satellite.call<string[]>('connected')).includes('center'));
+    center = await spawn('center');
+    await until(async () => (await satellite.call<string[]>('connected')).includes('center'));
+    const stats = (values: number[]) => {
+      const sorted = values.toSorted((a, b) => a - b);
+      return { n: sorted.length, p50: sorted[Math.ceil(sorted.length * .5) - 1], p95: sorted[Math.ceil(sorted.length * .95) - 1], max: sorted.at(-1) };
+    };
+    async function measure(spacing = 0) {
+      const times: number[] = []; let unavailable = 0;
+      for (let i = 0; i < 100; i++) {
+        const start = performance.now();
+        const p = await satellite.rpc<MemoryPacket>('memory.adaptive.query', { query: '基准线索' });
+        times.push(performance.now() - start);
+        if (p.status !== 'ready') unavailable++;
+        else assert.ok(p.observations.length, '不能用空检索伪装正常低延迟');
+        if (spacing) await new Promise((r) => setTimeout(r, spacing));
+      }
+      return { ...stats(times), first: times[0], unavailable };
+    }
+    const idle = await measure();
+    await center.call('startLoad');
+    const busy = await measure(30);
+    await until(async () => { const s = await center.call('loadState'); return s.count === 300 && s.latencies.length === 300; });
+    const increments = stats((await center.call('loadState')).latencies);
+    t.diagnostic(JSON.stringify({ corpus: 10_000, queryConcurrency: 1, incrementalInputPerSecond: 100, model: 'stub', idle, busy, increments }));
+    assert.equal(idle.unavailable, 0); assert.equal(busy.unavailable, 0);
+    assert.ok(idle.p95 <= 300 && busy.p95 <= 300, '跨身体读取 P95 超过门槛');
+    assert.ok(increments.p95 <= 60_000, '持续输入导致增量饥饿');
+  });
+
 });

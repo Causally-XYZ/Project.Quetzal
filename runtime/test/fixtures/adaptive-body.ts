@@ -36,8 +36,54 @@ const adaptive = await import('../../src/memory/adaptive.ts');
 adaptive.startAdaptiveMemory(); mesh.start();
 const { startGateway } = await import('../../src/gateway.ts');
 const gateway = startGateway(false); await gateway.ready;
+const { AdaptiveStore } = await import('../../src/memory/adaptive-store.ts');
+const { identity } = await import('../../src/memory/identity.ts');
+const queue = () => new AdaptiveStore(store.db, identity().id);
+let loadTimer: NodeJS.Timeout | undefined;
+let arrivals: { id: number; at: number }[] = [];
 const commands: Record<string, (a: any) => unknown> = {
   connected: () => mesh.connected(), seen: () => seen,
+  lease: () => {
+    adaptive.processAdaptiveBatch();
+    adaptive.stopAdaptiveMemory();
+    const id = store.addMessage('user', '合成', '租约恢复测试来源', { session: 'lease' }), q = queue();
+    q.schedule(); const job = q.claim('source-v1', Date.now(), 1000);
+    if (job?.source !== id) throw new Error('测试未取得指定来源租约');
+    return job;
+  },
+  seedGap: () => {
+    const base = store.idPrefixOf('gap-author') * store.ID_RANGE;
+    store.applyRemote('messages', (cfg.config.body === 'center' ? [2] : [1, 2]).map((n) => ({
+      id: base + n, ts: Date.now() - 1000, role: 'user', channel: '合成', text: `缺口恢复线索 ${n}`, session: 'gap', body: 'gap-author',
+    })), { from: 'gap-author', catchUp: true });
+    return true;
+  },
+  seedHistory: () => {
+    const q = queue(), base = store.idPrefixOf('archive') * store.ID_RANGE;
+    for (let page = 0; page < 10; page++) store.applyRemote('messages', Array.from({ length: 1000 }, (_, i) => ({
+      id: base + page * 1000 + i + 1, ts: Date.now() - 86400_000, role: 'user', channel: '合成',
+      text: `合成历史基准线索 ${page * 1000 + i}：港口采风与旧物修复`, session: 'archive', body: 'archive',
+    })), { from: 'archive', catchUp: true });
+    while (q.schedule('source-v1', Date.now(), 1000)) {
+      let job; while ((job = q.claim())) q.complete(job);
+    }
+    return { count: 10_000 };
+  },
+  startLoad: () => {
+    arrivals = []; clearInterval(loadTimer);
+    loadTimer = setInterval(() => {
+      for (let i = 0; i < 10; i++) {
+        const id = store.addMessage('user', '合成', `活跃输入基准线索 ${arrivals.length}`, { session: 'load' });
+        arrivals.push({ id, at: Date.now() });
+      }
+      if (arrivals.length >= 300) clearInterval(loadTimer);
+    }, 100);
+    return true;
+  },
+  loadState: () => ({ count: arrivals.length, latencies: arrivals.flatMap(({ id, at }) => {
+    const receipt = store.db.prepare("SELECT completed FROM adaptive_receipts WHERE source=? AND processor='source-v1'").get(id);
+    return receipt ? [Number(receipt.completed) - at] : [];
+  }) }),
   messages: (a) => store.sessionMessages(a.session),
   mode: (a) => store.setMessageMode(a.id, a.mode),
   request: (a) => mesh.request(a.body, 'memory.adaptive.query', a.params, 1000),

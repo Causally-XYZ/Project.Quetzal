@@ -46,7 +46,7 @@ export function rank(query: string, docs: Doc[]): Hit[] {
 
 /** 检索：走 FTS5 索引；不可用时文档逐篇打分，对话取时间段内最近的 3000 条。自动检索块只请求笔记 / 日记。from / to：只看这个时间段。 */
 export type Found = Omit<Hit, "kind"> & { kind: idx.Kind; session?: string; ref?: string };
-export function retrieve(query: string, o: { limit?: number; kinds?: idx.Kind[]; from?: number; to?: number } = {}): Found[] {
+export function retrieve(query: string, o: { limit?: number; kinds?: idx.Kind[]; from?: number; to?: number; processedBy?: string } = {}): Found[] {
   const kinds = o.kinds ?? ["chat", "note", "journal", "memory", "user"];
   if (idx.ensureIndex()) {
     const docKinds = kinds.filter((k): k is Doc["kind"] => k !== "chat");
@@ -59,7 +59,7 @@ export function retrieve(query: string, o: { limit?: number; kinds?: idx.Kind[];
   const inRange = (t: number) => o.from === undefined && o.to === undefined || (t > 1e12 && t >= from && t < to);
   const docs: (Doc & { session?: string; ref?: string; chat?: boolean })[] = documents(docKinds).filter((d) => inRange(d.mtime));
   if (kinds.includes("chat"))
-    for (const m of idx.recentChats(from, to, 3000)) docs.push({ kind: "memory", source: `对话/${m.title ?? m.session}`, title: "", text: m.text, mtime: m.ts, session: m.session, ref: String(m.id), chat: true });
+    for (const m of idx.recentChats(from, to, 3000, o.processedBy)) docs.push({ kind: "memory", source: `对话/${m.title ?? m.session}`, title: "", text: m.text, mtime: m.ts, session: m.session, ref: String(m.id), chat: true });
   const ranked = query.trim() ? rank(query, docs) : docs.map((d) => ({ ...d, score: d.mtime, excerpt: d.text })).sort((a, b) => b.mtime - a.mtime);
   return ranked.slice(0, o.limit ?? 8).map((h) => {
     const d = h as typeof docs[number] & Hit;

@@ -6,7 +6,7 @@ import { log } from '../log.ts';
 import { identity } from './identity.ts';
 import { retrieve } from './retrieval.ts';
 import { redactSecrets } from '../mind/secrets.ts';
-import { AdaptiveStore, sourceHash, type SourceSnapshot, type MemorySource } from './adaptive-store.ts';
+import { AdaptiveStore, SOURCE_PROCESSOR, sourceHash, type SourceSnapshot, type MemorySource } from './adaptive-store.ts';
 import { publishPending, commitPending } from './adaptive-publication.ts';
 import { exclusive } from './memory.ts';
 import { touched, verifyRecordedFiles } from './soul-sync.ts';
@@ -101,7 +101,7 @@ export function queryAdaptiveLocal(params: { agent: string; query: string }): Me
   if (!active || !isHost()) return packet('unavailable');
   const store = localStore(), result = packet('ready');
   if (!params.query.trim()) return result;
-  for (const hit of retrieve(params.query, { kinds: ['chat'], limit: 20 })) {
+  for (const hit of retrieve(params.query, { kinds: ['chat'], limit: 20, processedBy: SOURCE_PROCESSOR })) {
     const source = store.processed(Number(hit.ref));
     if (source) result.observations.push({ ...source, text: redactSecrets(source.text).slice(0, 1200) });
     if (result.observations.length === 6) break;

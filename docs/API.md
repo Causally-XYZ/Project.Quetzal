@@ -246,7 +246,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 **记忆**
 
-跨会话自适应记忆按[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)与[M0–M5 计划](engine/ADAPTIVE_MEMORY_PLAN.md)推进。M1 已接入默认关闭的来源处理骨架，尚未通过阶段门禁，不能视为完整记忆功能；缺口见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。以下新 RPC 为认证管理者接口，不暴露为 agent 工具，不改变个人确认门禁。
+跨会话自适应记忆按[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)与[M0–M5 计划](engine/ADAPTIVE_MEMORY_PLAN.md)推进。M1 已接入默认关闭的来源处理骨架，不能视为完整语义记忆功能；工程验收与后续边界见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。以下新 RPC 为认证管理者接口，不暴露为 agent 工具，不改变个人确认门禁。
 
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
@@ -258,7 +258,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 `queue.publications` 为 `{pending, written, published, failed}` 计数：依次表示待写文件、文件已落盘但未确认 Git、已确认本地 HEAD、交付失败。published 不代表远端同步或语义确认，任务 done 也不等于交付完成。具体[发布协议](engine/ADAPTIVE_MEMORY_STORAGE.md)与普通来源回执分别解释；当前没有发布重试管理 RPC。
 
-`MemoryPacket` v1 为 `{version: 1, agent, host, generatedAt, status: ready/disabled/unavailable/stopped, freshness: local-snapshot/unknown, observations}`。ready 只代表中心局部可用，不表示所有身体同步完毕。最多 6 条 observation：`{id, revision, hash, session, role, channel, text, ts, body, via}`；正文经秘密脱敏后最多 1200 字符，hash 对应完整来源快照，revision 是中心本机来源修订。记录只证明历史发言，不确认正文为事实。错误 agent、主机、版本或形状均降级，不透传额外字段；返回前剔除本机已知 ignored 或 hash 不同的来源，中心尚未同步时也不能绕过。消息 mode 的持久版本与来源 revision 分开，清空标记同样保留；参与身体需升级才能完整补齐旧来源状态。当前尚无 Mention、Claim、Support 或推理结果。同步 SQLite 查询不能被 JavaScript 计时器抢占，500ms 不作为磁盘阻塞时的进程实时性保证。
+`MemoryPacket` v1 为 `{version: 1, agent, host, generatedAt, status: ready/disabled/unavailable/stopped, freshness: local-snapshot/unknown, observations}`。ready 只代表中心局部可用，不表示所有身体同步完毕。候选截断前只取当前来源版本已有处理回执的材料，避免增量积压挤掉旧材料。最多 6 条 observation：`{id, revision, hash, session, role, channel, text, ts, body, via}`；正文经秘密脱敏后最多 1200 字符，hash 对应完整来源快照，revision 是中心本机来源修订。记录只证明历史发言，不确认正文为事实。错误 agent、主机、版本或形状均降级，不透传额外字段；返回前剔除本机已知 ignored 或 hash 不同的来源，中心尚未同步时也不能绕过。消息 mode 的持久版本与来源 revision 分开，清空标记同样保留；参与身体需升级才能完整补齐旧来源状态。当前尚无 Mention、Claim、Support 或推理结果。同步 SQLite 查询不能被 JavaScript 计时器抢占，500ms 不作为磁盘阻塞时的进程实时性保证。
 
 结构化版本键为 `id@version`。下列 dotted RPC 是认证管理者入口；个人确认和整体结果反馈不暴露为 agent 模型工具。模型侧 `memory_records` / `memory_evolve` 另按当前用户/会话/任务范围限制。
 

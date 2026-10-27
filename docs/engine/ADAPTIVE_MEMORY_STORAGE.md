@@ -1,6 +1,6 @@
 # 自适应记忆：结果发布与恢复协议
 
-状态：M1 工程协议已实现，语义处理器尚未接入；不代表 M1 整体放行。目标和边界见[实施计划](ADAPTIVE_MEMORY_PLAN.md)、[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)与[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)。
+状态：M1 工程协议已实现，语义处理器尚未接入；M1 整体放行以阶段验证记录为准。目标和边界见[实施计划](ADAPTIVE_MEMORY_PLAN.md)、[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)与[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)。
 
 ## 1. 权威边界
 

@@ -93,13 +93,18 @@ export function syncDocs(docs: (Doc & { ts: number })[]) {
   } catch (e) { db.exec("ROLLBACK"); throw e; }
 }
 
+// 自适应来源资格必须在 LIMIT 前筛选，不能让未处理 / 已失效的新消息挤空候选。
+const processedSource = `AND COALESCE(m.mode,'') <> 'ignored' AND EXISTS (
+  SELECT 1 FROM adaptive_receipts ar JOIN adaptive_sources src ON src.source=ar.source
+  WHERE ar.source=m.id AND ar.processor=? AND ar.revision=src.revision AND src.deleted=0)`;
+
 const quote = (t: string) => `"${t.replace(/"/g, '""')}"`;
 
 /**
  * 检索。query 为空时只按时间范围列出（时间段里的对话与日记，新的在前）。
  * from / to：毫秒时刻，[from, to)；kinds：只看哪几类。返回按分数从高到低（只按时间时从新到旧）。
  */
-export function search(query: string, o: { from?: number; to?: number; kinds?: Kind[]; limit?: number } = {}): IndexHit[] {
+export function search(query: string, o: { from?: number; to?: number; kinds?: Kind[]; limit?: number; processedBy?: string } = {}): IndexHit[] {
   if (!ensureIndex()) return [];
   syncChat();
   const q = [...new Set(tokens(query))];
@@ -111,11 +116,12 @@ export function search(query: string, o: { from?: number; to?: number; kinds?: K
   const match = q.map(quote).join(" OR ");
 
   if (kinds.includes("chat")) {
-    const range = `m.ts >= ? AND m.ts < ?`;
+    const range = `m.ts >= ? AND m.ts < ? ${o.processedBy ? processedSource : ""}`;
+    const qualified = o.processedBy ? [o.processedBy] : [];
     const lo = Number.isFinite(from) ? from : 0, hi = Number.isFinite(to) ? to : Number.MAX_SAFE_INTEGER;
     const rows = (q.length
-      ? db.prepare(`SELECT m.id, m.ts, m.role, m.text, m.session, s.title, bm25(recall_chat) AS r FROM recall_chat JOIN messages m ON m.id = recall_chat.rowid LEFT JOIN sessions s ON s.id = m.session WHERE recall_chat MATCH ? AND ${range} ORDER BY r LIMIT 200`).all(match, lo, hi)
-      : timed ? db.prepare(`SELECT m.id, m.ts, m.role, m.text, m.session, s.title, 0 AS r FROM messages m LEFT JOIN sessions s ON s.id = m.session WHERE ${range} AND m.role != 'ambient' ORDER BY m.ts DESC LIMIT 200`).all(lo, hi) : []) as any[];
+      ? db.prepare(`SELECT m.id, m.ts, m.role, m.text, m.session, s.title, bm25(recall_chat) AS r FROM recall_chat JOIN messages m ON m.id = recall_chat.rowid LEFT JOIN sessions s ON s.id = m.session WHERE recall_chat MATCH ? AND ${range} ORDER BY r LIMIT 200`).all(match, lo, hi, ...qualified)
+      : timed ? db.prepare(`SELECT m.id, m.ts, m.role, m.text, m.session, s.title, 0 AS r FROM messages m LEFT JOIN sessions s ON s.id = m.session WHERE ${range} AND m.role != 'ambient' ORDER BY m.ts DESC LIMIT 200`).all(lo, hi, ...qualified) : []) as any[];
     for (const r of rows) hits.push({ kind: "chat", source: `对话/${r.title ?? r.session}`, title: String(r.title ?? ""), text: String(r.text ?? ""), ts: Number(r.ts), score: -Number(r.r), ref: String(r.id), session: String(r.session) });
   }
   const docKinds = kinds.filter((k) => k !== "chat");
@@ -156,8 +162,10 @@ export function around(id: number, n = 1): { id: number; ts: number; role: strin
 }
 
 /** 时间段里最近的对话（没有 FTS5 时逐条打分用）。 */
-export function recentChats(from: number, to: number, limit: number): { id: number; ts: number; text: string; session: string; title?: string }[] {
+export function recentChats(from: number, to: number, limit: number, processedBy?: string): { id: number; ts: number; text: string; session: string; title?: string }[] {
   if (!db) return [];
   const lo = Number.isFinite(from) ? from : 0, hi = Number.isFinite(to) ? to : Number.MAX_SAFE_INTEGER;
-  return db.prepare("SELECT m.id, m.ts, m.text, m.session, s.title FROM messages m LEFT JOIN sessions s ON s.id = m.session WHERE m.ts >= ? AND m.ts < ? AND m.role != 'ambient' ORDER BY m.ts DESC LIMIT ?").all(lo, hi, limit) as any[];
+  return db.prepare(`SELECT m.id, m.ts, m.text, m.session, s.title FROM messages m LEFT JOIN sessions s ON s.id = m.session
+    WHERE m.ts >= ? AND m.ts < ? ${processedBy ? processedSource : "AND m.role != 'ambient'"} ORDER BY m.ts DESC LIMIT ?`)
+    .all(lo, hi, ...(processedBy ? [processedBy] : []), limit) as any[];
 }

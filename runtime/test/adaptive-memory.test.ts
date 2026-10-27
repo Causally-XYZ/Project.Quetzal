@@ -151,3 +151,17 @@ test('宿主定时器自动把已接受结果交付到灵魂 Git；急停期间�
   assert.equal(q.status().publications.published, 1, JSON.stringify(host.adaptiveStatus()));
   await verifyRecordedFiles([{ path: `notes/QuetzalMemory/Adaptive/${job.id}.md`, content: publicationMarkdown(row.document, row.id) }]);
 });
+
+
+test('持续新输入与失效来源不能挤掉较早已处理材料，FTS 和无 FTS 候选同样过滤', async () => {
+  const id = store.addMessage('user', '合成', '独有低频词远古铜铃，这是可用旧来源。', { session: 'local' });
+  host.processAdaptiveBatch();
+  for (let i = 0; i < 250; i++) store.addMessage('user', '合成', '远古铜铃', { session: 'local' });
+  const p = await host.queryAdaptive('远古铜铃');
+  assert.ok(p.observations.some((s) => s.id === id));
+  const { recentChats } = await import('../src/memory/index.ts');
+  assert.ok(recentChats(0, Infinity, 20, 'source-v1').some((s) => s.id === id));
+  store.setMessageMode(id, 'ignored');
+  assert.ok(!host.queryAdaptiveLocal({ agent: identity().id, query: '远古铜铃' }).observations.some((s) => s.id === id));
+  assert.ok(!recentChats(0, Infinity, 20, 'source-v1').some((s) => s.id === id));
+});
