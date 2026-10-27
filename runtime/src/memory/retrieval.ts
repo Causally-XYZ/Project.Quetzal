@@ -18,7 +18,11 @@ export type { Doc, Hit };
 export function documents(kinds: Doc["kind"][] = ["note", "journal", "memory", "user"]): Doc[] {
   const docs: Doc[] = [];
   if (kinds.includes("note"))
-    for (const n of mem.listNotes()) docs.push({ kind: "note", source: `笔记/${n.name}`, title: `${n.name} ${n.title} ${n.summary}`, text: mem.readNote(n.name), mtime: n.mtime });
+    for (const n of mem.listNotes()) {
+      // 自适应发布存档必须由认识读取器核对格式、依赖与状态，不能经普通笔记召回绕过。
+      if (n.name.toLowerCase().startsWith('quetzalmemory/adaptive/')) continue;
+      docs.push({ kind: "note", source: `笔记/${n.name}`, title: `${n.name} ${n.title} ${n.summary}`, text: mem.readNote(n.name), mtime: n.mtime });
+    }
   if (kinds.includes("journal"))
     for (const j of mem.listJournal()) {
       const text = mem.readJournal(j.body, j.day);

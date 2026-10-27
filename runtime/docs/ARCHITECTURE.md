@@ -4,7 +4,7 @@
 
 内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
 
-开发中的自适应记忆见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)，当前为 M1 部分实现，尚未放行。`memory/adaptive-store.ts` 管来源修订、持久任务、租约与处理回执；`memory/adaptive.ts` 管固定身体后台处理和有界读取；`mesh/adaptive-memory.ts` 复用正式成员认证；`mind/context.ts` 在模型准备阶段注入原文观察。`main.ts` 在非安全模式初始化灵魂后启动宿主，退出时停止，默认配置关闭。SQLite 数据与任务均在 `QUETZAL_HOME/data/quetzal.db`，没有新增守护进程或依赖。多身体验收使用本机独立进程与网关，不能以两个浏览器标签替代两具身体；桌面 / 移动视口交互留待对应阶段。
+开发中的自适应记忆见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)，当前为 M1 部分实现，尚未放行。`memory/adaptive-store.ts` 管来源修订、持久任务、租约与处理回执；`memory/adaptive.ts` 管固定身体后台处理和有界读取；`mesh/adaptive-memory.ts` 复用正式成员认证；`mind/context.ts` 在模型准备阶段注入原文观察。`main.ts` 在非安全模式初始化灵魂后启动宿主，退出时停止，默认配置关闭。发布协议见[存储与恢复](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)：结果接受与任务完成同事务，文件安装和本地 Git 确认分别可恢复；受管存档不进入普通笔记召回。SQLite 数据与任务均在 `QUETZAL_HOME/data/quetzal.db`，没有新增守护进程或依赖。多身体验收使用本机独立进程与网关，不能以两个浏览器标签替代两具身体；桌面 / 移动视口交互留待对应阶段。
 
 执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
@@ -84,6 +84,8 @@ src/
 │   ├── retrieval.ts      记忆检索宿主：收集文件、FTS5 / 降级路径及时间；纯分词、打分、摘录与字符预算选择调用根级 engine
 │   ├── structured.ts     notes/QuetzalMemory版本读写、来源/状态校验、scope与条件门禁、旧材料标注映射、归档回滚，原私有正文不脱敏
 │   ├── adaptive-store.ts 来源修订、持久任务、租约与回执；与 messages 同事务失效
+│   ├── adaptive-artifact.ts  有版本结果信封与来源引用，不确认语义
+│   ├── adaptive-publication.ts SQLite 发件箱到私有 Markdown，原子安装与 Git 回执恢复
 │   ├── adaptive.ts       固定中心来源处理与认证读取；对照本机状态 / hash 过滤中心过期快照，当前没有语义推理
 │   ├── semantic.ts       合格有界候选的quick语义选择，缓存/每日预留预算/取消/超时，失败退回词面检索
 │   ├── prime.ts          真实轨迹与用户来源、候选蒸馏/个人确认/独立结果评价/经验演化/反馈，预算与自动灵魂同步

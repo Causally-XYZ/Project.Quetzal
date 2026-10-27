@@ -434,7 +434,7 @@ flowchart LR
 
 ### 6.1 结构化记忆、语义选择与原文检索
 
-开发中的[自适应记忆计划](engine/ADAPTIVE_MEMORY_PLAN.md)采用多身体输入、一处集中记忆计算。M1 已接入默认关闭的来源处理骨架：`memory/adaptive-store.ts` 在现有 SQLite 保存来源修订、持久任务和处理回执；`memory/adaptive.ts` 在固定身体后台处理，通过 `mesh/adaptive-memory.ts` 提供认证读取，`mind/context.ts` 把原文观察送入当前上下文。消息事务内触发器与启动补扫覆盖本机和复制写入，不依赖进程内事件作为唯一任务来源。原文仍在 messages，不写入公共仓库或灵魂 Git；当前不产生长期认识，不改变灵魂规范 v14，也不替代旧 PRIME 学习器。M1 尚未放行，离线旧消息状态补齐已通过专项测试，其余未验证项目见[阶段验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)；以下既有结构化记忆机制保持原有职责。
+开发中的[自适应记忆计划](engine/ADAPTIVE_MEMORY_PLAN.md)采用多身体输入、一处集中记忆计算。M1 已接入默认关闭的来源处理骨架：`memory/adaptive-store.ts` 在现有 SQLite 保存来源修订、持久任务和处理回执；`memory/adaptive.ts` 在固定身体后台处理，通过 `mesh/adaptive-memory.ts` 提供认证读取，`mind/context.ts` 把原文观察送入当前上下文。消息事务内触发器与启动补扫覆盖本机和复制写入，不依赖进程内事件作为唯一任务来源。原文仍在 messages，不写入公共仓库或灵魂 Git；当前不产生长期认识，不改变灵魂规范 v14，也不替代旧 PRIME 学习器。结果发布边界已增加持久发件箱、不可变文件安装及 Git HEAD 内容确认，详见[发布与恢复协议](engine/ADAPTIVE_MEMORY_STORAGE.md)；当前 source-v1 不调用语义生成器，发布测试使用合成结果。M1 尚未放行，离线旧消息状态补齐已通过专项测试，其余未验证项目见[阶段验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)；以下既有结构化记忆机制保持原有职责。
 
 长期真相仍在仓库外的私有 `QUETZAL_HOME/soul/`，对话、上下文引用与派生状态在本机 SQLite。结构化版本存入规范已有的 `notes/QuetzalMemory/<id>_v<version>.md`，含可读正文、来源与 fenced JSON；不增加灵魂顶层目录，不把索引提交进灵魂。私有正文原样存储，脱敏发生在模型输入、客户端输出和日志边界。
 

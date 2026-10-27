@@ -1,7 +1,8 @@
-// 自适应记忆的本机持久任务。来源仍在 messages；这里只保存修订、租约和处理回执，不确认任何世界事实。
+// 自适应记忆的本机持久任务。来源仍在 messages；这里保存修订、租约、处理回执与待交付结果，不确认任何世界事实。
 // SQLite 触发器与消息写入同事务，覆盖本机、复制、mode 修改和事件发出前崩溃；旧库通过反连接补齐。
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { ARTIFACT_FORMAT, artifactDocument, artifactDigest, type ArtifactInput, type ArtifactPayload, type MemoryArtifact } from './adaptive-artifact.ts';
 
 export const SOURCE_PROCESSOR = 'source-v1';
 export type JobState = 'queued' | 'running' | 'done' | 'cancelled' | 'failed' | 'stale';
@@ -20,6 +21,7 @@ export function sourceHash(agent: string, r: SourceSnapshot): string {
 const eligible = "m.role IN ('user','agent','ambient') AND COALESCE(m.mode,'') <> 'ignored' AND length(COALESCE(m.text,'')) > 0";
 const jobColumns = 'id, source, revision, processor, state, attempts, available, token, lease, error';
 const processorOk = (v: string) => /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v);
+export interface Publication { id: string; document: string; digest: string; attempts: number }
 
 export class AdaptiveStore {
   readonly db: DatabaseSync;
@@ -29,11 +31,11 @@ export class AdaptiveStore {
     this.db = db; this.agent = agent;
     db.exec('CREATE TABLE IF NOT EXISTS adaptive_meta(singleton INTEGER PRIMARY KEY CHECK(singleton=1), version INTEGER NOT NULL, agent TEXT NOT NULL)');
     const meta = db.prepare('SELECT version, agent FROM adaptive_meta WHERE singleton=1').get() as { version: number; agent: string } | undefined;
-    if (meta && (meta.version !== 1 || meta.agent !== agent)) throw new Error('记忆数据库版本或 agent 不匹配');
+    if (meta && (![1, 2].includes(meta.version) || meta.agent !== agent)) throw new Error('记忆数据库版本或 agent 不匹配');
     this.transaction(() => {
-      db.prepare('INSERT OR IGNORE INTO adaptive_meta VALUES(1,1,?)').run(agent);
+      db.prepare('INSERT OR IGNORE INTO adaptive_meta VALUES(1,2,?)').run(agent);
       const locked = db.prepare('SELECT version,agent FROM adaptive_meta WHERE singleton=1').get() as { version: number; agent: string };
-      if (locked.version !== 1 || locked.agent !== agent) throw new Error('记忆数据库版本或 agent 不匹配');
+      if (![1, 2].includes(locked.version) || locked.agent !== agent) throw new Error('记忆数据库版本或 agent 不匹配');
       db.exec(`
         CREATE TABLE IF NOT EXISTS adaptive_sources(source INTEGER PRIMARY KEY, revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS adaptive_jobs(
@@ -46,6 +48,11 @@ export class AdaptiveStore {
         CREATE INDEX IF NOT EXISTS adaptive_jobs_ready ON adaptive_jobs(processor,state,available,created);
         CREATE INDEX IF NOT EXISTS adaptive_jobs_source ON adaptive_jobs(source);
         CREATE TABLE IF NOT EXISTS adaptive_receipts(source INTEGER NOT NULL, processor TEXT NOT NULL, revision INTEGER NOT NULL, completed INTEGER NOT NULL, PRIMARY KEY(source,processor));
+        CREATE TABLE IF NOT EXISTS adaptive_publications(id TEXT PRIMARY KEY, document TEXT NOT NULL, digest TEXT NOT NULL,
+          state TEXT NOT NULL CHECK(state IN ('pending','written','published','failed')), attempts INTEGER NOT NULL DEFAULT 0,
+          available INTEGER NOT NULL, error TEXT, created INTEGER NOT NULL, published INTEGER);
+        CREATE INDEX IF NOT EXISTS adaptive_publications_ready ON adaptive_publications(state,available,created);
+        UPDATE adaptive_meta SET version=2 WHERE singleton=1;
       `);
       // 同值更新不制造新修订；来源删除留墓碑，旧任务不能复活它。
       const fields = ['text', 'role', 'channel', 'session', 'ts', 'body', 'via', 'mode', 'attachments'];
@@ -109,13 +116,56 @@ export class AdaptiveStore {
 
   /** 回执只表示此来源版本已处理；不代表其正文或任何推论已被确认。 */
   complete(job: MemoryJob, now = Date.now()): boolean {
+    return this.finish(job, now);
+  }
+
+  /** 语义处理器经自己的校验后调用；结果与任务完成同事务落盘，文件发布异步重试，不重跑模型。 */
+  acceptResult(job: MemoryJob, inputs: ArtifactInput[], payload: ArtifactPayload, now = Date.now()): boolean {
+    const artifact: MemoryArtifact = { format: ARTIFACT_FORMAT, id: job.id, agent: this.agent, processor: job.processor,
+      createdAt: now, inputs, payload };
+    // 先序列化一次冻结结果，防止调用方之后修改对象改变已接受内容。
+    const document = artifactDocument(artifact);
+    return this.finish(job, now, { artifact: JSON.parse(document) as MemoryArtifact, document });
+  }
+
+  private finish(job: MemoryJob, now: number, output?: { artifact: MemoryArtifact; document: string }): boolean {
     return this.transaction(() => {
       if (!this.owns(job, now) || !this.source(job.source, job.revision)) return false;
+      if (output) {
+        if (!output.artifact.inputs.some((i) => i.id === job.source && i.revision === job.revision) ||
+            output.artifact.inputs.some((i) => this.source(i.id, i.revision)?.hash !== i.hash)) return false;
+        this.db.prepare("INSERT INTO adaptive_publications(id,document,digest,state,available,created) VALUES(?,?,?,'pending',?,?)")
+          .run(job.id, output.document, artifactDigest(output.document), now, now);
+      }
       this.db.prepare(`INSERT INTO adaptive_receipts VALUES(?,?,?,?) ON CONFLICT(source,processor)
         DO UPDATE SET revision=excluded.revision,completed=excluded.completed`).run(job.source, job.processor, job.revision, now);
       this.db.prepare("UPDATE adaptive_jobs SET state='done',token=NULL,lease=0,error=NULL,updated=? WHERE id=?").run(now, job.id);
       return true;
     });
+  }
+
+  pendingPublications(now = Date.now(), limit = 5): Publication[] {
+    return this.db.prepare("SELECT id,document,digest,attempts FROM adaptive_publications WHERE state='pending' AND available<=? ORDER BY created,id LIMIT ?")
+      .all(now, Math.max(1, Math.min(20, limit))) as unknown as Publication[];
+  }
+  publicationWritten(id: string, digest: string, now = Date.now()): boolean {
+    return Number(this.db.prepare("UPDATE adaptive_publications SET state='written',published=?,attempts=0,error=NULL WHERE id=? AND digest=? AND state='pending'")
+      .run(now, id, digest).changes) === 1;
+  }
+  uncommittedPublications(now = Date.now()): Publication[] {
+    return this.db.prepare("SELECT id,document,digest,attempts FROM adaptive_publications WHERE state='written' AND available<=? ORDER BY created,id LIMIT 5").all(now) as unknown as Publication[];
+  }
+  publicationCommitted(id: string, digest: string) {
+    this.db.prepare("UPDATE adaptive_publications SET state='published',error=NULL WHERE id=? AND digest=? AND state='written'").run(id, digest);
+  }
+  publicationCommitFailed(id: string, now = Date.now()) {
+    this.db.prepare("UPDATE adaptive_publications SET attempts=attempts+1,state=CASE WHEN attempts>=4 THEN 'failed' ELSE 'written' END,available=?,error='git' WHERE id=? AND state='written'").run(now + 30_000, id);
+  }
+  publicationFailed(id: string, code: 'io' | 'conflict', now = Date.now()) {
+    if (!['io', 'conflict'].includes(code)) throw new Error('发布错误代码不合法');
+    this.db.prepare(`UPDATE adaptive_publications SET attempts=attempts+1,
+      state=CASE WHEN attempts>=4 OR ?='conflict' THEN 'failed' ELSE 'pending' END,
+      available=?,error=? WHERE id=? AND state='pending'`).run(code, now + 30_000, code, id);
   }
 
   private owns(job: MemoryJob, now: number): boolean {
@@ -152,6 +202,8 @@ export class AdaptiveStore {
     const counts: Record<JobState, number> = { queued: 0, running: 0, done: 0, cancelled: 0, failed: 0, stale: 0 };
     for (const row of this.db.prepare('SELECT state,COUNT(*) n FROM adaptive_jobs WHERE processor=? GROUP BY state').all(processor) as { state: JobState; n: number }[]) counts[row.state] = row.n;
     const last = this.db.prepare('SELECT MAX(completed) at FROM adaptive_receipts WHERE processor=?').get(processor) as { at: number | null };
-    return { agent: this.agent, processor, counts, lastProcessedAt: last.at };
+    const publications = { pending: 0, written: 0, published: 0, failed: 0 };
+    for (const r of this.db.prepare('SELECT state,COUNT(*) n FROM adaptive_publications GROUP BY state').all() as { state: keyof typeof publications; n: number }[]) publications[r.state] = r.n;
+    return { agent: this.agent, processor, counts, lastProcessedAt: last.at, publications };
   }
 }

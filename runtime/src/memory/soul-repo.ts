@@ -232,8 +232,8 @@ export class SoulRepo {
       const p = spawn("git", [...safety, "-C", this.o.dir, ...argv], { env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
       let out = "", err = "", note = "", t: NodeJS.Timeout | undefined;
       const arm = () => { clearTimeout(t); t = setTimeout(() => { note = `\n（${GIT_IDLE_MS / 1000} 秒没有任何输出，已结束）`; p.kill("SIGKILL"); }, GIT_IDLE_MS); };
-      p.stdout!.on("data", (b: Buffer) => { arm(); if (out.length < 16 << 20) out += b.toString(); });
-      p.stderr!.on("data", (b: Buffer) => { arm(); err = (err + b.toString()).slice(-(1 << 20)); });
+      p.stdout!.setEncoding("utf8").on("data", (text: string) => { arm(); if (out.length < 16 << 20) out += text; });
+      p.stderr!.setEncoding("utf8").on("data", (text: string) => { arm(); err = (err + text).slice(-(1 << 20)); });
       p.on("error", (e) => { clearTimeout(t); resolve({ code: 127, out, err: err + e.message }); });
       p.on("close", (code, sig) => { clearTimeout(t); resolve({ code: code ?? (sig ? 128 : 1), out, err: err + note }); });
       arm();

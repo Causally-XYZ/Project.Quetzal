@@ -142,6 +142,15 @@ export const touched = (t: Toucher) => serial(async () => {
   return files;
 });
 
+/** 受管发布回执：只有 HEAD 的文件内容精确相同才确认本地 Git 持久化。 */
+export const verifyRecordedFiles = (files: { path: string; content: string }[]) => serial(async () => {
+  for (const file of files) {
+    if (!/^notes\/QuetzalMemory\/Adaptive\/[a-f0-9-]+\.md$/.test(file.path)) throw new Error("受管发布路径不合法");
+    const result = await r().git("show", `HEAD:${file.path}`);
+    if (result.code !== 0 || result.out !== file.content) throw new Error("受管结果尚未进入灵魂版本历史");
+  }
+});
+
 function schedulePush(ms: number) {
   clearTimeout(pushTimer);
   pushTimer = setTimeout(() => { void push("同步").catch(() => {}); }, ms);

@@ -7,6 +7,9 @@ import { identity } from './identity.ts';
 import { retrieve } from './retrieval.ts';
 import { redactSecrets } from '../mind/secrets.ts';
 import { AdaptiveStore, sourceHash, type SourceSnapshot, type MemorySource } from './adaptive-store.ts';
+import { publishPending, commitPending } from './adaptive-publication.ts';
+import { exclusive } from './memory.ts';
+import { touched, verifyRecordedFiles } from './soul-sync.ts';
 
 export interface MemoryPacket {
   version: 1; agent: string; host: string; generatedAt: number;
@@ -24,6 +27,7 @@ let queue: AdaptiveStore | undefined;
 let active = false;
 let timer: NodeJS.Timeout | undefined;
 let lastError: string | null = null;
+let publishing = false;
 
 function localStore() {
   const agent = identity().id;
@@ -46,6 +50,16 @@ export function processAdaptiveBatch() {
       store.complete(job);
     }
     lastError = null;
+    if (!publishing && (store.pendingPublications(Date.now(), 1).length || store.uncommittedPublications().length)) {
+      publishing = true;
+      void exclusive(() => publishPending(store, paths.soul, () => active && isHost() && !fs.existsSync(paths.stop)))
+        .then(() => commitPending(store, () => active && isHost() && !fs.existsSync(paths.stop), async (files) => {
+          await touched({ tool: '发布自适应记忆处理结果' });
+          await verifyRecordedFiles(files);
+        }))
+        .catch(() => { lastError = 'publication_unavailable'; })
+        .finally(() => { publishing = false; });
+    }
   } catch {
     // 不将数据库异常中的潜在私人 SQL/正文写入日志。
     if (!lastError) log('memory', '自适应记忆来源处理失败；保留任务，稍后重试');

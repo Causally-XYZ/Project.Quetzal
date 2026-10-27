@@ -256,6 +256,8 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 | `memory.adaptive.jobs` | — → 最近最多 20 条任务 | 当前仅中心本机可见；包含来源、修订、处理器、状态、尝试次数、租约和错误代码，不含正文 |
 | `memory.adaptive.cancel` | `{id: string}` → boolean | 只取消本机中心的 queued/running/failed 任务并审计；同一来源修订和处理器不被补扫自动复活 |
 
+`queue.publications` 为 `{pending, written, published, failed}` 计数：依次表示待写文件、文件已落盘但未确认 Git、已确认本地 HEAD、交付失败。published 不代表远端同步或语义确认，任务 done 也不等于交付完成。具体[发布协议](engine/ADAPTIVE_MEMORY_STORAGE.md)与普通来源回执分别解释；当前没有发布重试管理 RPC。
+
 `MemoryPacket` v1 为 `{version: 1, agent, host, generatedAt, status: ready/disabled/unavailable/stopped, freshness: local-snapshot/unknown, observations}`。ready 只代表中心局部可用，不表示所有身体同步完毕。最多 6 条 observation：`{id, revision, hash, session, role, channel, text, ts, body, via}`；正文经秘密脱敏后最多 1200 字符，hash 对应完整来源快照，revision 是中心本机来源修订。记录只证明历史发言，不确认正文为事实。错误 agent、主机、版本或形状均降级，不透传额外字段；返回前剔除本机已知 ignored 或 hash 不同的来源，中心尚未同步时也不能绕过。消息 mode 的持久版本与来源 revision 分开，清空标记同样保留；参与身体需升级才能完整补齐旧来源状态。当前尚无 Mention、Claim、Support 或推理结果。同步 SQLite 查询不能被 JavaScript 计时器抢占，500ms 不作为磁盘阻塞时的进程实时性保证。
 
 结构化版本键为 `id@version`。下列 dotted RPC 是认证管理者入口；个人确认和整体结果反馈不暴露为 agent 模型工具。模型侧 `memory_records` / `memory_evolve` 另按当前用户/会话/任务范围限制。

@@ -128,3 +128,26 @@ test('实际 context 准备链路使用记忆材料；失效来源与关闭功�
     assert.doesNotMatch(JSON.stringify(plain.messages), /历史发言资料/);
   } finally { ctx.close(); local(); }
 });
+
+
+test('宿主定时器自动把已接受结果交付到灵魂 Git；急停期间保持 pending', async () => {
+  const { ensureSoul, verifyRecordedFiles } = await import('../src/memory/soul-sync.ts');
+  const { publicationRoot, publicationMarkdown } = await import('../src/memory/adaptive-publication.ts');
+  await ensureSoul();
+  fs.writeFileSync(cfg.paths.stop, '测试发布急停');
+  const q = new AdaptiveStore(store.db, identity().id);
+  store.addMessage('user', '测试', '后台发布来源', { session: 'local' });
+  q.schedule('host-publication-v1');
+  const job = q.claim('host-publication-v1')!, source = q.source(job.source)!;
+  q.acceptResult(job, [{ id: source.id, revision: source.revision, hash: source.hash }],
+    { schema: 'synthetic-v1', data: { text: '中文跨流缓冲'.repeat(10_000) } });
+  const row = q.pendingPublications()[0];
+  const file = path.join(publicationRoot(cfg.paths.soul), `${job.id}.md`);
+  host.processAdaptiveBatch(); await new Promise((resolve) => setTimeout(resolve, 550));
+  assert.ok(!fs.existsSync(file)); assert.equal(q.status().publications.pending, 1);
+  fs.rmSync(cfg.paths.stop);
+  const deadline = Date.now() + 10_000;
+  while (q.status().publications.published !== 1 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(q.status().publications.published, 1, JSON.stringify(host.adaptiveStatus()));
+  await verifyRecordedFiles([{ path: `notes/QuetzalMemory/Adaptive/${job.id}.md`, content: publicationMarkdown(row.document, row.id) }]);
+});
