@@ -5,7 +5,7 @@ import { artifactDigest, artifactDocument, type ArtifactInput, type MemoryArtifa
 import { SEMANTIC_SCHEMA, validateBatch, validateRecord, directSpans, recordRefs, spanCurrent, sameRealm,
   evaluateEvidence, type SemanticBatch, type SemanticRecord, type SourceReader, type ClaimRecord } from './adaptive-evidence.ts';
 import { sourceReading } from './adaptive-reading.ts';
-import { selectSemantic } from './adaptive-query.ts';
+import { selectSemantic, semanticBasis } from './adaptive-query.ts';
 
 export class AdaptiveGraph {
   readonly queue: AdaptiveStore;
@@ -165,7 +165,7 @@ export class AdaptiveGraph {
   }
 
   query(query: string, read: SourceReader = (id) => this.queue.source(id)) {
-    return this.snapshot(() => selectSemantic(this.current(), query, this.generation(), read, (id) => this.queue.source(id)));
+    return this.snapshot(() => { const records = this.current(); return { ...selectSemantic(records, query, this.generation(), read, (id) => this.queue.source(id)), basis: semanticBasis(records, read) }; });
   }
 
   private snapshot<T>(read: () => T): T {

@@ -52,8 +52,11 @@ Google 适配器将已报告的思考 token 计入 output，每日用量与配�
 
 `mind/process-reading.ts` 为历史过程生成执行索引；history 原始生成和 context 发送前都排除无独立凭据的展示副本。messageRef 回查同样投影 process，完整本机工具另经来源核查；缺失 / 其他身体旧副本不猜关联。摘要核查值包含读取政策版本，升级后旧摘要失效。新增路径复用原 context 缓存，无新表、依赖、配置或服务；既有 TypeScript / 测试 glob / 构建入口包含。专项用例见 adaptive-tool-reading 与 adaptive-history，原管理界面不改。
 
-**semantic 生成与默认上下文仍处于受控试验**：集中主机本机现通过 `adaptive-query.ts` / queryAdaptiveSemantic 注入带版本、性质、时间、参与者和来源的认识，发送前后核对。查询不调用 LLM，复用现有词面排序和证据计算；原 M1 网络查询在 semantic=true 时仍 unavailable。关闭 semantic 恢复 M1 来源路径，全局纠正一致性仍未验收。新测试见 adaptive-query / adaptive-query-host；没有新增依赖、配置、表或服务，现有测试 glob / 类型检查 / 打包包含新模块。跨身体语义传输、同步扫描成本与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
+**semantic 生成与默认上下文仍处于受控试验**：集中主机本机现通过 `adaptive-query.ts` / queryAdaptiveSemantic 注入带版本、性质、时间、参与者和来源的认识，发送前后核对。查询不调用 LLM，复用现有词面排序和证据计算；原 M1 网络查询在 semantic=true 时仍 unavailable。关闭 semantic 恢复 M1 来源路径，全局纠正一致性仍未验收。新测试见 adaptive-query / adaptive-query-host；没有新增依赖、配置、表或服务，现有测试 glob / 类型检查 / 打包包含新模块。跨身体语义传输已通过独立进程工程测试，同步扫描成本、真实语义与控制台完整试用仍待后续门禁，不能据本机合成 HTTP 测试宣称产品完成。
 
 真实开发工具 `adaptive-semantic-pilot.ts` 与 `adaptive-review-pilot.ts` 使用仓库外隔离数据，见[评测登记](../../docs/engine/ADAPTIVE_MEMORY_EVAL.md)。开源探针与边界见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。Graphiti 提示适配副本的许可证与修改说明位于 `third_party/graphiti/`；`tool/build-main.mjs` 将完整许可和说明嵌入所有平台共用的 main.cjs。未新增生产运行依赖、独立服务或生产环境变量；已有 TypeScript / 测试模式覆盖实现，构建入口已同步更新。
 
 发布前真实模型验收可在显式隔离的 `QUETZAL_HOME` 中运行 `node --experimental-strip-types tool/verify-memory-real.ts`。须先建立 `.release-verification` 标记并配置模型；只用合成资料，结果写本机，不复制真实人格或记忆。此检查会产生真实API费用，推理quick模型验收使用2400选择输出tokens、30秒语义选择与4096摘要生成tokens／60秒摘要预算，并为学习使用4096输出tokens与120秒模型会话预算；不是默认5秒延迟通过或长期收益证明。
+
+
+`adaptive-query-packet.ts` 校验独立语义信封，`mesh/adaptive-memory.ts` 注册仅正式身体可调用的 memory.adaptive.semantic.query；ops 提供同名管理查询。接收端核对本机权威记录版本和已复制来源，冲突 / 缺失时不使用旧结果。版本摘要各限1000项，信封512 KiB，网络与核查共用500毫秒截止。新增 adaptive-query-packet / adaptive-semantic-mesh 测试使用临时隔离身体和只读桥进程；认识为合成安装。没有新包、环境配置或部署服务，既有 TypeScript / 测试 glob / main 打包包含新模块；灵魂与网状认证格式不变。

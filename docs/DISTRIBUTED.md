@@ -222,3 +222,8 @@
 | §2.7 工作区跟着任务走、身体工作区概况（#38、#37） | `mind/workspace.ts`、`mind/repos.ts`、`mesh/workspace.ts`（`workspace.pull`、`body.workspace`、`agent.run` 等）、`mesh/presence.ts` 的路由 |
 | Canvas 的复制（#33 / #34） | `mesh/canvas.ts`（补齐摘要 + 按 id 取行 + 实时广播）、`mind/canvas.ts` 的 `applyCanvasRemote` |
 | B4 灵魂桥作为只读成员入网 | `mesh/mesh.ts` 的只读成员（`handle(…, readable)`、`connectedReaders`；类型以灵魂仓库登记为准）、`mesh/presence.ts` 的 `presence.digest`、`bridge/src/mesh.ts`（`mesh bind`、守护进程取近况写 `now.md`，框架里的 agent 读它） |
+
+
+### 自适应认识查询（M2 受控试验）
+
+正式身体通过 `memory.adaptive.semantic.query` 请求配置的固定记忆主机；只读灵魂桥无此方法权限。信封带请求摘要、认识 / 来源版本摘要，接收身体核对本机权威存档和来源快照。本机比主机新、同版本内容分叉、来源尚未复制或已编辑 / 忽略 / 删除时空降级，不以旧 ready 覆盖较新状态。网络与核查共用500毫秒截止，不宣称同步扫描可被抢占。沿用既有 Mesh 的认证与成员互信，不开放数据库端口；旧身体缺少方法时兼容降级。完整字段及当前范围见 [API](API.md) 与 [认识语义](engine/ADAPTIVE_MEMORY_SEMANTICS.md)。

@@ -1,6 +1,7 @@
 // 前台只读选择：复用证据计算与现有词面排序，不在查询中生成新认识。
 import { rank } from '../../../engine/src/retrieval.ts';
-import { evaluateEvidence, spanCurrent, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
+import crypto from 'node:crypto';
+import { directSpans, evaluateEvidence, spanCurrent, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
 
 interface BaseItem { id: string; revision: number; realm: Realm; roots: { id: number; hash: string }[] }
 export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported'; text: string;
@@ -9,6 +10,22 @@ export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported'; tex
   | { kind: 'mention'; status: 'ambiguous'; anchor: SourceSpan; unknown: boolean;
     candidates: { id: string; revision: number; name: string }[] });
 export interface SemanticSelection { generation: number; items: SemanticItem[]; matched: number }
+export interface SemanticBasis { records: { id: string; revision: number; hash: string }[]; sources: { id: number; hash: string | null }[] }
+export const semanticDigest = (value: unknown) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export function semanticBasis(records: SemanticRecord[], read: SourceReader): SemanticBasis {
+  if (records.length > 1000) throw new Error('认识版本核查超过工作上限');
+  const ids = [...new Set(records.flatMap((r) => directSpans(r).map((s) => s.source)))].sort((a, b) => a - b);
+  if (ids.length > 1000) throw new Error('认识来源核查超过工作上限');
+  return { records: records.map((r) => ({ id: r.id, revision: r.revision, hash: semanticDigest(r) })).sort((a, b) => a.id.localeCompare(b.id)),
+    sources: ids.map((id) => ({ id, hash: read(id)?.hash ?? null })) };
+}
+
+export function compatibleSemanticBasis(remote: SemanticBasis, local: SemanticBasis): boolean {
+  const records = new Map(remote.records.map((r) => [r.id, r]));
+  if (local.records.some((r) => { const known = records.get(r.id); return !known || known.revision < r.revision || known.revision === r.revision && known.hash !== r.hash; })) return false;
+  const sources = new Map(local.sources.map((s) => [s.id, s.hash]));
+  return remote.sources.every((s) => !sources.has(s.id) || sources.get(s.id) === s.hash);
+}
 
 export function selectSemantic(records: SemanticRecord[], query: string, generation: number, read: SourceReader, global: SourceReader): SemanticSelection {
   if (records.length > 1000 || query.length > 8000) throw new Error('认识查询超过工作上限');

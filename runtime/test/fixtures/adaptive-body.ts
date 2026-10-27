@@ -1,6 +1,7 @@
 // 隔离进程中的真实网关、存储、复制与记忆宿主；只有信令目录和回答模型为本机测试替身。
 import http from 'node:http';
 import path from 'node:path';
+import crypto from 'node:crypto';
 const cfg = await import('../../src/config.ts');
 cfg.loadConfig();
 cfg.saveConfig({ body: process.env.BODY, gateway: { port: 0, host: '127.0.0.1', lan: false },
@@ -27,6 +28,7 @@ const { loadNodeKey } = await import('../../src/mesh/identity.ts');
 const ndc = (await import('node-datachannel')).default;
 const keys = JSON.parse(process.env.KEYS!) as Record<string, string>;
 const mesh = new Mesh({ me: process.env.BODY!, key: loadNodeKey(path.join(cfg.paths.secrets, 'mesh_ed25519')), ndc,
+  reader: process.env.READER === 'true',
   binding: { server: process.env.SYNC!, token: process.env.BODY!, agent: 'x', body: process.env.BODY!, account: 'test' },
   keyOf: (b) => keys[b], hello: () => ({ version: 'test' }), log: () => {} });
 (await import('../../src/mesh/replica.ts')).installReplica(mesh);
@@ -39,10 +41,36 @@ const gateway = startGateway(false); await gateway.ready;
 const { AdaptiveStore } = await import('../../src/memory/adaptive-store.ts');
 const { identity } = await import('../../src/memory/identity.ts');
 const queue = () => new AdaptiveStore(store.db, identity().id);
+const { AdaptiveArchive } = await import('../../src/memory/adaptive-archive.ts');
+const { exclusive } = await import('../../src/memory/memory.ts');
+const { installPublication } = await import('../../src/memory/adaptive-publication.ts');
+const { markBusy } = await import('../../src/heart/heart.ts');
 let loadTimer: NodeJS.Timeout | undefined;
 let arrivals: { id: number; at: number }[] = [];
 const commands: Record<string, (a: any) => unknown> = {
+  semanticHold: () => { markBusy(true); return true; },
+  semanticSeed: (a) => exclusive(() => {
+    markBusy(true);
+    const q = queue(), archive = new AdaptiveArchive(q, cfg.paths.soul); q.schedule();
+    const source = q.source(a.source); if (!source) throw new Error('合成来源不存在');
+    const span = { kind: 'source' as const, source: source.id, hash: source.hash, start: 0, end: source.text.length, quote: source.text };
+    const old = a.id && archive.current().find((r) => r.id === a.id), id = a.id ?? crypto.randomUUID();
+    const processor = `synthetic-query-${crypto.randomUUID()}`; q.scheduleSource(processor, source.id);
+    if (!archive.accept(q.claim(processor)!, [{ id: source.id, revision: source.revision, hash: source.hash }], { baseGeneration: archive.generation(), records: [{
+      id, revision: old ? old.revision + 1 : 1, kind: 'claim', state: 'present', realm: { world: 'real', context: 'real' }, reasons: [span], text: a.text,
+      nature: 'reported', participants: [], occurred: { text: '', earliest: null, latest: null }, valid: { text: '', earliest: null, latest: null },
+      supports: [{ id: 'direct', premises: [span], assumptions: [] }], counters: [],
+    }] })) throw new Error('合成认识未安装');
+    return { id };
+  }),
+  semanticExport: () => store.db.prepare('SELECT id,document,digest FROM adaptive_publications ORDER BY created').all(),
+  semanticImport: (a) => exclusive(() => { for (const row of a.rows) installPublication(cfg.paths.soul, identity().id, row); return true; }),
+  semanticRequest: (a) => mesh.request(a.body, 'memory.adaptive.semantic.query', a.params, 1000),
+  localText: (a) => { store.db.prepare('UPDATE messages SET text=? WHERE id=?').run(a.text, a.id); return true; },
+  localMode: (a) => { store.db.prepare('UPDATE messages SET mode=? WHERE id=?').run(a.mode, a.id); return true; },
+  localDelete: (a) => { store.db.prepare('DELETE FROM messages WHERE id=?').run(a.id); return true; },
   connected: () => mesh.connected(), seen: () => seen,
+  contextPlan: (a) => store.kv.get(`context.plan.${a.conv}`, null),
   lease: () => {
     adaptive.processAdaptiveBatch();
     adaptive.stopAdaptiveMemory();

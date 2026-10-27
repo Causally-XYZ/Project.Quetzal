@@ -20,7 +20,8 @@ import { routes } from '../providers/router.ts';
 import { isBusy } from '../heart/heart.ts';
 import { sourceReadingHeader, type SourceReading } from './adaptive-reading.ts';
 import { prepareNoteReading, MaterialAccessDenied, type NoteReading } from './adaptive-material.ts';
-import type { SemanticSelection } from './adaptive-query.ts';
+import { semanticBasis, semanticDigest, compatibleSemanticBasis, type SemanticBasis, type SemanticSelection } from './adaptive-query.ts';
+import { decodeSemanticPacket, type SemanticQueryPacket } from './adaptive-query-packet.ts';
 import type { SourceReader } from './adaptive-evidence.ts';
 
 export interface MemoryPacket {
@@ -29,7 +30,8 @@ export interface MemoryPacket {
   freshness: 'local-snapshot' | 'unknown';
   observations: MemorySource[];
 }
-interface Transport { request(host: string, params: { agent: string; query: string }, signal: AbortSignal): Promise<unknown> }
+interface Transport { request(host: string, params: { agent: string; query: string }, signal: AbortSignal): Promise<unknown>;
+  semantic?(host: string, params: { agent: string; query: string }, signal: AbortSignal): Promise<unknown> }
 let transport: Transport | undefined;
 export function setAdaptiveTransport(next: Transport) {
   transport = next;
@@ -240,14 +242,14 @@ async function withAdaptiveSnapshot<T>(read: (store: AdaptiveStore, archive: Ada
 }
 
 export interface SemanticMemoryReading extends SemanticSelection {
-  agent: string; host: string; status: MemoryPacket['status']; freshness: 'local-snapshot' | 'unknown';
+  agent: string; host: string; status: MemoryPacket['status']; freshness: 'local-snapshot' | 'unknown'; basis: SemanticBasis;
 }
 
-/** 集中主机的本机读取。远端不复用没有认识版本的 M1 packet，协议接线另行验收。 */
-export async function queryAdaptiveSemantic(query: string, signal?: AbortSignal): Promise<SemanticMemoryReading> {
+/** 集中主机的本机读取，与网络信封共用同一快照入口。 */
+async function readSemanticLocal(query: string, signal?: AbortSignal): Promise<SemanticMemoryReading> {
   signal?.throwIfAborted();
   const agent = identity().id, host = config.adaptiveMemory.hostBody;
-  const empty = (status: MemoryPacket['status']): SemanticMemoryReading => ({ agent, host, status, freshness: 'unknown', generation: 0, items: [], matched: 0 });
+  const empty = (status: MemoryPacket['status']): SemanticMemoryReading => ({ agent, host, status, freshness: 'unknown', generation: 0, items: [], matched: 0, basis: { records: [], sources: [] } });
   if (!config.adaptiveMemory.enabled || !config.adaptiveMemory.semantic) return empty('disabled');
   if (fs.existsSync(paths.stop)) return empty('stopped');
   if (!active || !isHost()) return empty('unavailable');
@@ -261,6 +263,42 @@ export async function queryAdaptiveSemantic(query: string, signal?: AbortSignal)
     if (fs.existsSync(paths.stop)) return empty('stopped');
     return { agent, host, status: 'ready', freshness: 'local-snapshot', ...selection };
   } catch { signal?.throwIfAborted(); return empty('unavailable'); }
+}
+
+/** 仅由正式身体 RPC 调用；请求中的 agent 不决定权限，只用于核对已认证的同 agent 范围。 */
+export async function queryAdaptiveSemanticLocal(params: { agent: string; query: string }): Promise<SemanticQueryPacket> {
+  if (!params || params.agent !== identity().id || typeof params.query !== 'string' || params.query.length > 8000) throw new Error('认识查询范围或形状不合法');
+  const reading = await readSemanticLocal(params.query);
+  return { version: 1, queryHash: semanticDigest(params.query), generatedAt: Date.now(), ...reading };
+}
+
+export async function queryAdaptiveSemantic(query: string, signal?: AbortSignal): Promise<SemanticMemoryReading> {
+  signal?.throwIfAborted();
+  if (isHost() || !active || !config.adaptiveMemory.enabled || !config.adaptiveMemory.semantic || fs.existsSync(paths.stop)) return readSemanticLocal(query, signal);
+  const agent = identity().id, host = config.adaptiveMemory.hostBody, selectedQuery = query.slice(0, 8000), deadline = Date.now() + 500;
+  const empty = (): SemanticMemoryReading => ({ agent, host, status: 'unavailable', freshness: 'unknown', generation: 0, matched: 0, items: [], basis: { records: [], sources: [] } });
+  const timed = AbortSignal.any([AbortSignal.timeout(500), ...(signal ? [signal] : [])]);
+  try {
+    if (!transport?.semantic) return empty();
+    const remote = decodeSemanticPacket(await bounded(transport.semantic(host, { agent, query: selectedQuery }, timed), timed), agent, host, selectedQuery);
+    timed.throwIfAborted();
+    if (remote.status === 'ready') await withAdaptiveSnapshot((store, archive, visible) => {
+      const local = semanticBasis(archive.current(), visible), known = new Map(local.sources.map((s) => [s.id, s.hash]));
+      // 即使本机尚无该认识，也不能绕过已复制到本机的原文编辑或忽略。
+      for (const s of remote.basis.sources) {
+        const exists = store.db.prepare('SELECT id FROM messages WHERE id=?').get(s.id);
+        // 未复制与已删除都不能仅凭“这里没有行”推断仍可访问；先补来源再使用远端认识。
+        if (!exists && s.hash !== null) throw new Error('远端认识来源尚不可在本机核查');
+        if (exists || messageMode(s.id)?.mode === 'ignored') known.set(s.id, visible(s.id)?.hash ?? null);
+      }
+      local.sources = [...known].map(([id, hash]) => ({ id, hash }));
+      if (!compatibleSemanticBasis(remote.basis, local)) throw new Error('主机认识落后于本机或来源状态冲突');
+    }, timed);
+    timed.throwIfAborted();
+    if (Date.now() > deadline || agent !== identity().id || host !== config.adaptiveMemory.hostBody || !active || !config.adaptiveMemory.enabled || !config.adaptiveMemory.semantic || fs.existsSync(paths.stop)) return empty();
+    const { version, queryHash, generatedAt, ...reading } = remote;
+    return reading;
+  } catch { signal?.throwIfAborted(); return empty(); }
 }
 
 export function adaptiveSemanticContext(reading: SemanticMemoryReading) {

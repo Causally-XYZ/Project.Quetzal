@@ -248,7 +248,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 跨会话自适应记忆按[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)与[M0–M5 计划](engine/ADAPTIVE_MEMORY_PLAN.md)推进。M1 已接入默认关闭的来源处理骨架，不能视为完整语义记忆功能；工程验收与后续边界见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。以下新 RPC 为认证管理者接口，不暴露为 agent 工具，不改变个人确认门禁。
 
-M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接入受控后台。现有网络 query 协议不变：semantic=false 返回 M1 来源观察，semantic=true 仍返回 unavailable，不在 version 1 中混入图记录。集中主机本机前台另经内部 queryAdaptiveSemantic 读取当前 supported 陈述及 ambiguous 提及，带认识版本、语境、性质、时间与来源；最多6项，模型准备前后核查。非主机语义查询仍未接线，不能据此宣称多身体完成；没有新增网关 RPC、配置或灵魂格式。
+M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接入受控后台。现有网络 query 协议不变：semantic=false 返回 M1 来源观察，semantic=true 仍返回 unavailable，不在 version 1 中混入图记录。queryAdaptiveSemantic 通过本机入口或新的 memory.adaptive.semantic.query 正式身体 RPC 读取当前 supported 陈述及 ambiguous 提及，带认识版本、语境、性质、时间与来源；最多6项，模型准备前后核查。接收身体核对本机认识版本与原文快照，冲突或来源未复制 / 已删除时返回空 unavailable。新方法不改变 M1 packet，也不新增配置或灵魂格式；传输工程测试通过不等于多身体完整语义验收。
 
 内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。
 
@@ -271,8 +271,13 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic 为默认关闭的后台语义试验开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
 | `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic}` | semantic 含 enabled / state，中心另含语义队列、lastModel `{model,input,output,reasoning?,total?}` 和重评预算；reasoning 已包含于 output，total 为供应商报告，可选字段未报告则省略，lastModel 不是完整调用历史；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
 | `memory.adaptive.query` | `{query: string}`（最多 8000 字符）→ `MemoryPacket` | 经正式身体的认证网状通道转给中心，网络读取 500ms 截止；故障降级为空材料，不触发学习或通知 |
+| `memory.adaptive.semantic.query` | 网关 `{query: string}` → `SemanticMemoryReading`；mesh 另带 agent | semantic 试验启用后读取指定主机；正式身体认证，只读灵魂桥不可调用。含认识与来源版本摘要，网络及本机核查共享500ms截止；不缓存上次 ready，来源冲突 / 缺失或协议不兼容则空降级 |
 | `memory.adaptive.jobs` | — → 最近最多 20 条任务 | 当前仅中心本机可见；包含来源、修订、处理器、状态、尝试次数、租约和错误代码，不含正文 |
 | `memory.adaptive.cancel` | `{id: string}` → boolean | 只取消本机中心的 queued/running/failed 任务并审计；同一来源修订和处理器不被补扫自动复活 |
+
+语义 mesh 方法使用独立信封：`{version:1, queryHash, generatedAt, agent, host, status, freshness, generation, items, matched, basis}`。queryHash 为本次查询的 JSON SHA-256；信封校验请求、指定身份、时间范围和全部字段，未知字段拒绝。basis.records 为当前图每个认识的 `{id,revision,hash}`，basis.sources 为图中直接来源的 `{id,hash|null}`；只含版本摘要，不传整图正文。两者各至多1000项，信封最多512 KiB。网关返回去掉 version / queryHash / generatedAt 的读取视图，不把传输时间纳入上下文缓存比较。
+
+接收身体先核对本机权威存档：主机缺少本机已有记录、版本落后、同版内容摘要冲突时拒绝整包。主机可读来源必须已在本机复制且 hash 一致；本机编辑、忽略或删除不会因远端 ready 恢复。主机较新版本可以读取，但只代表主机已知快照。协议依赖原有同 agent 正式身体互信，结构 / 摘要检查不是语义真值证明，也不是不信任主机情况下的完整性证明。旧身体没有新方法时正常降级。
 
 `queue.publications` 为 `{pending, written, published, failed}` 计数：依次表示待写文件、文件已落盘但未确认 Git、已确认本地 HEAD、交付失败。published 不代表远端同步或语义确认，任务 done 也不等于交付完成。具体[发布协议](engine/ADAPTIVE_MEMORY_STORAGE.md)与普通来源回执分别解释；当前没有发布重试管理 RPC。
 

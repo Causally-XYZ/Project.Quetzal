@@ -47,7 +47,7 @@ import { canvasOps } from './mind/canvas-ops.ts';
 import { pluginOps } from './plugins/ops.ts';
 import { listSources } from './mcp/runtime.ts';
 import { pendingRecommendations } from './plugins/index.ts';
-import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, adaptiveJobs, cancelAdaptiveJob } from './memory/adaptive.ts';
+import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, queryAdaptiveSemantic, adaptiveJobs, cancelAdaptiveJob } from './memory/adaptive.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -258,6 +258,10 @@ export const ops = {
   'memory.adaptive.query': (a: { query: string }) => {
     if (typeof a?.query !== 'string' || a.query.length > 8000) throw new Error('记忆查询过长或形状不合法');
     return queryAdaptive(a.query);
+  },
+  'memory.adaptive.semantic.query': (a: { query: string }) => {
+    if (typeof a?.query !== 'string' || a.query.length > 8000) throw new Error('认识查询过长或形状不合法');
+    return queryAdaptiveSemantic(a.query);
   },
   'memory.adaptive.jobs': () => adaptiveJobs(),
   'memory.adaptive.cancel': (a: { id: string }, actor: string) => {
