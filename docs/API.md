@@ -278,6 +278,8 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 `context_read` / `recall` 的工具参数不变。有本机认识状态时，文本结果携带 generation、本机快照范围、源 hash 和相关认识的 revision / status / 片段位置；这不是新的 RPC packet 版本。`context_read` 的每页都带修订头，offset / limit 只计算原文字符；调用者不能把头部算入分页偏移。`recall` 同时覆盖前后邻句；不可访问来源不返回，已变动候选要求重新检索。仅关闭生成不清除这些工具对已知修订的核对；存档异常 / 等锁超时明确报错。没有来源的旧材料标记无法核对，完整 C07 和远端语义读取仍未验收。 默认模型历史也使用修订覆盖层；本机 `context.plan` 的派生摘要另保存可选 `adaptiveBasis`（来源 ID 与核查摘要值），无凭据或凭据变化时不继承。它不是同步协议或权威记忆格式。`session_compact` 在修订读取模式只存档手动摘要，后续按可用原文自动压缩。
 
+内部来源 notice 对直接原文支持、无反证的 reported 陈述可附可选 `identityGap: {sources, bindings}`；bindings 含 role、usage（participant / reference）、realm、mention 精确版本、anchor 及 binding（已绑定对象的 name / id / revision，或 null）。它只解释部分身份尚未确定；notice.status 仍为 unsupported，current 仍为 null，文本 header 显示“身份关联未完整”。不会修改语义查询协议、存档格式或工具参数。相关读取摘要随派生字段变化，旧回答凭据会保守失效。
+
 修订模式下 `memory_records` 与读取受管结构化笔记的 `note_read` 返回原 key / kind / state / scope / validation，并新增 `reading`：status 为 historical / unverifiable / unavailable，附 generation、local-snapshot、来源 hash / notices 和说明。state / validation 只表示原审核；unavailable 时省略 text / evidence，保留管理元数据。普通笔记仍返回带无法核对说明的原文；自适应批次存档核对权威文件和全部输入，输入不可访问时不返回旧 payload。工具参数与 RPC 不变，纯存储读取 API 不改变。 `recall` 的笔记结果复用同一读取视图和会话范围；不可访问结果整项跳过，不输出旧片段或标题，随后再取请求条数。普通笔记 / 日记 / 常驻文档在返回前核对当前正文，无出处材料仍只作历史资料。候选最多200项、最终输出512 KiB，未承诺全库检索无遗漏。
 
 本轮 `recall` / `note_read` / `memory_records` / `context_read` 的成功读取新增内部 reading 凭据，通过引擎记录端口写入本机 tool_calls.reading。旧库自动补可空列，旧记录没有凭据时不伪造出处。后续模型准备与工具原文回查核对来源，变化 / 不可访问时不输出旧派生正文，原执行记录保持不变。context_read 的工具回查每页也重复当前修订；分页是当前读取视图中的字符位置，不承诺来源变化前后的分页偏移稳定。凭据不是新的语义查询 packet，也不复制进灵魂或网状状态。 修订模式中，历史消息回查的 message.process 是执行索引投影，不含原参数摘要 / 结果摘录 / 中途文字；每页说明限制，完整本机工具结果在 tools 中另经核查。缺少本机映射不自动跨身体获取或猜来源。等锁期间引用变动且未核查时返回错误，调用者可重读。原始 messages.process 和 tool.detail 管理记录不改。

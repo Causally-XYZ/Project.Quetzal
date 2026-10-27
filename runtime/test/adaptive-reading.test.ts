@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { sourceReading, sourceReadingHeader, sourceRecordedAt } from '../src/memory/adaptive-reading.ts';
-import type { SemanticRecord, ObjectRecord, MentionRecord, ClaimRecord, SourceSpan } from '../src/memory/adaptive-evidence.ts';
+import { evaluateEvidence, type SemanticRecord, type ObjectRecord, type MentionRecord, type ClaimRecord, type SourceSpan, type SourceReader } from '../src/memory/adaptive-evidence.ts';
+import { answerSource } from '../src/memory/answer-basis.ts';
 
 test('消息时间缺失、非数值或超出日期范围时保持未知，不回填当前时间', () => {
   assert.equal(sourceRecordedAt(0), '1970-01-01T00:00:00.000Z');
@@ -85,4 +86,72 @@ test('循环按确切历史版本去重，无依据时仅报告状态；超范�
   assert.ok(view.sources[0].notices.every((n) => n.current === null));
   assert.throws(() => sourceReading([a, a], [3], 1, f.read), /重复/);
   assert.throws(() => sourceReading([], Array.from({ length: 1001 }, (_, i) => i + 1), 1, f.read), /范围/);
+});
+
+function partialRoles() {
+  const f = fixture();
+  const unknown: MentionRecord = { ...f.mention, id: crypto.randomUUID(), candidates: [], unknown: true, resolved: null };
+  const report = f.claim('阿舟劝我');
+  report.participants = [{ role: 'speaker', mention: f.ref(f.mention) }, { role: 'recipient', mention: f.ref(unknown) }];
+  const records: SemanticRecord[] = [f.editor, f.brother, f.mention, unknown, report];
+  const read = (visible: SourceReader = f.read, global: SourceReader = f.read) => sourceReading(records, [3], 1, visible, global);
+  const notice = (visible?: SourceReader, global?: SourceReader) => read(visible, global).sources[0].notices.find((n) => n.id === report.id)!;
+  return { ...f, unknown, report, records, readView: read, notice };
+}
+
+test('收件人未解不抹去说话人绑定；读取解释不提升整条认识的证明状态', () => {
+  const f = partialRoles(), view = f.readView(), n = f.notice();
+  assert.equal(evaluateEvidence(f.records, f.read).get(f.report.id)?.status, 'unsupported');
+  assert.equal(n.status, 'unsupported'); assert.equal(n.current, null);
+  assert.deepEqual(n.identityGap?.bindings.map((b) => [b.role, b.binding?.name ?? null]), [['speaker', '编辑'], ['recipient', null]]);
+  assert.deepEqual(n.identityGap?.sources, [f.span(3)]);
+  const header = sourceReadingHeader(view, 3);
+  assert.match(header, /身份关联未完整/); assert.match(header, /整条认识仍不能作为完整推理前提/);
+  assert.equal(f.report.participants.length, 2);
+  const before = answerSource(view.sources[0]);
+  f.records.push(f.corrected);
+  assert.equal(f.notice().identityGap, undefined); // 旧 mention 引用失效，不偷换为最新绑定。
+  const revised = { ...f.report, revision: 2, participants: [{ role: 'speaker', mention: f.ref(f.corrected) }, f.report.participants[1]] };
+  f.records.push(revised);
+  assert.equal(f.notice().identityGap?.bindings[0].binding?.name, '弟弟');
+  assert.notEqual(answerSource(f.readView().sources[0]).reading, before.reading);
+});
+
+test('缺失 / 编辑 / 隐藏 / 非用户来源与失效身份不会被解释为仅身份未解', () => {
+  for (const mode of ['missing', 'edited', 'hidden-node', 'hidden-anchor', 'assistant', 'withdrawn-node', 'withdrawn-claim']) {
+    const f = partialRoles();
+    let visible = f.read, global = f.read;
+    if (mode === 'missing') f.sources.delete(3);
+    if (mode === 'edited') f.sources.set(3, '改过的原文');
+    if (mode === 'hidden-node') visible = (id) => id === 1 ? undefined : f.read(id);
+    if (mode === 'hidden-anchor') visible = (id) => id === 3 ? undefined : f.read(id);
+    if (mode === 'assistant') visible = global = (id) => { const s = f.read(id); return s && { ...s, role: 'assistant' }; };
+    if (mode === 'withdrawn-node') f.editor.state = 'withdrawn';
+    if (mode === 'withdrawn-claim') f.report.state = 'withdrawn';
+    const view = f.readView(visible, global);
+    assert.ok(view.sources.every((s) => s.notices.every((n) => !n.identityGap)), mode);
+  }
+});
+
+test('有反证、假设、间接证明或无直接支持的认识保留原状态，不猜唯一失败原因', () => {
+  for (const mode of ['counter', 'hidden-counter', 'conditional', 'indirect', 'empty', 'inferred']) {
+    const f = partialRoles();
+    if (mode.includes('counter')) f.report.counters = [{ id: 'counter', premises: [f.span(4)], assumptions: [] }];
+    if (mode === 'conditional') f.report.supports[0].assumptions = ['某条件'];
+    if (mode === 'indirect') f.report.supports[0].premises = [f.ref(f.independent)];
+    if (mode === 'empty') f.report.supports = [];
+    if (mode === 'inferred') f.report.nature = 'inferred';
+    const visible = mode === 'hidden-counter' ? (id: number) => id === 4 ? undefined : f.read(id) : f.read;
+    assert.equal(f.notice(visible).identityGap, undefined, mode);
+  }
+});
+
+test('跨语境被谈论对象显式标为 reference，不能伪装成同一现实事件的参与者', () => {
+  const f = partialRoles();
+  f.editor.realm = f.mention.realm = { world: 'fiction', context: 'story' };
+  assert.equal(f.notice().identityGap, undefined);
+  f.report.references = [f.report.participants.shift()!];
+  const binding = f.notice().identityGap?.bindings.find((b) => b.usage === 'reference');
+  assert.equal(binding?.binding?.name, '编辑'); assert.equal(binding?.realm.world, 'fiction');
+  assert.match(sourceReadingHeader(f.readView(), 3), /不是跨语境事实依据/);
 });

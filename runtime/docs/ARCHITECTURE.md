@@ -22,6 +22,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `mind/process-reading.ts` 为历史过程生成执行索引；history 原始生成和 context 发送前都排除无独立凭据的展示副本。messageRef 回查同样投影 process，完整本机工具另经来源核查；缺失 / 其他身体旧副本不猜关联。摘要核查值包含读取政策版本，升级后旧摘要失效。新增路径复用原 context 缓存，无新表、依赖、配置或服务；既有 TypeScript / 测试 glob / 构建入口包含。专项用例见 adaptive-tool-reading 与 adaptive-history，原管理界面不改。
 
+`memory/adaptive-reading.ts` 为直接来源支持、无 counter 的 reported 陈述派生 identityGap，展示每个 participant / reference 的有效绑定或未解状态。只核查直接支持组，不另建间接证明引擎；身份精确版本、双方视图来源与审计理由不完整时不展示。sourceReadingHeader 解释为“身份关联未完整”，底层 status/current 不变；字段参加 answerSource 摘要。无新依赖、配置、数据库或构建入口，现有打包导入链与测试 glob 覆盖。
+
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
 提案规则明确局部纠正应以原文和纠正联合支持未变内容；真正撤回该内容时不继续保留。时间字段说明禁止借 recordedAt 的 Z 填充事件时区或月末时分秒，有明确 UTC 依据的时间仍可输出。只改生成说明，不改存档 schema、规范化形状或宿主信任边界；既有提案 / 引用 / 结构化输出 / 归档审核测试覆盖工程路径，真实质量另经公开多轮材料核查。无新依赖、配置或部署项，原 tsconfig 与构建导入链覆盖。
