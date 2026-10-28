@@ -126,7 +126,7 @@ test('实际笔记工具凭据持久化，下一步模型看到新纠正而原�
   assert.ok(out.reading!.documents.some((d) => d.kind === 'note')); const saved = store.getToolCall('read-call', turn);
   const prepared = prepareToolReadings([saved!], conv);
   const unchanged = await withAdaptiveSources(prepared.sources, (view) => prepared.render(view));
-  assert.match(unchanged.get(toolReadingKey(saved!))!.currentReading, /状态均与原读取一致/);
+  assert.match(unchanged.get(toolReadingKey(saved!))!.result, /状态均与原读取一致/);
   assert.ok(unchanged.get(toolReadingKey(saved!))!.result.endsWith(out.text));
   const sourceHash = queue.source(f.source)!.hash;
   const messages = toolMessages('note_read', args, out.text), original = structuredClone(messages), context = contextHost.createTurnContext(turn, conv, messages);
@@ -194,6 +194,24 @@ test('完整工具回查每页重复当前修订，转读凭据继续绑定原�
     store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(f.source);
     const hidden = await contextHost.contextReadChecked(turn, 'tool-page-ref'); assert.ok(!hidden.includes('PAGED_ORIGINAL_BODY'));
     assert.equal(store.getToolCall('read-call', turn)!.result, out.text);
+  } finally { context.close(); }
+});
+
+test('读取时已带纠正且此后状态未变，跳页仍携带实际修订而非仅状态一致声明', async () => {
+  const conv = 'tool-page-stable-correction', turn = 'tool-page-stable-correction-turn', f = fixture(conv);
+  await record(conv, f.source, 'stable-correction', 'OLD_BODY_' + '饭友是编辑。'.repeat(3000)); f.correct();
+  await execute('note_read', { name: 'QuetzalMemory/stable-correction_v1' }, turn, conv);
+  const context = contextHost.createTurnContext(turn, conv, [{ role: 'user', content: '回查旧原文' }]);
+  store.saveContextSource('stable-correction-ref', conv, JSON.stringify({ toolRef: { call: 'read-call', turn } }));
+  try {
+    for (const offset of [8000, 16000]) {
+      const page = await execute('context_read', { ref: 'stable-correction-ref', offset, limit: 8000 }, turn, conv, `page-${offset}`);
+      assert.match(page.text, /饭友是弟弟/);
+      const row = store.getToolCall(`page-${offset}`, turn)!, prepared = prepareToolReadings([row], conv);
+      const views = await withAdaptiveSources(prepared.sources, (view) => prepared.render(view, () => 'SELF_REFERENCE'));
+      const text = views.get(toolReadingKey(row))!.result;
+      assert.match(text, /饭友是弟弟/); assert.ok(!text.includes('SELF_REFERENCE'));
+    }
   } finally { context.close(); }
 });
 

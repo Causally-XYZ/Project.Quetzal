@@ -6,6 +6,8 @@
 
 后续 `read-receipt.ts` 为 v1 本机工具凭据的每条来源增加可选 stateHash，涵盖当时完整 SourceReading 项（含认识修订和旧答依据状态），不包含正文。`tool-reading.ts` 每次仍核对所有来源与文档，仅全相同时不重叠展开已有核查内容；同一工具捕获到相同原文但不同修订状态也标为不完整。旧凭据无该值仍走完整投影，旧程序忽略可选字段而保留原核查；不改灵魂格式、表结构、网状协议、依赖或部署入口。
 
+状态相同只允许整段结果复用；ToolReading.currentReading 仍保留完整修订，供 context_read 每页重复。分页结果已受正文页长限制，不再因包含必要修订头就替换成指向该页的回查引用；超出整体安全上限仍明确失败。这样不会让 offset 跳过解释旧正文所需的修订，也不制造递归回查。
+
 `mind/brain.ts` 的 `pendingMemoryLearning()` 只读返回旧 PRIME 学习的排队 / 执行数，包含延迟启动窗口，不改变对话调度。开发三基线运行器通过现有 snapshot 观测它，等待两身体学习和灵魂同步完成；不增加生产 RPC。三基线配置、正常素材摄入与原文臂隔离见[运行器说明](../tool/adaptive-eval/README.md#m3-三基线开发对照)。
 
 `memory/answer-basis.ts` 管回答消息来源凭据的严格形状、摘要、跨调用合并与失效判断。`mind/context.ts` 在实际准备成功后累计消息读取快照，`brain.ts` 注册当前输入 / 插话来源并随正常最终回答保存；模型返回后和最终发布前通过 adaptive.withCurrentAnswer 重核已记录来源。后者在读取 SAVEPOINT 释放与预算检查后、灵魂 exclusive 退出前执行同步提交，避免核对后的异步空隙；发布错误不回滚已释放的读取快照。AnswerSourcesChanged 中止该输出；正常对话通过 answer-recovery 重建原始输入与绑定的真实补充，撤去当轮模型叙述、工具正文 / 图片、派生摘要和工作状态。只保留最多64项操作索引，带来源的记忆读取可经 context_read 回查；重新收集凭据后才发布。只读工具白名单同时约束定义和实际执行，重复调用编号不能覆盖原记录；共享三轮主请求 / 30秒取消预算，恢复失败不再重开。恢复轮次暂不进入学习；`store.ts` 自动迁移 messages.answerBasis 及其非空部分索引，并在既有复制中校验、保存及补齐空凭据。`adaptive.ts` 在同一快照展开派生回答的消息来源，history / prompt 近况 / context_read / recall 使用统一状态，changed 时不沿用旧正文。仅保证这些已记录消息依赖，不能替代回答语义评测或其他派生材料的完整来源，详见[读取语义](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。无新依赖、环境配置、服务、RPC 或灵魂格式；现有构建 / 测试 glob 纳入新模块。
