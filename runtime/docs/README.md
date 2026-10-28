@@ -140,3 +140,5 @@ M4 控制台通过 `memory.adaptive.source` 回看检索来源：`adaptive.ts` �
 记忆备份管理接口 `memory.backup.create / list / verify` 由 `memory/backup.ts` 实现，保存在 `QUETZAL_HOME/data/memory-backups/`；复用 Node SQLite / 文件系统、灵魂同步队列和写锁，无新依赖、数据库迁移或部署项。既有 TypeScript include、测试 glob 和 main 导入链覆盖。`test/memory-backup.test.ts` 验证 WAL 原话、认识修订、未发布结果、Git 历史、附件与缺损拒绝。离线恢复由 `memory/restore.ts` 经正式 CLI 调用 main 的 `--restore-memory` 分支；新建配置与身体身份，隔离旧执行状态并保留来源 / 修订，完整多身体验收仍待 M4。
 
 M4 跨身体恢复的多样化开发材料见 [recovery-development.json](../tool/adaptive-eval/recovery-development.json)，它只提供预登记输入与核读要点，复用已有进程客户端、模型观察器和生产入口，不增加依赖、环境变量或部署资产。合成轨迹结果与真实用户试用分开，详见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
+
+M4 已在检索组件空缓存的隔离双身体上测量120次管理语义读取（其中100次在组件就绪后），并行真实模型增量和正常对话，计时 / 回执与边界见阶段记录 §6.11。该运行复用现有依赖与启动链；后续模型角色模拟只作开发试用，不替代真人反馈或真实半年老化验证。
