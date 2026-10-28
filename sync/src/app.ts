@@ -182,7 +182,8 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
       sessions.create(c, user.id);
       return c.redirect(returnTo);
     } catch (e) {
-      log("auth", (e as Error).message);
+      const r = e as Error & { error?: string; error_description?: string };
+      log("auth", r.error ? `${r.message}（${r.error}${r.error_description ? `：${r.error_description.slice(0, 160)}` : ""}）` : r.message); // 令牌接口返回的错误码要写进日志，否则只剩一句笼统的话
       if (cfg.webUrl) return c.redirect(`${cfg.webUrl}/account?login=failed`);
       return page(c, t(lang(c)).login, html`<p class="note err">${(e as Error).message}</p><p><a href="/">${t(lang(c)).back}</a></p>`, 502);
     }

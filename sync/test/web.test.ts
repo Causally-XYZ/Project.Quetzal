@@ -388,6 +388,8 @@ test("OIDC 客户端：发现文档、授权地址（PKCE S256 + nonce）、换�
   const form = new URLSearchParams(String(calls.at(-1)!.init.body));
   assert.equal(form.get("code_verifier"), "v".repeat(43));
   assert.equal(form.get("redirect_uri"), `${PUBLIC}/auth/oidc/callback`);
+  assert.equal(new Headers(calls.at(-1)!.init.headers).get("authorization"), `Basic ${Buffer.from("quetzal%2Dsync:sec").toString("base64")}`, "令牌请求用 client_secret_basic 认证（client_id 按 RFC 6749 做表单编码）");
+  assert.equal(form.has("client_secret"), false, "密钥不放在请求体里");
   claims = { nonce: "no", email: "x@example.com", email_verified: false };
   assert.equal((await c.user(cb, { state: "st", nonce: "no", codeVerifier: "v".repeat(43) })).email, "", "没确认过的邮箱不当真（管理员靠它判断）");
   claims = { nonce: "other" };

@@ -27,7 +27,7 @@ export function oidcClient(cfg: Config, fetcher: typeof fetch = fetch): LoginCli
   if (!o) return undefined;
   const redirectUri = `${cfg.publicUrl}/auth/oidc/callback`;
   let found: Promise<oidc.Configuration> | undefined;
-  const config = () => (found ??= oidc.discovery(new URL(o.issuer), o.clientId, o.clientSecret, undefined, {
+  const config = () => (found ??= oidc.discovery(new URL(o.issuer), o.clientId, o.clientSecret, oidc.ClientSecretBasic(o.clientSecret), { // 机密客户端按 OIDC 的默认方式用 client_secret_basic 认证（openid-client 缺省是 post，Hydra 登记为 basic 的客户端会拒绝）
     [oidc.customFetch]: (url, init) => {
       const headers = new Headers(init.headers); headers.set("user-agent", UA);
       return fetcher(url, { ...init, body: init.body as BodyInit, headers, signal: AbortSignal.timeout(10_000) });
