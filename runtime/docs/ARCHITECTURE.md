@@ -252,6 +252,8 @@ Google adapter 将 functionCall 部件的 thoughtSignature 与模型名存入 To
 
 M4 的 `ops.memory.adaptive.source` 调用 `inspectAdaptiveSource`：输入为查询已返回的来源 id / hash，沿 `withAdaptiveSources` 保持正文和当前修订的一致快照。未启用且无认识历史时仅从同一条原始消息核对摘要；忽略、非对话角色、空正文与急停均拒绝。它是只读管理接口，不扩展 mesh 权限，不触发模型任务或复制；来源正文裁到16000字符并显式标记截断。卫星返回 research 开关配置而不伪造远端队列。无存储迁移、依赖和部署脚本变化；既有构建导入链包含新增函数。
 
-`memory/backup.ts` 经 `soul-sync.snapshotSoul` 同时排空 Git 队列与灵魂写入，再以不让出事件循环的回调执行 VACUUM INTO 和文件复制；ensureSoul 也进入 Git 队列。固定本机路径与 UUID、SHA-256 清单、SQLite 完整性及 agent 核查，不执行备份内脚本。创建采用临时目录、刷盘后改名，正常失败清理临时目录，进程中断留下的 partial 不列作成功；不支持多个 runtime 共用家目录或将外部并发写入视为受锁保护。复制过程可能暂停本机处理，尚无大备份时延保证。仅管理 ops 暴露 create / list / verify，不增加 agent 工具或 mesh 权限；当前恢复入口待实现。无新增依赖和构建 / 部署配置，既有导入链覆盖。
+`memory/backup.ts` 经 `soul-sync.snapshotSoul` 同时排空 Git 队列与灵魂写入，再以不让出事件循环的回调执行 VACUUM INTO 和文件复制；ensureSoul 也进入 Git 队列。固定本机路径与 UUID、SHA-256 清单、SQLite 完整性及 agent 核查，不执行备份内脚本。创建采用临时目录、刷盘后改名，正常失败清理临时目录，进程中断留下的 partial 不列作成功；不支持多个 runtime 共用家目录或将外部并发写入视为受锁保护。复制过程可能暂停本机处理，尚无大备份时延保证。仅管理 ops 暴露 create / list / verify，不增加 agent 工具或 mesh 权限；离线恢复入口由 main 的 `--restore-memory` 分支调用 `memory/restore.ts`，在普通启动前执行。无新增依赖和构建 / 部署配置，既有导入链覆盖。
 
-恢复设计按2026-10-28确认的开发阶段范围，只面向当前支持的格式和新身体身份；实际旧数据按需离线迁移，不新增旧版混跑或跨格式降级分支。实现时须保留历史消息编号、来源 hash、修订与待发布记忆，同时隔离旧身体的提醒 / 行动 / 续跑状态，不能把完整备份数据库直接作为可自动执行的身体状态启动。此为后续实现约束，尚未通过恢复入口验收，见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)。
+恢复设计按2026-10-28确认的开发阶段范围，只面向当前支持的格式和新身体身份；实际旧数据按需离线迁移，不新增旧版混跑或跨格式降级分支。实现时须保留历史消息编号、来源 hash、修订与待发布记忆，同时隔离旧身体的提醒 / 行动 / 续跑状态，不能把完整备份数据库直接作为可自动执行的身体状态启动。当前实现已通过独立恢复与首次启动检查，尚未通过完整多身体重连纠正验收，见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)。
+
+`memory/backup-files.ts` 复用备份清单、摘要与数据库核查，不依赖全局配置；`restore.ts` 只写新目标，失败清理、未完成标记阻止启动。kv 原样存档后只保留历史 / 编号白名单；记忆运行租约释放但取消状态不重置。`store.ts` 只在消息读取视图重定位附件路径，不更改来源 JSON。CLI 仍调用已打包 main，无新增依赖、构建入口或常驻服务。

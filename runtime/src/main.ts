@@ -23,6 +23,7 @@ import { startMesh, registerSoulLink, meshStatus } from "./mesh/runtime.ts";
 import { soulLink } from "./ops.ts";
 import { startMcp, closeMcp } from "./mcp/runtime.ts";
 import { startAdaptiveMemory, stopAdaptiveMemory } from './memory/adaptive.ts';
+import { RESTORE_PENDING, restoreMemoryBackup } from './memory/restore.ts';
 
 /** 持心跳的身体还是 1.3.0 以前的版本（不认识提醒）：跟随者自己负责触发，免得一条也不响（几具新版本的跟随者可能各响一次；都升级后恢复只由持心跳的那具触发）。 */
 function coordinatorLacksReminders(): boolean {
@@ -47,6 +48,12 @@ function crashGuard(): boolean {
 }
 
 async function main() {
+  if (process.argv[2] === '--restore-memory') {
+    if (process.argv.length !== 4 || !process.env.QUETZAL_HOME) throw new Error('恢复需要备份目录与独立 QUETZAL_HOME');
+    console.log(JSON.stringify(restoreMemoryBackup(process.argv[3], paths.home)));
+    return;
+  }
+  if (fs.existsSync(path.join(paths.home, RESTORE_PENDING))) throw new Error('此家目录恢复未完成，请从原备份恢复到另一个新目录');
   loadConfig();
   openStore();
   migrateReviewDefaults(); // 旧配置里缺省「询问」的类别改为交给审核模型（对方明确选过「询问」的保留；只做一次）

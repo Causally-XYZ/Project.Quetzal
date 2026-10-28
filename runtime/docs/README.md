@@ -137,4 +137,4 @@ Google 工具回查后续接保留供应商返回的 thoughtSignature；不需�
 
 M4 控制台通过 `memory.adaptive.source` 回看检索来源：`adaptive.ts` 核查当前 agent 的 id / hash，在既有来源快照内读取原话和当前修订。来源变化、忽略、急停或不可读取时不返回正文；管理响应脱敏、正文最多16000字符。`semantic.research.enabled` 在卫星也返回配置，但中心任务状态仍只有中心本机可见。新增入口复用 ops 认证和已有存储，无新依赖、表、环境变量或部署项；现有 TypeScript、测试 glob 与生产构建覆盖。
 
-记忆备份管理接口 `memory.backup.create / list / verify` 由 `memory/backup.ts` 实现，保存在 `QUETZAL_HOME/data/memory-backups/`；复用 Node SQLite / 文件系统、灵魂同步队列和写锁，无新依赖、数据库迁移、配置或部署项。既有 TypeScript include、测试 glob 和 main 导入链覆盖。`test/memory-backup.test.ts` 验证 WAL 原话、认识修订、未发布结果、Git 历史、附件与缺损拒绝；恢复产品入口尚未实现，不能把独立副本重建测试称为完整恢复。
+记忆备份管理接口 `memory.backup.create / list / verify` 由 `memory/backup.ts` 实现，保存在 `QUETZAL_HOME/data/memory-backups/`；复用 Node SQLite / 文件系统、灵魂同步队列和写锁，无新依赖、数据库迁移或部署项。既有 TypeScript include、测试 glob 和 main 导入链覆盖。`test/memory-backup.test.ts` 验证 WAL 原话、认识修订、未发布结果、Git 历史、附件与缺损拒绝。离线恢复由 `memory/restore.ts` 经正式 CLI 调用 main 的 `--restore-memory` 分支；新建配置与身体身份，隔离旧执行状态并保留来源 / 修订，完整多身体验收仍待 M4。

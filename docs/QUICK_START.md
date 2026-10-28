@@ -126,3 +126,5 @@ cd runtime && npm run dev      # 以 ./.dev 为家目录直接运行 TypeScript
 cd console && flutter run      # 连接设备调试控制台
 cd cli && npm run build && node dist/quetzal.mjs status --home /tmp/w   # 构建 npm 包并用独立家目录试装
 ```
+
+记忆备份现可用 `quetzal restore --from <备份文件夹> --home <尚不存在的新家目录>` 恢复为新身体，再通过 `quetzal run --home <新家目录>` 和控制台完成配置。命令不覆盖运行中的身体，不接管已有系统服务；安装守护仍按平台流程。只支持当前格式，完整多身体重连恢复仍待 M4 验收；步骤与范围见 [CLI 恢复说明](../cli/docs/README.md#从记忆备份恢复新身体)。

@@ -34,6 +34,8 @@ const HELP = `quetzal ${pkg.version} —— 把 Quetzal 运行基座装到这台
   logs [-f] [-n N]   服务日志（Linux：journald；macOS：<家目录>/logs/runtime.log）；-f 持续输出
   start | stop | restart
   rollback           切回上一个版本并重启
+  restore --from DIR --home NEW_DIR
+                     从当前格式记忆备份恢复为新身体；目标必须不存在，不启动或改动现有服务
   uninstall [--purge] 移除服务；--purge 连家目录（配置、记忆、对话）一起删除
   version            包与内置运行基座的版本
 
@@ -51,11 +53,12 @@ Windows：用安装包 setup.exe 或 PowerShell 里的 irm https://quetzal.pluto
 这个命令（安装后的 quetzal）提供 chat/tui、status、open、run、logs、start、stop、restart、rollback、uninstall，--home 默认 %LOCALAPPDATA%\\Quetzal\\home。`;
 
 function parse(argv: string[]) {
-  const o: { cmd?: string; conv?: string; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number; open: boolean } =
+  const o: { cmd?: string; conv?: string; from?: string; explicitHome?: boolean; home: string; lan?: boolean; force: boolean; purge: boolean; follow: boolean; lines: number; open: boolean } =
     { home: isWin ? win.winLayout().home : defaultHome(), force: false, purge: false, follow: false, lines: 80, open: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--home") o.home = path.resolve(argv[++i] ?? "");
+    if (a === "--home") { const home = argv[++i]; if (!home || home.startsWith('-')) throw new Error('--home 需要目录'); o.home = path.resolve(home); o.explicitHome = true; }
+    else if (a === "--from") { const from = argv[++i]; if (!from || from.startsWith('-')) throw new Error('--from 需要备份目录'); o.from = path.resolve(from); }
     else if (a === "--conv") { const conv = argv[++i]; if (!conv || conv.startsWith("-")) throw new Error("--conv 需要会话 ID"); o.conv = conv; }
     else if (a === "--lan") o.lan = true;
     else if (a === "--no-lan") o.lan = false;
@@ -137,6 +140,19 @@ async function main() {
   if (cmd === "help") return say(HELP);
   if (cmd === "version") return say(isWin ? `quetzal ${pkg.version}` : `quetzal ${pkg.version}（内置运行基座 ${bundled().version}）`);
   requireNode();
+  if (cmd === 'restore') {
+    if (!o.from || !o.explicitHome) throw new Error('恢复必须明确指定 --from 备份目录与 --home 新家目录');
+    const runtime = isWin ? win.currentDir(win.winLayout()) : bundled().dir;
+    if (!runtime) throw new Error('未找到已安装的运行基座');
+    const child = spawn(process.execPath, [path.join(runtime, 'main.cjs'), '--restore-memory', o.from], { env: { ...process.env, QUETZAL_HOME: o.home }, stdio: ['ignore', 'pipe', 'inherit'] });
+    let output = ''; child.stdout.on('data', (data) => { output += data; });
+    const code = await new Promise<number>((resolve, reject) => { child.once('error', reject); child.once('close', (code) => resolve(code ?? 1)); });
+    if (code) throw new Error(`记忆恢复失败，原备份未修改。${output.trim() ? '\n' + output.trim() : '请查看运行基座错误。'}`);
+    const restored = JSON.parse(output) as { home: string; body: string };
+    say(`记忆已恢复：${restored.home}\n新身体：${restored.body}\n旧运行状态存档：${path.join(restored.home, 'data/restorations')}\n尚未启动服务。使用 quetzal run --home <新家目录> 前台启动；确认后再按平台正常安装流程注册服务。\n在控制台配置模型、接回同一 agent 并指定记忆中心；旧提醒与行动不会因本次导入自动执行。`);
+    return;
+  }
+  if (o.from) throw new Error('--from 只用于 restore');
   if (cmd === "chat" || cmd === "tui") return runTui(o.home, gatewayPort(layout(o.home)), o.conv);
   if (isWin) return winMain(cmd, o);
   const l = layout(o.home);

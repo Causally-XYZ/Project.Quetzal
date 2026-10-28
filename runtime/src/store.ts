@@ -177,7 +177,13 @@ export type Role = "user" | "agent" | "ambient"; // ambient：环境的声音（
 export interface MessageRow { id: number; ts: number; role: Role; channel: string; text: string; session: string; process: unknown[] | null; attachments: Attachment[] | null; mode: string | null; body?: string | null; via?: string | null; answerBasis?: AnswerBasis | null } // mode：她工作时发来的消息如何并入（steer / interrupt）；body：在哪具身体上；via：对方的话从哪具身体进来（旧行为空，按 body）
 
 const rowSession = (r: any): SessionInfo => ({ ...r, archived: !!r.archived, pinned: Number(r.pinned ?? 0), project: r.project || null });
-const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? JSON.parse(r.attachments) : null, answerBasis: r.answerBasis ? parseAnswerBasis(JSON.parse(r.answerBasis)) : null });
+// 附件持久正文参与来源 hash，恢复时不能改写。读取视图按 rel 定位当前身体的副本。
+const localAttachments = (json: string): Attachment[] => (JSON.parse(json) as Attachment[]).map((a) => {
+  const root = path.join(paths.data, 'uploads');
+  const file = typeof a.rel === 'string' ? path.resolve(root, a.rel) : '';
+  return { ...a, path: file.startsWith(root + path.sep) ? file : '' };
+});
+const rowMessage = (r: any): MessageRow => ({ ...r, process: r.process ? JSON.parse(r.process) : null, attachments: r.attachments ? localAttachments(r.attachments) : null, answerBasis: r.answerBasis ? parseAnswerBasis(JSON.parse(r.answerBasis)) : null });
 
 /** 确保会话存在（固定 id 的会话如「飞书」首次使用时自动创建）。 */
 export function ensureSession(id: string, title: string, channel = "控制台"): SessionInfo {

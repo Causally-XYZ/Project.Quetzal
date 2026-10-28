@@ -260,3 +260,5 @@ flowchart TB
 补充 / 纠正通过 `editMemory {target:user,action:add,remember:true}` 保存为普通用户来源，复用统一事实写入路径。页面不直接改图，不宣称模型纠正已成功。连接作用域包含 profile / agent / body；请求代次防止断线、刷新、配置或新查询后旧结果重新出现。来源弹层也在连接变化后隐藏内容。现有 Material / Markdown / API 能力足够，无新增依赖，原构建入口覆盖；widget 测试覆盖390与1100宽度、保存调用、来源及迟到查询。
 
 `pages/memory_backups.dart` 由对话记忆页进入，调用管理 RPC 创建 / 列出 / 校验备份。同步创建结束后刷新列表，不发送模型调用；连接或 agent / 身体切换清空旧路径，请求代次拒绝迟到响应，重连重新取列表。失败不留下旧成功提示，清单可读与完整性通过分开。既有 PageFrame、API 和构建入口覆盖，无新增包；新增 widget 测试验证390 / 1100宽度、范围说明、创建、校验失败和身份切换。
+
+备份页提示通过目标设备 CLI 恢复到新家目录；页面不发送恢复 RPC、不覆盖正在连接的身体。恢复命令和范围见[存储说明](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md#离线恢复命令)。

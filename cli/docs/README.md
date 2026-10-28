@@ -143,3 +143,19 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex     # 首选：PowerShel
 源码地图见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 M4 本机隔离恢复验证直接复用了 `layout.putRelease / switchTo` 与 `launchd.plistText` 的包装脚本，在唯一临时标签下运行当前生产构建；强杀后自动重启并读取已纠正认识。模型在此部署检查中关闭，真实模型离线补做另测；不等同发布包下载、安装入口、注销 / 登录或跨平台验收。见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
+
+
+## 从记忆备份恢复新身体
+
+使用含当前恢复功能的 CLI 和运行基座：
+
+```sh
+quetzal restore --from <备份文件夹> --home <尚不存在的新家目录>
+quetzal run --home <新家目录>
+```
+
+备份文件夹来自控制台「对话记忆 → 记忆备份」，先复制到目标设备。恢复命令不启动或改动现有系统服务；前台运行确认后，可按平台正常安装流程配置守护。家目录含空格时按终端规则加引号。Windows 使用已安装的当前运行基座；本次实际运行证据来自 macOS，其他平台尚未完整验收。
+
+新身体保留原话、附件副本、认识修订和待发布记忆，重新生成身体身份；旧提醒和执行状态留在 `data/restorations/` 可查，不因导入自动执行。在控制台配置模型、重新配对同一 agent、指定记忆中心，再启用记忆处理和需要的自主活动。已有其他身体的新纠正仍须重连追回，不以备份覆盖全网。
+
+只支持当前格式，未知格式 / 损坏明确失败，旧开发数据按需离线迁移副本。正常失败清理本次新建目录；意外中断留下的 `.restore-incomplete` 会阻止启动，请从原备份恢复到另一新目录。此命令不提供原地覆盖、旧版混跑或跨格式降级。完整范围见[存储说明](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md#离线恢复命令)。

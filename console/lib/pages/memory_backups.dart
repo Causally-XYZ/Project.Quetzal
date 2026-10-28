@@ -56,7 +56,7 @@ class _MemoryBackupsState extends State<MemoryBackupsPage> {
         if (host is String && host.isNotEmpty && host != body) Text('集中处理记忆的设备是 $host；建议连接该设备，待同步完成后创建备份。'),
         const SizedBox(height: 8),
         const Text('备份包含私人记忆，不含模型配置和设备密钥。文件夹保存在所连接设备上；请另行复制到其他存储，才能应对该设备损坏。'),
-        const Text('创建或检查较大的备份时，这台设备可能短暂忙碌，请在空闲时操作。恢复入口仍在开发中。'),
+        const Text('创建或检查较大的备份时，这台设备可能短暂忙碌，请在空闲时操作。恢复请使用目标设备上的 quetzal restore 命令，指定备份文件夹和一个尚不存在的新家目录；图形恢复入口尚未提供。'),
         const SizedBox(height: 12),
         FilledButton.icon(onPressed: online && !busy ? () => _run('create') : null, icon: const Icon(Icons.save_alt), label: const Text('创建本机备份')),
         if (!online) const Text('连接已断开，重连后再查看备份。'),

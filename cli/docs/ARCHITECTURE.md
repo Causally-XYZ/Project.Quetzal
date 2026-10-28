@@ -86,3 +86,7 @@ flowchart LR
 chat/tui 通过现有 `/rpc` 调用运行基座，不 import engine 或 runtime，不修改部署配置。Node 内置 WebSocket 与 readline 维持零运行时依赖。认证/消息协议和安全状态来自网关；完整命令见 [TUI.md](TUI.md)。默认同会话消息为 steer，可插话，停止使用 chat.stop，审批转送 body/id。重连只恢复会话、live、审批、保密输入和历史，不重发 chat.send 或任何修改操作。保密输入时关闭回显并清空未提交行，终端拒绝普通输入，要求去控制台完成或取消。
 
 版本目录测试在 Linux / macOS 运行；涉及 Linux 主机名规则的断言显式传入 `linux`，不将执行测试的操作系统误当测试目标。macOS 去除 Bonjour `.local` 后缀的规则由 launchd 测试单独覆盖。修正只影响测试，没有新增依赖或改变安装 / 构建脚本。
+
+## 离线记忆恢复
+
+`restore --from DIR --home NEW_DIR` 要求显式源与新目标；CLI 仅分派到随包 main.cjs（Windows 为已安装的当前版本）的 `--restore-memory`，不复制验证实现，不引入运行时依赖，不安装或切换守护。runtime 在普通启动前校验和导入；成功后 CLI 显示新身体与后续正常启动 / 配对步骤。现有 runtime 打包链自动包含新模块，无额外部署文件。
