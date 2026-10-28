@@ -92,3 +92,43 @@ test("生成轨迹亦保留local会话来源，其他agent与急停禁止管理�
   assert.equal(feedback.status, "learned"); assert.equal(feedback.episode.outcome.status, "failure");
   assert.ok(store.sessionMessages("generated-session").some((m) => m.role === "user" && m.text.includes("整个任务失败")));
 });
+
+
+test('新模式的正常对话及明确记住入口保留原文，不再触发旧学习或USER副本', async () => {
+  const { config } = await import('../src/config.ts');
+  const { pendingMemoryLearning } = await import('../src/mind/brain.ts');
+  const mem = await import('../src/memory/memory.ts');
+  const { AdaptiveStore } = await import('../src/memory/adaptive-store.ts');
+  const before = memory.readStructuredRecords(), user = mem.entries('user');
+  const prior = config.adaptiveMemory, calls = seen.length;
+  config.adaptiveMemory = { enabled: true, hostBody: config.body, semantic: false, research: false };
+  try {
+    store.ensureSession('adaptive-write', '新记忆事实输入');
+    await converse('你', '我希望记住周六去图书馆。', '合成测试', { conv: 'adaptive-write', turn: 'adaptive-write-turn' });
+    assert.equal(pendingMemoryLearning(), 0);
+    assert.ok(seen.slice(calls).every((r) => !r.system.startsWith('你为 agent 蒸馏')));
+    assert.deepEqual(memory.readStructuredRecords(), before);
+    const reply = await invoke('editMemory', { target: 'user', action: 'add', content: '更正：我安排的是周日去图书馆。', remember: true }, 'synthetic-manager');
+    assert.match(reply, /已保存原话/);
+    assert.deepEqual(mem.entries('user'), user);
+    const messages = store.sessionMessages('memory-input');
+    assert.equal(messages.at(-1)?.role, 'user');
+    assert.equal(messages.at(-1)?.text, '更正：我安排的是周日去图书馆。');
+    const queue = new AdaptiveStore(store.db, identity().id); queue.schedule();
+    assert.equal(queue.source(messages.at(-1)!.id)?.text, messages.at(-1)!.text);
+    // 请求先进入旧模式，真正拿到写锁前开启新模式，仍必须保存用户原话。
+    let release!: () => void;
+    const lock = mem.exclusive(() => new Promise<void>((resolve) => { release = resolve; }));
+    await Promise.resolve();
+    config.adaptiveMemory.enabled = false;
+    const delayed = invoke('editMemory', { target: 'user', action: 'add', content: '等锁时开启后的原话', remember: true }, 'synthetic-manager');
+    config.adaptiveMemory.enabled = true;
+    release(); await lock; assert.match(await delayed, /已保存原话/);
+    assert.equal(store.sessionMessages('memory-input').at(-1)?.text, '等锁时开启后的原话');
+    assert.deepEqual(mem.entries('user'), user);
+    await assert.rejects(invoke('editMemory', { target: 'user', action: 'replace', content: '不能把文档编辑伪装成原话', remember: true }, 'synthetic-manager'));
+    // 显式文档编辑仍保留；不伪装为已完成新认识。
+    await invoke('editMemory', { target: 'user', action: 'add', content: '管理者直接编辑的历史文档' }, 'synthetic-manager');
+    assert.ok(mem.entries('user').includes('管理者直接编辑的历史文档'));
+  } finally { config.adaptiveMemory = prior; }
+});

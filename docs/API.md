@@ -309,12 +309,12 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 |---|---|---|
 | `memory` | — → `{soul, memory[], user[], loops[]}`（`loops` 为进行中的目标的旧视图 `[{id, text, ts}]`：#23 起未完成的念头就是没有步骤的目标，见 `goals`） |
 | `memory.records` | `{state?, kind?}` | 当前 agent 的结构化记忆全部版本；可过滤 candidate/active/superseded/archived 与 fact/preference/episode/experience；含 scope、来源、验证及父版本 |
-| `memory.confirm` | `{key}` | 管理者明确确认个人事实或偏好语义；核对真实用户来源，返回确认后的 MemoryRecord。模型工具不能调用此管理确认入口 |
-| `memory.feedback` | `{episodeId, status: success / failure, session?}` | 管理者确认已完成轨迹的整体任务结果；核对当前 agent 及 prime.origins 中原会话，可选 session 须一致；新增真实 user 消息作为晚到反馈，不重跑工具。按 brain 学习限额返回 `{episode, records, learned, status: learned / skipped / failed, reason?}` |
+| `memory.confirm` | `{key}` | 管理者明确确认个人事实或偏好语义；核对真实用户来源，返回确认后的 MemoryRecord；新记忆 enabled 时拒绝旧个人候选升级，引导在对话中确认 / 纠正。模型工具不能调用此管理确认入口 |
+| `memory.feedback` | `{episodeId, status: success / failure, session?}` | 管理者确认已完成轨迹的整体任务结果；核对当前 agent 及 prime.origins 中原会话，可选 session 须一致；新增真实 user 消息作为晚到反馈，不重跑工具。按 brain 学习限额返回 `{episode, records, learned, status: learned / skipped / failed, reason?}`；新记忆 enabled 时保留反馈及轨迹审计，返回 skipped，不触发旧蒸馏 |
 | `memory.archive` / `memory.rollback` | `{key}` | 当前 agent 版本归档 / 从合格历史版本生成新活动版本，保留来源与历史；返回 true，修改经审计与自动灵魂同步 |
 | `memory.evolve` | `{operation, keys}` | rewrite/generalize/combine 的生产经验提案与独立评价；1–4个当前 agent 版本键，返回 `{records, status: evolved / failed, reason?}`；缺基线不自动替代原经验 |
 | `context.status` | `{conv}` | 本机最近一次该会话的准备计划或 null：turn/model、保守 estimate、selectedIds/skippedMemoryIds/compactedIds、projections、summary、state、at；不是原始秘密或真实tokenizer计数 |
-| `editMemory` | `{target: memory｜user, action: add｜replace｜remove, content?, oldText?}` |
+| `editMemory` | `{target: memory｜user, action: add｜replace｜remove, content?, oldText?, remember?}` | 默认仍为管理者明确编辑旧文档；`remember:true` 仅接受 user/add 和1～8000字符原话。新记忆 enabled 时保存到“记忆输入”会话，进入正常来源处理；返回原文已保存的说明，不代表理解 / 同步完成。关闭时仍添加旧 USER。飞书“让她记住”使用此标志 |
 | `setSoul` | `{text}` |
 | `journalList` / `journal` | — / `{body, day}` |
 | `notes` / `note` / `search` | — → `[{name, title, summary, mtime, size}]`（`name` 为目录树中的相对路径，如 `身体/handset/硬件`）/ `{name}` / `{query}`（按相关度检索对话、笔记、日记与常驻记忆） |

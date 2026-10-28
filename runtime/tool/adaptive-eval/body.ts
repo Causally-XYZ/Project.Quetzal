@@ -12,7 +12,7 @@ const cfg = await import('../../src/config.ts'); cfg.loadConfig();
 const legacy = settings.baseline === 'legacy', raw = settings.baseline === 'raw-fts';
 cfg.saveConfig({ body: settings.body, gateway: { port: 0, host: '127.0.0.1', lan: false },
   soul: { remote: settings.remote, branch: 'main' }, adaptiveMemory: { enabled: !settings.storageOnly && !legacy, hostBody: 'center', semantic: !legacy && !raw, research: settings.research === true },
-  brain: { memorySemantic: legacy, memoryLearning: legacy }, guard: { sentinel: { enabled: false } } }, { remote: true });
+  brain: { memorySemantic: legacy, memoryLearning: true }, guard: { sentinel: { enabled: false } } }, { remote: true });
 const store = await import('../../src/store.ts'); store.openStore();
 await (await import('../../src/body/uuid.ts')).ensureBodyUuid();
 const soul = await import('../../src/memory/soul-sync.ts'); await soul.ensureSoul();

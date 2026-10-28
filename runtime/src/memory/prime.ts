@@ -1,7 +1,7 @@
 // PRIME 的生产宿主：quick 模型蒸馏／提案，真实轨迹与独立评价分别提供证据。
 import crypto from "node:crypto";
 import fs from "node:fs";
-import { paths } from "../config.ts";
+import { config, paths } from "../config.ts";
 import { kv, getSessionMessage, recentMessages, getToolCall, audit } from "../store.ts";
 import { chat as routedChat } from "../providers/router.ts";
 import type { ChatRequest, ChatResult } from "../providers/types.ts";
@@ -184,8 +184,9 @@ async function reviewExperience(input: PrimeEvaluationInput, session: ReturnType
     evidence: accepted ? evidence.filter((e) => cited.includes(e.id)) : evidence };
 }
 
-async function persist(before: MemoryRecord[], after: MemoryRecord[], signal: AbortSignal): Promise<MemoryRecord[]> {
+async function persist(before: MemoryRecord[], after: MemoryRecord[], signal: AbortSignal, checkWrite?: () => void): Promise<MemoryRecord[]> {
   return updateStructuredRecords((current) => {
+    checkWrite?.();
     for (const changed of after) {
       const prior = before.find((r) => memoryKey(r) === memoryKey(changed));
       if (prior && JSON.stringify(prior) === JSON.stringify(changed)) continue;
@@ -223,19 +224,32 @@ function messageObservations(episode: MemoryEpisode): MemoryRecord[] {
 export async function learnEpisode(input: EpisodeInput | MemoryEpisode, options: LearningOptions = {}): Promise<LearningResult> {
   const episode = "episodeId" in input ? recordEpisode(input) : clean(input);
   validateEpisode(episode);
+  const ownershipReason = "新记忆已负责对话事实与纠正；本轮仅保留轨迹审计，不执行旧记忆学习";
+  if (config.adaptiveMemory.enabled) return { episode, records: readStructuredRecords(), learned: [], status: "skipped", reason: ownershipReason };
   const learnedIds = kv.get<string[]>("prime.learned", []);
   const learningKey = `${episode.id}:${episode.outcome.evidenceIds.join(",") || "unverified"}`;
   if (learnedIds.includes(learningKey)) return { episode, records: readStructuredRecords(), learned: [], status: "skipped", reason: "轨迹已学习" };
   const session = modelSession(options, "signal" in input ? input.signal : undefined);
+  // 开启后本次学习不再恢复；写锁内还须读取当前配置，涵盖来自其他身体的设置更新。
+  let relinquished = false;
+  const observeOwnership = () => { relinquished ||= config.adaptiveMemory.enabled; };
+  const checkOwnership = () => { observeOwnership(); if (relinquished) throw new Error(ownershipReason); };
+  bus.on("shared", observeOwnership);
   try {
     session.signal.throwIfAborted();
+    checkOwnership();
     const observations = messageObservations(episode);
-    if (observations.length) await updateStructuredRecords((records) => [...records, ...observations.filter((r) => !records.some((old) => old.id === r.id))], "记录用户消息观察", session.signal);
+    if (observations.length) await updateStructuredRecords((records) => {
+      checkOwnership();
+      return [...records, ...observations.filter((r) => !records.some((old) => old.id === r.id))];
+    }, "记录用户消息观察", session.signal);
     const before = readStructuredRecords(), exact = new Map<string, string>(), exactTexts = new Map<string, string>();
     let after = await engineLearn(before, episode, {
       distill: async (e) => {
+        checkOwnership();
         const output = await session.ask(DISTILL, { ...modelView(e), knownSlots: before.filter((r) => r.state === "active" && r.slot && r.scope.agentId === e.scope.agentId && r.scope.userId === e.scope.userId)
           .slice(-24).map((r) => ({ slot: r.slot, text: r.text.slice(0, 300) })) });
+        checkOwnership();
         if (!object(output) || !Array.isArray(output.items) || output.items.length > 4) throw new Error("蒸馏需返回最多 4 项的 items");
         return output.items.map((item) => {
           const draft = draftOf(item, e.scope);
@@ -249,11 +263,13 @@ export async function learnEpisode(input: EpisodeInput | MemoryEpisode, options:
       },
       evaluate: async (e) => {
         session.signal.throwIfAborted();
+        checkOwnership();
         return options.evaluate ? abortable(options.evaluate(e), session.signal) : reviewExperience(e, session);
       },
     }, { now: Date.now(), minimumScore: 1 });
     // 精确用户原文是“用户确实这样说过”的证据；不替用户核实客观世界事实或推断偏好。
     after = await Promise.all(after.map(async (record) => {
+      checkOwnership();
       const prior = before.find((r) => memoryKey(r) === memoryKey(record));
       if (prior && (record.state !== "candidate" || JSON.stringify(prior) === JSON.stringify(record))) return record;
       if (record.kind === "experience" && record.state === "candidate" && record.zone === "warning" && record.conditions.tools.length === 1) {
@@ -278,18 +294,22 @@ export async function learnEpisode(input: EpisodeInput | MemoryEpisode, options:
       const updated = upsertConfirmedMemory(all, record, Date.now()), old = before.find((r) => memoryKey(r) === memoryKey(record));
       return old && !updated.some((r) => memoryKey(r) === memoryKey(old)) ? [...updated, { ...old, state: "superseded" as const, updatedAt: Date.now() }] : updated;
     }, after.filter((r) => !confirmedPersonal.some((confirmed) => memoryKey(confirmed) === memoryKey(r))));
-    const records = await persist(before, after, session.signal);
+    const records = await persist(before, after, session.signal, checkOwnership);
     const completed = kv.get<string[]>("prime.learned", []);
     kv.set("prime.learned", [...new Set([...completed, learningKey])].slice(-200));
     return { episode, records, learned: after.filter((r) => !before.some((b) => memoryKey(b) === memoryKey(r))).map(memoryKey), status: "learned" };
-  } catch (e) { return { episode, records: readStructuredRecords(), learned: [], status: "failed", reason: redactSecrets((e as Error).message) }; }
-  finally { session.close(); }
+  } catch (e) {
+    observeOwnership();
+    return { episode, records: readStructuredRecords(), learned: [], status: relinquished ? "skipped" : "failed",
+      reason: relinquished ? ownershipReason : redactSecrets((e as Error).message) };
+  } finally { bus.off("shared", observeOwnership); session.close(); }
 }
 
 /** 仅管理者确认入口调用；不得暴露为 agent 工具。确认原始来源存在，管理员判断个人语义。 */
 export async function confirmPersonalMemory(key: string, o: { actor: string; signal?: AbortSignal }): Promise<MemoryRecord> {
   let confirmed: MemoryRecord | undefined;
   await updateStructuredRecords((records) => {
+    if (config.adaptiveMemory.enabled) throw new Error("新记忆已负责个人认识，请在对话中确认或纠正；旧个人候选仅保留为历史参考");
     const record = records.find((r) => memoryKey(r) === key);
     if (!record || record.state !== "candidate" || !["fact", "preference"].includes(record.kind) || record.preference === "inferred") throw new Error("只能确认个人事实或明确偏好的候选");
     if (record.scope.agentId !== identity().id) throw new Error("不能确认其他 agent 的个人记忆");

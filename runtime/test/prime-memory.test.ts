@@ -16,6 +16,7 @@ openStore();
 await (await import("../src/memory/soul-sync.ts")).ensureSoul();
 const host = await import("../src/memory/prime.ts");
 const records = await import("../src/memory/structured.ts");
+const { exclusive } = await import("../src/memory/memory.ts");
 const scope = { agentId: (await import("../src/memory/identity.ts")).identity().id, userId: "owner" };
 after(async () => { (await import("../src/store.ts")).db.close(); fs.rmSync(home, { recursive: true, force: true }); });
 const result = (value: unknown): ChatResult => ({ text: JSON.stringify(value), toolCalls: [], model: "synthetic", usage: { input: 100, output: 50 } });
@@ -32,6 +33,100 @@ const factChat = async (request: ChatRequest) => {
 };
 const trustedPersonal: LearningOptions["confirmPersonal"] = async (record) => ({ accepted: true, independent: true,
   evaluator: "trusted-personal-semantics", score: 1, evidence: record.evidence.filter((e) => e.origin === "user" && e.verified) });
+const latch = () => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+};
+
+test("新记忆开启但语义关闭时只留审计，不观察或蒸馏；关闭后新轨迹正常学习", async () => {
+  const before = records.readStructuredRecords();
+  let calls = 0;
+  const chat = async (request: ChatRequest) => { calls++; return factChat(request); };
+  saveConfig({ adaptiveMemory: { enabled: true, semantic: false } });
+  try {
+    const skipped = await host.learnEpisode(episode("adaptive-owned"), { chat });
+    assert.equal(skipped.status, "skipped");
+    assert.deepEqual(skipped.learned, []);
+    assert.deepEqual(records.readStructuredRecords(), before);
+    assert.ok(kv.get<{ id: string }[]>("prime.episodes", []).some((e) => e.id === "adaptive-owned"));
+    assert.equal(calls, 0);
+  } finally { saveConfig({ adaptiveMemory: { enabled: false } }); }
+  assert.equal(calls, 0);
+  const resumed = await host.learnEpisode(episode("legacy-new-turn", "我喜欢合成蓝茶"), { chat });
+  assert.equal(resumed.status, "learned", resumed.reason);
+  assert.equal(calls, 1);
+  assert.ok(resumed.records.some((r) => r.text === "我喜欢合成蓝茶" && r.kind === "preference"));
+});
+
+test("等待观察写锁期间开启新记忆，旧原文和模型调用均不落下", async () => {
+  const before = records.readStructuredRecords();
+  const gate = latch(), entered = latch();
+  const held = exclusive(async () => { entered.resolve(); await gate.promise; });
+  await entered.promise;
+  let calls = 0;
+  const pending = host.learnEpisode(episode("adaptive-observation-lock"), { chat: async (request) => { calls++; return factChat(request); } });
+  try {
+    saveConfig({ adaptiveMemory: { enabled: true } }, { remote: true });
+    gate.resolve(); await held;
+    assert.equal((await pending).status, "skipped");
+    assert.equal(calls, 0);
+    assert.deepEqual(records.readStructuredRecords(), before);
+  } finally { gate.resolve(); await held; saveConfig({ adaptiveMemory: { enabled: false } }); }
+});
+
+test("在途模型返回前启用再关闭新记忆也不恢复该轮旧学习", async () => {
+  const gate = latch(), entered = latch();
+  const pending = host.learnEpisode(episode("adaptive-inflight", "我喜欢合成银茶"), { chat: async (request) => {
+    entered.resolve(); await gate.promise; return factChat(request);
+  } });
+  await entered.promise;
+  const before = records.readStructuredRecords(); // 开启前已经完成的原文观察保留。
+  try {
+    saveConfig({ adaptiveMemory: { enabled: true } });
+    saveConfig({ adaptiveMemory: { enabled: false } });
+    gate.resolve();
+    assert.equal((await pending).status, "skipped");
+    assert.deepEqual(records.readStructuredRecords(), before);
+    assert.ok(!kv.get<string[]>("prime.learned", []).some((key) => key.startsWith("adaptive-inflight:")));
+  } finally { gate.resolve(); saveConfig({ adaptiveMemory: { enabled: false } }); }
+});
+
+test("蒸馏结束等待持久化锁时远端开启新记忆，回调内阻止旧事实写入", async () => {
+  const gate = latch(), entered = latch();
+  let held: Promise<void> | undefined;
+  const pending = host.learnEpisode(episode("adaptive-persist-lock", "我喜欢合成金茶"), { chat: factChat, confirmPersonal: async (record, e) => {
+    held = exclusive(async () => { entered.resolve(); await gate.promise; });
+    await entered.promise;
+    return trustedPersonal!(record, e);
+  } });
+  await entered.promise;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const before = records.readStructuredRecords();
+  try {
+    saveConfig({ adaptiveMemory: { enabled: true } }, { remote: true });
+    gate.resolve(); await held;
+    assert.equal((await pending).status, "skipped");
+    assert.deepEqual(records.readStructuredRecords(), before);
+  } finally { gate.resolve(); await held; saveConfig({ adaptiveMemory: { enabled: false } }); }
+});
+
+test("确认旧个人候选在写锁内检查新记忆开关，关闭后可正常确认", async () => {
+  const input = episode("adaptive-confirm", "我喜欢合成紫茶");
+  const learned = await host.learnEpisode(input, { chat: factChat });
+  const candidate = learned.records.find((r) => r.kind === "preference" && r.text === input.userInput)!;
+  const key = `${candidate.id}@${candidate.version}`, before = records.readStructuredRecords();
+  const gate = latch(), entered = latch();
+  const held = exclusive(async () => { entered.resolve(); await gate.promise; });
+  await entered.promise;
+  const rejected = assert.rejects(host.confirmPersonalMemory(key, { actor: "synthetic-manager" }));
+  try {
+    saveConfig({ adaptiveMemory: { enabled: true, semantic: false } }, { remote: true });
+    gate.resolve(); await held; await rejected;
+    assert.deepEqual(records.readStructuredRecords(), before);
+  } finally { gate.resolve(); await held; saveConfig({ adaptiveMemory: { enabled: false } }); }
+  assert.equal((await host.confirmPersonalMemory(key, { actor: "synthetic-manager" })).state, "active");
+});
 
 test("生产蒸馏个人记忆只候选，可信语义确认才激活，不重写USER；重复episode不再调模型", async () => {
   const unconfirmed = await host.learnEpisode(episode("unconfirmed"), { chat: factChat });
@@ -148,14 +243,17 @@ test("独立任务证据可评估经验；演化无baseline只candidate，可信
   const active = learned.records.find((r) => r.text === "合成任务核对数字" && r.state === "active")!;
   assert.equal(active.state, "active");
   const proposal = async () => result({ text: "核对固定任务的数字与出处", evidenceIds: ["check"], tools: [] });
-  const candidate = await host.evolveMemory({ operation: "rewrite", keys: [`${active.id}@1`] }, { chat: proposal });
-  assert.equal(candidate.status, "evolved");
-  assert.equal(candidate.records.find((r) => r.id === active.id && r.version === 2)!.state, "candidate");
-  assert.equal(candidate.records.find((r) => r.id === active.id && r.version === 1)!.state, "active");
-  const verified = await host.evolveMemory({ operation: "rewrite", keys: [`${active.id}@1`] }, { chat: proposal,
-    evaluate: async () => ({ accepted: true, independent: true, evaluator: "fixed-task-comparison", score: 1, baselineScore: 1, evidence: input.taskEvidence! }) });
-  assert.equal(verified.records.find((r) => r.id === active.id && r.version === 1)!.state, "superseded");
-  assert.equal(verified.records.find((r) => r.id === active.id && r.version === 3)!.state, "active");
+  saveConfig({ adaptiveMemory: { enabled: true, semantic: false } });
+  try {
+    const candidate = await host.evolveMemory({ operation: "rewrite", keys: [`${active.id}@1`] }, { chat: proposal });
+    assert.equal(candidate.status, "evolved");
+    assert.equal(candidate.records.find((r) => r.id === active.id && r.version === 2)!.state, "candidate");
+    assert.equal(candidate.records.find((r) => r.id === active.id && r.version === 1)!.state, "active");
+    const verified = await host.evolveMemory({ operation: "rewrite", keys: [`${active.id}@1`] }, { chat: proposal,
+      evaluate: async () => ({ accepted: true, independent: true, evaluator: "fixed-task-comparison", score: 1, baselineScore: 1, evidence: input.taskEvidence! }) });
+    assert.equal(verified.records.find((r) => r.id === active.id && r.version === 1)!.state, "superseded");
+    assert.equal(verified.records.find((r) => r.id === active.id && r.version === 3)!.state, "active");
+  } finally { saveConfig({ adaptiveMemory: { enabled: false } }); }
 });
 
 test("默认quick独立语义评审共享预算，只采用宿主真实结果来源，不接受模型伪造verified", async () => {

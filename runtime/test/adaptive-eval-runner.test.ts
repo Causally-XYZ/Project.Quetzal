@@ -27,7 +27,7 @@ test('开发三基线统一正常对话摄入；原学习完成并跨身体同�
           assert.equal(state.learningPending, 0);
           assert.ok(state.messages.some((m: any) => m.session === `source-${i}` && m.role === 'agent'), '素材也经过普通回答');
           assert.equal(state.messages.find((m: any) => m.id === cp.source).ts, Date.parse(input.steps[i - 1].at));
-          assert.equal(state.memoryConfig.brain.memoryLearning, baseline === 'legacy');
+          assert.equal(state.memoryConfig.brain.memoryLearning, true);
           assert.equal(state.memoryConfig.brain.memorySemantic, baseline === 'legacy');
           if (baseline === 'legacy') {
             assert.ok(state.structured.some((r: any) => r.evidence.some((e: any) => e.ref === `message:${cp.source}`)), '原学习实际处理素材来源');

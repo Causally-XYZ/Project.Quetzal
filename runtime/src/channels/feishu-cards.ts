@@ -79,7 +79,7 @@ export const views: Record<string, () => object> = {
       panel(`**关于你** · ${m.user.length} 条`, [md(m.user.map((e) => `- ${e}`).join("\n") || "（空）")]),
       panel(`**未完成的念头** · ${m.loops.length}`, [md(m.loops.map((l) => `- ${l.text}`).join("\n") || "（无）")]),
       panel(`**长期笔记** · ${notes.length}`, [md(notes.map((n) => `- ${n.name}`).join("\n") || "（无）")]),
-      form("remember", [input("content", "告诉她一件关于你的事，她会记在「关于你」里")], "📝 让她记住", { op: "editMemory", args: { target: "user", action: "add" }, field: "content", view: "memory" }),
+      form("remember", [input("content", "告诉她一件需要记住的事")], "📝 让她记住", { op: "editMemory", args: { target: "user", action: "add", remember: true }, field: "content", view: "memory" }),
       row(button("☁️ 同步灵魂", { op: "syncSoul", view: "memory" })),
       nav("memory"),
     ]);

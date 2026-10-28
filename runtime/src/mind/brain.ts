@@ -81,7 +81,7 @@ let learningTail: Promise<unknown> = Promise.resolve(), learningPending = 0;
 export const pendingMemoryLearning = () => learningPending;
 /** 自动学习在独立有界队列运行；对话回复不等待蒸馏，STOP 不会恢复该任务。 */
 function learnTurn(s: Session, input: string, reply: string, userSourceRef?: string) {
-  if (!config.brain.memoryLearning || s.signal.aborted || stopped() || learningPending >= 16) return;
+  if (config.adaptiveMemory.enabled || !config.brain.memoryLearning || s.signal.aborted || stopped() || learningPending >= 16) return;
   const data = learnedTurns.get(s);
   const episode: EpisodeInput = { episodeId: s.id, session: s.conv || s.id, userInput: redactSecrets(input), reply: redactSecrets(reply), userSourceRef,
     userOrigin: userSourceRef ? 'user' : 'agent', toolRecords: data?.records ?? [], phase: data?.phase ?? 'unknown', tags: data?.tags, usedMemoryKeys: data?.usedMemoryKeys,
@@ -89,7 +89,7 @@ function learnTurn(s: Session, input: string, reply: string, userSourceRef?: str
   learningPending++;
   const timer = setTimeout(() => {
     learningTail = learningTail.catch(() => {}).then(async () => {
-      if (stopped() || episode.signal?.aborted) return;
+      if (config.adaptiveMemory.enabled || stopped() || episode.signal?.aborted) return;
       const result = await learnEpisode(episode, { maxTokens: config.brain.memoryLearningTokens, timeoutMs: config.brain.memoryLearningTimeoutMs });
       if (result.status === 'failed') log('memory', `本轮学习未完成：${result.reason}`);
     }).catch((e) => log('memory', `学习未完成：${e.message}`)).finally(() => { learningPending--; });
@@ -223,11 +223,10 @@ export async function wake(kind: WakeKind, reason: string, opts: { intent?: stri
   }
   const task = kind === "think"
     ? `你醒来了。原因：${reason}。${gate.intent ? `你想：${gate.intent}。` : ""}
-按你自己的意愿去想、去做：探索感兴趣的东西、回顾并推进你的长期目标（goal：做完一步用 step_done 标一步）、写点什么、或者找人说话。需要记住的，用 memory / note_save 记下来；以后还想继续、需要几步才能做成的事，用 goal 记下来。
+按你自己的意愿去想、去做：探索感兴趣的东西、回顾并推进你的长期目标（goal：做完一步用 step_done 标一步）、写点什么、或者找人说话。${config.adaptiveMemory.enabled ? "对话事实与纠正由基座从原始消息自动处理，不用 memory 或笔记另存事实副本；独立创作、资料和工作文档仍可用 note_save 保存；" : "需要记住的，用 memory / note_save 记下来；"}以后还想继续、需要几步才能做成的事，用 goal 记下来。
 结束时调用 finish 写日记并报告驱动力。`
     : `你睡着了，正在做梦——这是整理记忆的时候。
-1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并重复、修正过时的内容），用 note_save 沉淀知识与思考。
-   记忆没有长度上限，但每次醒来只会展开一部分：常驻记忆留给最核心、最常用的认识；细节、资料、长篇思考放进笔记目录树（如「身体/handset/硬件」「人/PK/喜好」），写好一句话摘要。
+${config.adaptiveMemory.enabled ? "1. 回顾日记与对话，形成暂定思考。对话事实的保存、关联与纠正由基座统一处理，不往 USER、MEMORY 或普通笔记另存事实副本；已有旧认识是历史参考。可以用 note_save 保存独立创作、资料和工作文档，不把梦里的联想写成用户事实。" : "1. 回顾最近的日记（包括其他身体的经历）和对话，提炼值得长期记住的东西，用 memory 工具更新常驻记忆（合并重复、修正过时的内容），用 note_save 沉淀知识与思考。\n   记忆没有长度上限，但每次醒来只会展开一部分：常驻记忆留给最核心、最常用的认识；细节、资料、长篇思考放进笔记目录树（如「身体/handset/硬件」「人/PK/喜好」），写好一句话摘要。"}
    整理笔记目录：用 note_list 查看，note_move 归类、改名，合并重复的笔记，note_delete 删除没用的（历史中仍可找回）。
 2. 如果你的喜好或节律有了变化，可以用 adjust_self 调整自己。（与其他身体的记忆同步由基座自动完成；只有两边都改过同一个文件时，基座会把另一版留给你裁决，见「灵魂同步」一节。）
 3. 回顾最近的工具调用（recent_actions）：反复出现、步骤稳定的 shell 流程，可以用 tool_write 沉淀成工具，并写好技能文档；灵魂仓库里有技能文档而本机没有实现的，也可以按文档实现。

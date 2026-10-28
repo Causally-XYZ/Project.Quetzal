@@ -303,11 +303,22 @@ export const ops = {
     const result = await evolveMemory(a); audit(actor, 'memory.evolve', '', { operation: a.operation, keys: a.keys }, result.status); return result;
   },
   'context.status': (a: { conv: string }) => kv.get(`context.plan.${a.conv}`, null),
-  editMemory: async (a: { target: mem.Target; action: "add" | "replace" | "remove"; content?: string; oldText?: string }, actor: string) => {
-    const r = await mem.exclusive(() => mem.editMemory(a.target, a.action, a.content, a.oldText));
-    audit(actor, "memory.edit", "外部修改", a, r);
-    mem.writeJournal("有人改了我的记忆", `${actor} 对 ${a.target} 做了 ${a.action}：${a.content ?? a.oldText ?? ""}`);
-    return r;
+  editMemory: async (a: { target: mem.Target; action: "add" | "replace" | "remove"; content?: string; oldText?: string; remember?: boolean }, actor: string) => {
+    if (a.remember !== undefined && typeof a.remember !== 'boolean') throw new Error('记住内容的意图必须为布尔值');
+    if (a.remember && (a.target !== 'user' || a.action !== 'add' || typeof a.content !== 'string' || !a.content.trim() || a.content.length > 8000))
+      throw new Error('记住内容需要一段不超过8000字符的用户原话');
+    return mem.exclusive(() => {
+      if (a.remember && config.adaptiveMemory.enabled) {
+        const session = ensureSession('memory-input', '记忆输入', '记忆');
+        const message = addMessage('user', actor, a.content!, { session: session.id });
+        audit(actor, 'memory.intake', '保存用户原话', { message }, 'stored');
+        return config.adaptiveMemory.semantic ? '已保存原话，后台将按可访问来源处理；尚不代表理解或同步完成。' : '已保存原话，可供原文记忆处理；语义理解尚未开启。';
+      }
+      const r = mem.editMemory(a.target, a.action, a.content, a.oldText);
+      audit(actor, "memory.edit", "外部修改", a, r);
+      mem.writeJournal("有人改了我的记忆", `${actor} 对 ${a.target} 做了 ${a.action}：${a.content ?? a.oldText ?? ""}`);
+      return r;
+    });
   },
   setSoul: async (a: { text: string }, actor: string) => { await mem.exclusive(() => mem.setSoul(a.text)); audit(actor, "soul.edit", "外部修改", null, "ok"); mem.writeJournal("有人改了我的人格文件", `${actor} 修改了 SOUL.md`); return true; },
   journalList: () => mem.listJournal(),

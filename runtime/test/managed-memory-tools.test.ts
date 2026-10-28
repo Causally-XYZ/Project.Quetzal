@@ -129,3 +129,33 @@ test('已有祖先native真实路径属于受管目录时，非symlink文件系�
     fs.rmSync(alias, { recursive: true, force: true });
   }
 });
+
+
+test('新记忆接管事实写入，排队旧工具不能越过开关，普通笔记和关闭后的旧工具保留', async () => {
+  const { config } = await import('../src/config.ts');
+  const { allTools, ToolFailure } = await import('../src/mind/tools.ts');
+  const prior = config.adaptiveMemory;
+  const before = mem.entries('user');
+  const oldTool = allTools().find((t) => t.name === 'memory')!;
+  let release!: () => void;
+  const lock = mem.exclusive(() => new Promise<void>((resolve) => { release = resolve; }));
+  await Promise.resolve();
+  const queued = oldTool.handler({ action: 'add', target: 'user', content: '不能迟到写入的旧事实' }, {});
+  config.adaptiveMemory = { enabled: true, hostBody: 'center', semantic: false, research: false };
+  try {
+    release(); await lock;
+    assert.ok(await queued instanceof ToolFailure);
+    assert.deepEqual(mem.entries('user'), before);
+    for (const semantic of [false, true]) {
+      config.adaptiveMemory.semantic = semantic;
+      assert.ok(!allTools().some((t) => t.name === 'memory'));
+      assert.equal((await callTool('memory', { action: 'add', target: 'user', content: '不写旧事实' }, '合成')).status, 'error');
+      assert.deepEqual(mem.entries('user'), before);
+    }
+    assert.equal((await callTool('note_save', { title: '创作/剧本', body: '虚构人物的一段独白' }, '保存创作文档')).status, 'ok');
+    assert.equal(mem.readNote('创作/剧本').includes('虚构人物的一段独白'), true);
+    assert.ok(allTools().some((t) => t.name === 'rewrite_soul'));
+  } finally { config.adaptiveMemory = prior; }
+  assert.equal((await callTool('memory', { action: 'add', target: 'user', content: '关闭后仍按旧方式写入' }, '合成')).status, 'ok');
+  assert.ok(mem.entries('user').includes('关闭后仍按旧方式写入'));
+});

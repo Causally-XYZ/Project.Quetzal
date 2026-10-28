@@ -141,7 +141,9 @@ const core: Tool[] = [
     name: "memory", permission: "memory",
     description: "管理常驻记忆：你对自己与对方最核心、长期的认识（不是每一轮都固定出现：基座每一步按当前任务挑选相关的条目放进上下文，需要时用 recall 回查）。target=memory 是你自己的笔记，target=user 是你对和你一起生活的人的认识。action: add 新增；replace 用 old_text 唯一子串定位并整条替换；remove 删除。没有长度上限，但每次只展开与当前话题相关、较新的条目：这里放最核心、最常用的认识；细节和长内容用 note_save 放进笔记目录。",
     parameters: obj({ action: { type: "string", enum: ["add", "replace", "remove"] }, target: { type: "string", enum: ["memory", "user"] }, content: str("新的完整条目"), old_text: str("用于定位旧条目的唯一子串") }, ["action", "target"]),
-    handler: async (a) => mem.exclusive(() => mem.editMemory(a.target, a.action, a.content, a.old_text)),
+    handler: async (a) => mem.exclusive(() => config.adaptiveMemory.enabled
+      ? failed("新记忆已开启，对话事实和纠正由基座从可访问原始消息处理；此调用未写入旧记忆，也不代表后台处理已完成。不要转用普通笔记保存同一事实副本。")
+      : mem.editMemory(a.target, a.action, a.content, a.old_text)),
   },
   {
     name: "note_save", permission: "memory",
@@ -764,7 +766,7 @@ export function allTools(): Tool[] {
       const result = await callMcp(t.name, args, stopOf(ctx));
       return result.failed ? failed(result.text) : result.text;
     },
-  }))];
+  }))].filter((t) => !config.adaptiveMemory.enabled || t.name !== "memory");
 }
 /** 可以被其他身体经 body_call 调用的工具：适配器的设备工具、hands、自造工具，以及属于这具身体的几个内置工具（见 bodies.ts）。 */
 export function limbTools(allowedCore: Set<string>): Tool[] {
