@@ -112,7 +112,8 @@ class Api extends ChangeNotifier {
       if (c.token.isNotEmpty) return false; // 已有令牌：照常用它连（连不上会提示），不必再问网关
     }
     try {
-      final j = await _http('GET', '/auth/local');
+      // 同源 GET 不保证带 Origin；网页用 POST，让网关仍按明确来源核查。
+      final j = await _http(loc.pageOrigin != null ? 'POST' : 'GET', '/auth/local');
       if (j['token'] is String) { c.token = j['token'] as String; await _persist(); return true; }
     } catch (_) {}
     return false;

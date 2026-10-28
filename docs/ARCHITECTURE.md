@@ -703,7 +703,7 @@ flowchart LR
 |---|---|---|
 | 控制台 App | 网关 WebSocket：同一台手机上连本机明文端口；别的机器上的运行基座连 HTTPS / WSS（钉住证书指纹） | 见 [console 文档](../console/docs/README.md) |
 | 桌面版控制台 | Linux / Windows 原生窗口 + 同一个 WebSocket；连本机网关时直接读 `secrets/gateway.token`（同一个系统用户，经一次带令牌的核对），读不到再走 `GET /auth/local` | 托盘、耳朵与播放器；Windows 上还看护身体助手（`windows-body.mjs`）。见 [console 文档](../console/docs/README.md) |
-| 网页控制台 | 网关托管的静态页面（`current/web/`）+ 同一个 WebSocket | 控制台的 Flutter Web 构建，为电脑横屏重新排布；同一台机器上打开网关自己托管的页面时经 `GET /auth/local` 免配对码登录（`web.ts`；Origin 必须是网关自己的源，安卓上不提供） |
+| 网页控制台 | 网关托管的静态页面（`current/web/`）+ 同一个 WebSocket | 控制台的 Flutter Web 构建，为电脑横屏重新排布；同一台机器上打开网关自己托管的页面时经 `POST /auth/local` 免配对码登录（`web.ts`；Origin 必须是网关自己的源，安卓上不提供） |
 | 飞书 | 长连接（无需公网） | 单聊自动推送「此刻」卡片；机器人菜单事件；卡片按钮与表单直接调用操作层，原地刷新卡片 |
 | 终端聊天 | `quetzal chat` / `quetzal tui`，本机 WebSocket | 使用同一个 runtime，命令与限制见 [CLI](../cli/docs/README.md) |
 | 主机 | 端口转发到网关 | 与控制台同一套 API |

@@ -2,7 +2,7 @@
 //   监听：明文 HTTP 只在本机回环（127.0.0.1 与 ::1 的 gateway.port，不出这台机器）；对局域网开放时（gateway.lan，或 gateway.host 不是回环地址）
 //   另开 HTTPS / WSS（gateway.host:gateway.lanPort，自签名证书，TLS 1.2 起，见 tls.ts），局域网上不再有明文。两个监听共用同一套处理。
 //   GET  /health                 → { ok, version, mode }（无需令牌，供点火器探活）
-//   GET  /auth/local             → { ok, token }：只给同一台机器上打开着网页控制台的浏览器（托管网页版且不是安卓时才有，只在明文回环监听上），见 web.ts
+//   POST /auth/local（兼容 GET） → { ok, token }：只给同一台机器上的控制台；网页 POST 保留 Origin 核查，见 web.ts
 //   GET  /pair/info              → { ok, fingerprint, short, body, version, tls }（无需令牌：证书指纹，控制台配对时显示与核对）
 //   POST /pair/start | /pair/finish → 配对码（8 位，冷却、失败锁定与退避）；加密监听上 /pair/finish 只收配对证明 {proof}（与证书指纹绑定），回环上另收 {code}
 //   GET  /…                      → 网页控制台的静态文件（current/web/ 存在时），见 web.ts
@@ -146,7 +146,7 @@ export function startGateway(safeMode: boolean): GatewayHandle {
   const handle = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     const secure = !!(req.socket as { encrypted?: boolean }).encrypted; // 来自 HTTPS 监听（局域网）
     // 同一台机器上的浏览器直接拿令牌（网页控制台打开即登录）；跨源时允许本机其他端口的页面读取（开发时 flutter run）。只在明文回环监听上
-    if (req.method === "GET" && req.url === "/auth/local") {
+    if ((req.method === "GET" || req.method === "POST") && req.url === "/auth/local") {
       // 浏览器（网关托管的网页控制台，带 Origin）或同一个系统用户的原生桌面控制台（没有 Origin，见 web.ts 的 isLocalNative）
       const local = (!!web && isLocalBrowser(req, port())) || isLocalNative(req, port());
       if (secure || !localLogin() || !local || fromDescendant(req, port()) || (process.platform === "win32" && await fromDescendantWin(req, port())) || (process.platform === "darwin" && await fromDescendantMac(req, port()))) return json(res, 403, { ok: false, message: "只有这台机器上的控制台可以直接登录；别的设备请用配对码" });

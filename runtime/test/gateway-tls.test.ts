@@ -95,8 +95,14 @@ test("HTTPS：TLS 1.2 起，拒绝 TLS 1.1；/pair/info 返回指纹；/auth/loc
     const s = tls.connect({ host: "127.0.0.1", port: lanPort, rejectUnauthorized: false, maxVersion: "TLSv1.1", minVersion: "TLSv1" }, () => { s.end(); resolve(s.getProtocol()); });
     s.on("error", reject);
   }));
-  const a = await req("GET", `https://127.0.0.1:${lanPort}/auth/local`, undefined, { headers: { origin: `https://127.0.0.1:${lanPort}` } });
-  assert.equal(a.status, 403);
+  for (const method of ['GET', 'POST']) {
+    const a = await req(method, `https://127.0.0.1:${lanPort}/auth/local`, undefined, { headers: { origin: `https://127.0.0.1:${lanPort}` } });
+    assert.equal(a.status, 403);
+    for (const origin of [undefined, 'https://evil.example', 'null']) {
+      assert.equal((await req(method, `http://127.0.0.1:${plainPort}/auth/local`, undefined,
+        { headers: origin ? { origin } : {} })).status, 403);
+    }
+  }
 });
 
 test("配对：加密监听上只收证明——拒绝 {code}；指纹不同算出的证明不正确；正确的证明换到令牌与指纹", async () => {
