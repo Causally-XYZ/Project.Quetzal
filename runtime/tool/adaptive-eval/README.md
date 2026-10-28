@@ -20,6 +20,7 @@
 - `body.ts` / `process-client.ts`：隔离进程中的实际存储、后台、网关、WebRTC 和灵魂同步，以及有界 IPC / 网关请求与退出检查。只在测试信令目录和本机裸 Git 远端复用既有测试例外。
 - `model-observer.ts`：完整适配器输入 / 输出、实际模型、用量与错误的旁路记录；live 使用既有 ADC 传输，stub 明确为工程替身。
 - `retrieval-observer.ts`：显式向量模式的公开缓存预热与真实调用旁路；不替换推理、候选、查询结果或生产准备器。
+- `recovery-development.json`：M4公开恢复开发材料，工作协作 / 家庭维修信息 / 志愿活动三个题材，包含备份前输入、备份后新信息、首次查询、无关穿插、再次相关使用及人工核读要点。不是正式留出，也不是 `development.ts` 新增的 `--case` 选项；编排复用 BodyClient、管理 RPC 与正式恢复 CLI，观察证据见阶段记录。checks 和未来输入不得发送给模型，文件不进入生产 bundle。
 
 从仓库根目录执行：
 
