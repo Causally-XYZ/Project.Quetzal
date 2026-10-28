@@ -251,3 +251,5 @@ adapters/
 Google adapter 将 functionCall 部件的 thoughtSignature 与模型名存入 ToolCall.providerMetadata.google，下一步仅向同名 Google 模型的原调用部件回传。引擎和当前上下文保留该元数据，工具参数及审计记录不包含它；其他供应商不发送。并行调用不复制签名到未签名部件，连续步骤各保留原值。仅覆盖工具续接，不实现非工具文字签名或跨模型签名转换；旧历史缺签名时不伪造补齐，沿用供应商错误 / 路由处理。使用现有工具协议、构建与测试入口，无依赖或部署配置变化。
 
 M4 的 `ops.memory.adaptive.source` 调用 `inspectAdaptiveSource`：输入为查询已返回的来源 id / hash，沿 `withAdaptiveSources` 保持正文和当前修订的一致快照。未启用且无认识历史时仅从同一条原始消息核对摘要；忽略、非对话角色、空正文与急停均拒绝。它是只读管理接口，不扩展 mesh 权限，不触发模型任务或复制；来源正文裁到16000字符并显式标记截断。卫星返回 research 开关配置而不伪造远端队列。无存储迁移、依赖和部署脚本变化；既有构建导入链包含新增函数。
+
+`memory/backup.ts` 经 `soul-sync.snapshotSoul` 同时排空 Git 队列与灵魂写入，再以不让出事件循环的回调执行 VACUUM INTO 和文件复制；ensureSoul 也进入 Git 队列。固定本机路径与 UUID、SHA-256 清单、SQLite 完整性及 agent 核查，不执行备份内脚本。创建采用临时目录、刷盘后改名，正常失败清理临时目录，进程中断留下的 partial 不列作成功；不支持多个 runtime 共用家目录或将外部并发写入视为受锁保护。复制过程可能暂停本机处理，尚无大备份时延保证。仅管理 ops 暴露 create / list / verify，不增加 agent 工具或 mesh 权限；当前恢复入口待实现。无新增依赖和构建 / 部署配置，既有导入链覆盖。

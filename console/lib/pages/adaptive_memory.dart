@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../markdown.dart';
 import '../widgets.dart';
+import 'memory_backups.dart';
 
 class AdaptiveMemoryPage extends StatefulWidget {
   const AdaptiveMemoryPage({super.key});
@@ -137,6 +138,8 @@ class _AdaptiveMemoryState extends State<AdaptiveMemoryPage> {
         if (loading) const LinearProgressIndicator(),
         if (error != null) SelectableText(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
         if (status != null) ...[
+          ListTile(leading: const Icon(Icons.save_alt), title: const Text('记忆备份'), trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MemoryBackupsPage()))),
           Section('记忆处理', [
             DropdownButtonFormField<String>(key: ValueKey(host), initialValue: hosts.contains(host) ? host : null, isExpanded: true,
               decoration: const InputDecoration(labelText: '处理记忆的设备'),

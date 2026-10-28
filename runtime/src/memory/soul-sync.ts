@@ -56,12 +56,15 @@ export const syncStatus = () => ({ ...r().status, remote: config.soul.remote, br
 
 /** 接入灵魂仓库：克隆或初始化，并按规范补齐目录结构（见 docs/SOUL_REPO_SPEC.md）。 */
 export async function ensureSoul() {
-  await r().ensure();
+  await serial(() => r().ensure());
 }
 
 // 多个会话、醒来可能同时触发 git 操作：全部排队串行执行，避免索引锁冲突
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(f: () => Promise<T>): Promise<T> { const p = queue.then(f); queue = p.catch(() => {}); return p; }
+
+/** 同时排空 Git 操作与灵魂写入；回调须同步完成，且不能再次调用同步队列。 */
+export const snapshotSoul = <T>(f: () => T): Promise<T> => serial(() => exclusive(f));
 
 /** 拉取；有新内容时作为「灵魂同步」知觉告知 agent（写入时间线与感官事件）。两边都改过的文件另存了副本时，提醒最近改过它的会话。 */
 let alertedForeign = "", alertedSkipped = "";

@@ -295,6 +295,9 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 | `memory.adaptive.source` | `{id: 正整数, hash: 64位十六进制来源摘要}` → `{status: ready / changed / unavailable, freshness?, source?, reading?}` | 仅管理网关回查本机已复制来源；原文与已知修订取同一快照，校验当前 agent 的来源摘要。changed / unavailable 不返回正文；忽略、非对话来源及急停不可读。ready 的 source 含 id / session / role / recordedAt / text / truncated，正文脱敏并最多16000字符；reading 包含当前已知修订，freshness 为 local-snapshot，不保证中心最新，也不重写历史原话 |
 | `memory.adaptive.jobs` | — → 最近最多 20 条任务 | 当前仅中心本机可见；包含来源、修订、处理器、状态、尝试次数、租约和错误代码，不含正文 |
 | `memory.adaptive.cancel` | `{id: string}` → boolean | 只取消本机中心的 queued/running/failed 任务并审计；同一来源修订和处理器不被补扫自动复活 |
+| `memory.backup.create` | — → `{id, createdAt, agent, body, runtime, files, bytes, captureMs, directory, verified:true}` | 创建并校验本机记忆备份，成功后审计；同一进程只允许一份在途创建。固定写入 `data/memory-backups/<id>`，不接受调用者路径、不调用模型或上传。captureMs 为文件捕获及清单准备时间，不含之后的刷盘与校验；不是端到端耗时 |
+| `memory.backup.list` | — → 清单摘要数组 | 按创建时间升序；可读项带上述摘要与 readable:true，不含 verified；坏清单返回 `{id,readable:false}`。列表读取不等于完整性检查 |
+| `memory.backup.verify` | `{id: UUID v4}` → 摘要及 verified:true | 校验文件集合、SHA-256、SQLite integrity_check 及数据库与灵魂 agent 一致；失败抛错。不执行备份中的代码，不安装 / 恢复；摘要校验不是备份来源的密码学认证 |
 
 语义 mesh 方法使用独立信封：`{version:1, queryHash, generatedAt, agent, host, status, freshness, generation, items, matched, basis}`。queryHash 为本次查询的 JSON SHA-256；信封校验请求、指定身份、时间范围和全部字段，未知字段拒绝。basis.records 为当前图每个认识的 `{id,revision,hash}`，basis.sources 为图中直接来源的 `{id,hash|null}`；只含版本摘要，不传整图正文。两者各至多1000项，信封最多512 KiB。网关返回去掉 version / queryHash / generatedAt 的读取视图，不把传输时间纳入上下文缓存比较。
 

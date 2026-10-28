@@ -726,3 +726,5 @@ flowchart LR
 模型的可选思考强度由现有 providers 配置管理：控制台草稿保存、版本防覆盖、身体间同步、逐候选路由、Google 原生参数与连通性测试共享同一字段。缺省保持供应商默认，显式 LOW / MEDIUM / HIGH 只允许 Google 协议；测试 ADC 仅认证与观察，不再覆盖请求正文。不同等级的开发结果仍分开保留，不能改变既有正式评测计划或证明生产质量。
 
 Google 工具调用的协议续接元数据由适配器保存到 ToolCall.providerMetadata，引擎不解释；同模型下一步回传原 functionCall 部件上的 thoughtSignature，避免工具回查后缺签名被拒绝。该字段不属于记忆事实或工具参数。边界与限制见 runtime 架构文档。
+
+记忆备份由 `memory/backup.ts` 提供管理 RPC 与控制台入口。在本机 Git 队列和灵魂写锁内同步捕获 SQLite 完整快照、灵魂工作树及 Git 历史、本机上传 / 媒体 / 跨身体文件副本 / Canvas 输出；不复制运行配置、密钥、可重建检索组件或外部工作区。清单摘要与数据库完整性检查用于发现缺损，不证明全网最新或语义正确。当前仅创建 / 列表 / 校验，完整恢复验收仍待 M4；范围与限制见[存储说明](engine/ADAPTIVE_MEMORY_STORAGE.md#本机记忆备份m4)。

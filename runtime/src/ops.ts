@@ -48,6 +48,7 @@ import { pluginOps } from './plugins/ops.ts';
 import { listSources } from './mcp/runtime.ts';
 import { pendingRecommendations } from './plugins/index.ts';
 import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, queryAdaptiveSemantic, adaptiveJobs, cancelAdaptiveJob, inspectAdaptiveSource } from './memory/adaptive.ts';
+import { createMemoryBackup, listMemoryBackups, verifyMemoryBackup } from './memory/backup.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -249,6 +250,12 @@ export const ops = {
   setBudget: (a: Partial<typeof config.budget>, actor: string) => { saveConfig({ budget: a }); audit(actor, "budget", "", a, "ok"); return config.budget; },
 
   memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), loops: mem.openLoops() }),
+  'memory.backup.list': () => listMemoryBackups(),
+  'memory.backup.verify': (a: { id: string }) => verifyMemoryBackup(a?.id),
+  'memory.backup.create': async (_a: unknown, actor: string) => {
+    const result = await createMemoryBackup();
+    audit(actor, 'memory.backup.create', '创建本机记忆备份', { id: result.id }, 'ok'); return result;
+  },
   'memory.records': (a: { state?: string; kind?: string }) => readStructuredRecords().filter((r) => r.scope.agentId === identity().id && (!a.state || r.state === a.state) && (!a.kind || r.kind === a.kind)),
   'memory.adaptive.status': () => adaptiveStatus(),
   'memory.adaptive.source': (a: { id: number; hash: string }) => inspectAdaptiveSource(a),
