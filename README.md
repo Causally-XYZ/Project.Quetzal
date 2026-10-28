@@ -156,6 +156,8 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 M1 与 M2 代表性原型已验收并推送；[版本化认识与证据依赖库](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)及[组件与模型接线](docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)已通过相应阶段检查。M3 正验证默认关闭的后台研究与完整关联体验，尚未放行；全量语义质量与规模验证保留至 M5。
 
+当前验收按需求方确认的容错方向，关注有用性、错误是否自我强化及后续修正，不要求每次语义理解零错误；95%是待验证的质量方向，非已有成绩。具体阶段判定见上述计划。
+
 <br/>
 
 <p align="center"><sub>仅用于学习和研究，只操作自己拥有的设备，不以牟利为目的。<a href="LICENSE">AGPL-3.0</a></sub></p>
