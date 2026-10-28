@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { sourceReading, sourceReadingHeader, sourceRecordedAt } from '../src/memory/adaptive-reading.ts';
+import { sourceReading, sourceReadingHeader, sourceReadingsHeader, sourceRecordedAt, type SourceReading } from '../src/memory/adaptive-reading.ts';
 import { evaluateEvidence, type SemanticRecord, type ObjectRecord, type MentionRecord, type ClaimRecord, type SourceSpan, type SourceReader } from '../src/memory/adaptive-evidence.ts';
 import { answerSource } from '../src/memory/answer-basis.ts';
 
@@ -39,6 +39,30 @@ test('原文覆盖层指出局部重新绑定和下游失效，不删除原文�
   assert.ok(notices.every((n) => n.spans.some((s) => s.hash === f.span(3).hash)));
   assert.equal(f.sources.get(3), '阿舟劝我，我决定补写');
   assert.match(sourceReadingHeader(view, 3), /不撤回整段/);
+});
+
+test('多份旧答共享修订不重复膨胀；完整保留逐来源映射、失效状态和不同片段', () => {
+  const f = fixture(), view: SourceReading = sourceReading(f.history, [3, 4], 2, f.read);
+  // 同一认识的不同原文片段不能仅按认识ID合并。
+  const distinct = structuredClone(view.sources[0].notices[0]); distinct.spans[0].start++;
+  view.sources[1].notices.push(distinct);
+  const ids = Array.from({ length: 30 }, (_, i) => 100 + i);
+  for (const id of ids) view.sources.push({ id, hash: 'a'.repeat(64), recordedAt: null, notices: [],
+    answer: { status: 'changed', sources: [3, 4] } });
+  view.sources.push({ id: 999, hash: null, notices: [] });
+  const original = structuredClone(view), text = sourceReadingsHeader(view, ids);
+  const data = JSON.parse(text.slice(text.indexOf('{"sources"'), -2));
+  assert.equal(data.sources.length, 32);
+  for (const source of original.sources.filter((s) => s.id !== 999)) {
+    const row = data.sources.find((s: any) => s.id === source.id);
+    assert.deepEqual({ ...row, notices: row.notices.map((i: number) => data.notices[i]) }, source);
+  }
+  assert.ok(data.notices.some((n: any) => n.current?.text === '弟弟'));
+  assert.ok(data.notices.some((n: any) => n.status === 'unsupported' && n.current === null));
+  assert.equal(data.notices.length, 4);
+  assert.ok(Buffer.byteLength(text) < Buffer.byteLength(ids.map((id) => sourceReadingHeader(view, id)).join('')) / 2);
+  assert.deepEqual(view, original);
+  assert.throws(() => sourceReadingsHeader(view, [999]), /不可访问/);
 });
 
 test('纠正改用新来源，旧消息仍携带替代内容；来源再编辑不偷换旧偏移的 hash', () => {

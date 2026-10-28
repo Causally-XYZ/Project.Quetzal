@@ -112,6 +112,33 @@ export function sourceReading(history: SemanticRecord[], ids: number[], generati
   return result;
 }
 
+const describeNotice = (notice: SourceNotice) => notice.status === 'unsupported' && notice.identityGap ? {
+  ...notice, status: '身份关联未完整',
+  explanation: '这是有当前可访问原文支持的转述；binding 为 null 的指代尚未确定，不抹去其他角色已有的绑定，也不表示原发言被否定。仅说明原话中的身份关联，不确认事件为世界事实，整条认识仍不能作为完整推理前提；reference 是被谈论对象，不是跨语境事实依据。',
+} : notice;
+
+/** 工具批量读取共享修订表；完整保留每个来源的映射，不为每份旧答重复展开同一修订。 */
+export function sourceReadingsHeader(view: SourceReading, ids: number[]): string {
+  if (!ids.length) return sourceReadingHeader(view);
+  const byId = new Map(view.sources.map((s) => [s.id, s])), selected = new Set(ids);
+  for (const id of ids) if (!byId.get(id)?.hash) throw new Error('历史来源不可访问，不能返回缓存正文');
+  for (const id of selected) {
+    const answer = byId.get(id)?.answer;
+    if (answer?.status === 'changed') for (const parent of answer.sources) if (byId.has(parent)) selected.add(parent);
+  }
+  const notices: ReturnType<typeof describeNotice>[] = [], indices = new Map<string, number>();
+  const sources = [...selected].map((id) => {
+    const source = byId.get(id)!;
+    return { ...source, notices: source.notices.map((notice) => {
+      const described = describeNotice(notice), key = JSON.stringify(described);
+      let index = indices.get(key);
+      if (index === undefined) { index = notices.length; indices.set(key, index); notices.push(described); }
+      return index;
+    }) };
+  });
+  return `【记忆修订核对：本机已收到的快照 generation=${view.generation}，不保证中心最新。原文保留历史措辞，不代表当前事实；修订也是带依据的认识，不是事实确认。recordedAt 是原消息记录时间（UTC），不是事件时间；缺失时未知。sources 中 notices 的整数下标指向共用 notices 修订表，必须结合该来源读取；片段位置按所列 hash 的原文 UTF-16 偏移计算，不能跨版本套用，状态不撤回整段其他内容。助手 answer.status=changed 表示旧回答不能沿用为现行依据，其 answer.sources 指向所依赖来源及这些来源的当前修订；unchanged 只表示已登记来源未变，不证明回答正确或覆盖其他材料，unbound 表示未经核查。${JSON.stringify({ sources, notices })}】\n`;
+}
+
 export function sourceReadingHeader(view: SourceReading, source?: number): string {
   const entry = source === undefined ? undefined : view.sources.find((s) => s.id === source);
   if (source !== undefined && !entry?.hash) throw new Error('历史来源不可访问，不能返回缓存正文');
@@ -119,14 +146,10 @@ export function sourceReadingHeader(view: SourceReading, source?: number): strin
   const answer = entry?.answer;
   const notices = answer?.status === 'changed' ? [...new Map(view.sources.filter((s) => answer.sources.includes(s.id))
     .flatMap((s) => s.notices).map((n) => [n.id, n])).values()] : [];
-  const describe = (notice: SourceNotice) => notice.status === 'unsupported' && notice.identityGap ? {
-    ...notice, status: '身份关联未完整',
-    explanation: '这是有当前可访问原文支持的转述；binding 为 null 的指代尚未确定，不抹去其他角色已有的绑定，也不表示原发言被否定。仅说明原话中的身份关联，不确认事件为世界事实，整条认识仍不能作为完整推理前提；reference 是被谈论对象，不是跨语境事实依据。',
-  } : notice;
-  const described = entry && { ...entry, notices: entry.notices.map(describe),
+  const described = entry && { ...entry, notices: entry.notices.map(describeNotice),
     ...(answer ? { answer: { status: answer.status, sourceCount: answer.sources.length } } : {}) };
   return `【记忆修订核对：本机已收到的快照 generation=${view.generation}，不保证中心最新。recordedAt 是该原消息的记录时间（UTC），不是所述事件的发生时间或当前时间；缺失时未知。以下原文保留历史措辞，不代表当前事实；修订信息也是带依据的认识，不是事实确认。` +
     (entry ? `片段位置按所列 hash 的原文 UTF-16 偏移计算，不能跨版本套用；状态只作用于指定认识，不撤回整段其他内容。${JSON.stringify(described)}`
       : '此缓存没有可解析的消息来源，无法逐项核对修订；需要现行依据时请回查带来源的原文。') +
-    (answer ? `助手回答的消息来源核查=${answer.status}；unchanged 只表示这些来源未变，不证明回答正确或覆盖文件、外部工具与其他派生资料。${notices.length ? JSON.stringify(notices.map(describe)) : ''}` : '') + '】\n';
+    (answer ? `助手回答的消息来源核查=${answer.status}；unchanged 只表示这些来源未变，不证明回答正确或覆盖文件、外部工具与其他派生资料。${notices.length ? JSON.stringify(notices.map(describeNotice)) : ''}` : '') + '】\n';
 }

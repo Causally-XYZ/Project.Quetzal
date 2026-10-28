@@ -7,7 +7,7 @@ import { documents } from '../memory/retrieval.ts';
 import { readStructuredRecords, readLegacyRecords } from '../memory/structured.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
 import { MEMORY_READ_TOOLS, parseReadReceipt, readDigest, observeReadDocument, type ReadDocument } from '../memory/read-receipt.ts';
-import { sourceReadingHeader, type SourceReading } from '../memory/adaptive-reading.ts';
+import { sourceReadingsHeader, type SourceReading } from '../memory/adaptive-reading.ts';
 
 export interface ToolReading extends ToolCallRow { currentReading: string }
 export const toolReadingKey = (row: Pick<ToolCallRow, 'call' | 'session'>) => JSON.stringify([row.session, row.call]);
@@ -56,10 +56,10 @@ export function prepareToolReadings(records: ToolCallRow[], conv: string) {
             // context_read 再读取本结果时，继续绑定本次实际核对的文件状态。
             observeReadDocument(d.kind, d.key, value);
           }
-          const headers = receipt.sources.filter((s) => sources.get(s.id)?.hash).map((s) => sourceReadingHeader(view, s.id)).join('');
+          const headers = sourceReadingsHeader(view, receipt.sources.filter((s) => sources.get(s.id)?.hash).map((s) => s.id));
           const body = changed ? '【原消息或文档已改变 / 不可访问；此结果没有逐句依赖映射，不输出旧正文，请重新读取相关资料。】'
             : reference && record.result.length > 12000 ? `【完整工具结果超过首屏预算；没有截断修订后保留片段。请回查：${reference(record)}】` : record.result;
-          currentReading = `【历史工具 ${record.tool} 的当前来源核查；未重新执行工具，当时结果不是现行事实确认。】\n${headers || sourceReadingHeader(view)}${changed ? '【原来源已改变或不可访问，不沿用旧正文。】\n' : ''}`;
+          currentReading = `【历史工具 ${record.tool} 的当前来源核查；未重新执行工具，当时结果不是现行事实确认。】\n${headers}${changed ? '【原来源已改变或不可访问，不沿用旧正文。】\n' : ''}`;
           result = currentReading + body;
         }
         if (Buffer.byteLength(result) > 512 * 1024) throw new Error('工具修订视图超过工作上限');
