@@ -1,9 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { adcFetch, vertexPlaceholder, vertexModels, type VertexReceipt } from '../tool/adaptive-vertex-transport.ts';
 
 const url = `${vertexPlaceholder}/models/${vertexModels[1]}:streamGenerateContent?alt=sse`;
 const credentials = async () => ({ project: 'synthetic-project', token: 'synthetic-token' });
+test('外部上下文取消时回执仍绑定原调用，不能丢失或归给另一请求', async () => {
+  const context = new AsyncLocalStorage<string>(), seen: { call: string | undefined; receipt: VertexReceipt }[] = [];
+  const controller = new AbortController();
+  let started!: () => void; const ready = new Promise<void>((resolve) => { started = resolve; });
+  const send = adcFetch(async (_input, init) => {
+    started(); return new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }));
+  }, credentials, (receipt) => seen.push({ call: context.getStore(), receipt }));
+  const request = context.run('original-call', () => send(url, { method: 'POST', signal: controller.signal }));
+  await ready;
+  context.run('unrelated-call', () => controller.abort());
+  await assert.rejects(request);
+  assert.equal(seen.length, 1); assert.equal(seen[0].call, 'original-call');
+  assert.equal(seen[0].receipt.state, 'cancelled'); assert.equal(seen[0].receipt.phase, 'headers');
+});
 test('ADC 只观察已配置的思考等级，原始正文逐字透传', async () => {
   const receipts: VertexReceipt[] = [];
   const request = { contents: [{ role: 'user', parts: [{ text: '合成来源' }] }], generationConfig: {

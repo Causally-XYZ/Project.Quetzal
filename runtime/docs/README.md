@@ -11,6 +11,8 @@ TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQ
 | `npm run build` | engine 独立类型检查 + runtime 类型检查 + esbuild 打包：`dist/main.cjs`、`android.mjs`、`linux.mjs`、`macos.mjs`、`termux.mjs`、`windows.mjs`、`windows-body.mjs`、`windows-supervise.mjs`、`mermaid.mjs`；最后由 `tool/build-srt.mjs` 打包 `dist/srt.mjs` |
 | `npm run dev` | 以 `./.dev` 为家目录直接运行源码 |
 
+开发 ADC 传输回执绑定原请求上下文，避免旧记忆选择超时取消时丢失调用关联。此修复只涉及开发取证，复用 Node 内置 async_hooks；不新增依赖、环境变量、生产服务或构建入口。
+
 测试夹具清理临时 `QUETZAL_HOME` 前，须先结束模型服务 / MCP 连接并关闭 SQLite `store.db`，再删除目录。Windows 不允许删除仍由数据库打开的文件；清理失败同样属于测试失败，不能以忽略 EPERM 或跳过用例替代释放资源。
 
 M3 的[开发三基线选项](../tool/adaptive-eval/README.md#m3-三基线开发对照)复用现有运行器，对照旧 Quetzal、原文＋FTS 与新记忆系统。素材统一走普通对话，旧学习使用原预算并等真实队列结束，不以直接插入历史替代学习；真实模型结果仍待验证。仅增加学习队列的内部只读 pending 观测，未新增生产配置、依赖、部署服务或网关 API，现有类型检查、构建与测试入口覆盖。

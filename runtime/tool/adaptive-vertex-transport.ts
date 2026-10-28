@@ -1,5 +1,6 @@
 // 开发试验专用：给现有 Google 适配器换上内存中的 ADC 认证，不改生产供应商配置。
 import { execFile } from 'node:child_process';
+import { AsyncResource } from 'node:async_hooks';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { GOOGLE_THINKING_LEVELS, type GoogleThinkingLevel } from '../src/providers/types.ts';
@@ -41,6 +42,8 @@ export function adcFetch(native: typeof fetch, credentials: () => Promise<Creden
       if (level !== undefined) thinkingLevel = GOOGLE_THINKING_LEVELS.includes(level) ? level : 'other';
     } catch { /* 正文是否有效由实际供应商处理；不泄漏解析错误内容。 */ }
     const start = Date.now();
+    // 外部超时 / 取消可以从另一个异步上下文触发；回执仍归属发起请求的观察器。
+    const reportInContext = AsyncResource.bind(report);
     let phase: VertexReceipt['phase'] = 'credentials', status: number | null = null, reported = false;
     let credentialsMs: number | undefined, headersMs: number | undefined, firstByteMs: number | undefined;
     let buffer = '', bytes = 0;
@@ -49,7 +52,7 @@ export function adcFetch(native: typeof fetch, credentials: () => Promise<Creden
     const done = (state: VertexReceipt['state']) => {
       if (reported) return;
       reported = true; init?.signal?.removeEventListener('abort', aborted);
-      report({ model: match[1], versions: [...versions], finish: [...finish], usage: structuredClone(usage), elapsedMs: Date.now() - start,
+      reportInContext({ model: match[1], versions: [...versions], finish: [...finish], usage: structuredClone(usage), elapsedMs: Date.now() - start,
         state, phase, status, credentialsMs, headersMs, firstByteMs, bytes, ...(thinkingLevel ? { thinkingLevel } : {}) });
     };
     const aborted = () => done('cancelled');
