@@ -5,8 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { layout, putRelease, switchTo, rollback, prune, versionOf, patchConfig, readConfig, defaultBody, needsMigration, migrateHome, defaultHome } from "../src/layout.ts";
-// Linux 专用（install.sh、符号链接的版本目录）：Windows 上跳过，Windows 的版本指针见 windows.test.ts
-const test = (name: string, fn: () => void | Promise<void>) => base(name, { skip: process.platform === "win32" && "只用于 Linux" }, fn);
+// POSIX 符号链接版本目录（Linux / macOS）：Windows 的版本指针见 windows.test.ts。
+const test = (name: string, fn: () => void | Promise<void>) => base(name, { skip: process.platform === "win32" && "只用于 POSIX 版本目录" }, fn);
 
 function fixture() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-cli-"));
@@ -51,9 +51,9 @@ test("配置只改安装需要的键；身体名字由主机名派生", () => {
   const { l } = fixture();
   fs.mkdirSync(path.dirname(l.config), { recursive: true });
   fs.writeFileSync(l.config, JSON.stringify({ body: "default", heart: { activity: 2 }, gateway: { port: 7799 } }));
-  patchConfig(l, (c) => { c.body = defaultBody("My Laptop.local"); c.gateway = { ...c.gateway, host: "0.0.0.0" }; });
+  patchConfig(l, (c) => { c.body = defaultBody("My Laptop.local", "linux"); c.gateway = { ...c.gateway, host: "0.0.0.0" }; });
   assert.deepEqual(readConfig(l), { body: "my-laptop-local", heart: { activity: 2 }, gateway: { port: 7799, host: "0.0.0.0" } });
-  assert.equal(defaultBody("---"), "linux");
+  assert.equal(defaultBody("---", "linux"), "linux");
   assert.equal(defaultBody("srv_01").length, 6);
 });
 

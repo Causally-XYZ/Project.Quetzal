@@ -79,8 +79,10 @@ flowchart LR
 - 不碰运行基座的其他配置：模型、授权、飞书、灵魂仓库都在控制台里；这里只写 `body`（没有时）与 `gateway.host` + `gateway.lan`（显式 `--lan` 写 `0.0.0.0` 与 `true`，`--no-lan` 写 `127.0.0.1` 与 `false`）。局域网上运行基座只开 HTTPS / WSS（`gateway.lanPort`，默认 7789，自签名证书），明文 HTTP 只在 127.0.0.1；判定规则与运行基座一致（`lan` 为真或 `host` 不是回环地址）。
 - 服务不依赖 npx 缓存：运行的文件全部在 `~/.quetzal/releases/` 里，npx 缓存被清掉也不影响。
 - 没有 systemd 用户实例时不自造守护者：放好文件后提示 `quetzal run`，由容器编排或部署者自己的守护者负责重启。
-- 令牌永不打印；配对码（连同证书短指纹）由适配器通知与服务日志承载。`status` 打印局域网的 https 地址（本机非回环的 IPv4，`os.networkInterfaces()`）与证书指纹（读 `secrets/gateway-tls.crt` 算 SHA-256（DER），证书是公开的；运行基座第一次启动后才有），给人在 App 与浏览器里核对。本机浏览器的登录由网关自己判定（`GET /auth/local`）。chat/tui 优先只读家目录的 `secrets/gateway.token`，缺失时用回环 `/auth/local`；令牌仅作为 WebSocket 首帧认证发送，不进 URL 或终端。
+- 令牌永不打印；配对码（连同证书短指纹）由适配器通知与服务日志承载。`status` 打印局域网的 https 地址（本机非回环的 IPv4，`os.networkInterfaces()`）与证书指纹（读 `secrets/gateway-tls.crt` 算 SHA-256（DER），证书是公开的；运行基座第一次启动后才有），给人在 App 与浏览器里核对。本机浏览器的登录由网关自己判定（网页用 `POST /auth/local`；原生客户端兼容 GET）。chat/tui 优先只读家目录的 `secrets/gateway.token`，缺失时用回环 `/auth/local`；令牌仅作为 WebSocket 首帧认证发送，不进 URL 或终端。
 
 ## 终端对话边界
 
 chat/tui 通过现有 `/rpc` 调用运行基座，不 import engine 或 runtime，不修改部署配置。Node 内置 WebSocket 与 readline 维持零运行时依赖。认证/消息协议和安全状态来自网关；完整命令见 [TUI.md](TUI.md)。默认同会话消息为 steer，可插话，停止使用 chat.stop，审批转送 body/id。重连只恢复会话、live、审批、保密输入和历史，不重发 chat.send 或任何修改操作。保密输入时关闭回显并清空未提交行，终端拒绝普通输入，要求去控制台完成或取消。
+
+版本目录测试在 Linux / macOS 运行；涉及 Linux 主机名规则的断言显式传入 `linux`，不将执行测试的操作系统误当测试目标。macOS 去除 Bonjour `.local` 后缀的规则由 launchd 测试单独覆盖。修正只影响测试，没有新增依赖或改变安装 / 构建脚本。

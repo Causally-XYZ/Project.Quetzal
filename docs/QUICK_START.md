@@ -119,7 +119,7 @@ flutter build apk --release --target-platform android-arm64
 
 ## 5. 开发
 
-实验性自适应记忆仍按 M0–M5 门禁推进。指定集中身体并开启 `adaptiveMemory.enabled / semantic` 后，中心会在后台自动准备固定本机检索组件，无需使用者运行 npm 或模型下载脚本。组件、公共下载缓存及可重建向量库仅在 `QUETZAL_HOME/data/adaptive-retrieval/`，不写灵魂；其他身体不安装这份组件。中心使用现有 Node 安装配套的 npm，网络需能访问固定 npm registry 与 Hugging Face 模型文件。准备期间继续词面检索，失败自动退避；关闭、急停或停止会取消准备。完整状态由 `memory.adaptive.status` 返回。缓存预热的本机部署已有验证，全冷下载耗时、跨平台及完整多身体体验仍待验收，不能视为 M2 已放行。
+实验性自适应记忆仍按 M0–M5 门禁推进。指定集中身体并开启 `adaptiveMemory.enabled / semantic` 后，中心会在后台自动准备固定本机检索组件，无需使用者运行 npm 或模型下载脚本。组件、公共下载缓存及可重建向量库仅在 `QUETZAL_HOME/data/adaptive-retrieval/`，不写灵魂；其他身体不安装这份组件。中心使用现有 Node 安装配套的 npm，网络需能访问固定 npm registry 与 Hugging Face 模型文件。准备期间继续词面检索，失败自动退避；关闭、急停或停止会取消准备。完整状态由 `memory.adaptive.status` 返回。M2 / M3 代表性原型已验收。M4 已验证桌面 / 窄屏管理入口、一次中心离线纠正补做及本机生产构建的 launchd 崩溃重启；这些检查不等于全冷安装、跨平台或完整备份恢复，尚未放行 M4。阶段证据见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。
 
 ```bash
 cd runtime && npm run dev      # 以 ./.dev 为家目录直接运行 TypeScript

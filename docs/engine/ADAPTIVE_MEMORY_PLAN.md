@@ -1,6 +1,6 @@
 # 自适应记忆实施计划（M0–M5）
 
-状态：M0 / M1 已完成，M1 验收提交已推送并核对远端，M2 原型验收通过并已推送核对 `17f8aa1`，M3 主动关联、多步推理与纵向修正原型验收通过，已推送并核对 `b911fcb`；M4 准备中。后台整合与研究仍默认关闭，全量语义评分移至 M5。建立日期：2026-10-27。实际完成情况只以[阶段验证记录](ADAPTIVE_MEMORY_PROGRESS.md)为准；M2 的[组件契约实验与模型连接](ADAPTIVE_MEMORY_COMPONENTS.md)单独记录。
+状态：M0 / M1 已完成，M1 验收提交已推送并核对远端，M2 原型验收通过并已推送核对 `17f8aa1`，M3 主动关联、多步推理与纵向修正原型验收通过，已推送并核对 `b911fcb`；M4 实施中，控制台与部分恢复链路已验证，尚未放行。后台整合与研究仍默认关闭，全量语义评分移至 M5。建立日期：2026-10-27。实际完成情况只以[阶段验证记录](ADAPTIVE_MEMORY_PROGRESS.md)为准；M2 的[组件契约实验与模型连接](ADAPTIVE_MEMORY_COMPONENTS.md)单独记录。
 
 本计划扩展 Quetzal 的记忆能力，不替代现有执行引擎。现状见[结构化记忆](STRUCTURED_MEMORY.md)、[全局架构](../ARCHITECTURE.md)与[灵魂仓库规范](../SOUL_REPO_SPEC.md)。行为定义见[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)，逐步输入与判定见[验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md)。
 

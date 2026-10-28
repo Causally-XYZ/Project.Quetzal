@@ -18,7 +18,7 @@ npx @plutokeating/quetzal uninstall       # 移除服务；--purge 连家目录�
 npx @plutokeating/quetzal run             # 没有 systemd 的机器（容器、未开 systemd 的 WSL）：前台运行，交给自己的守护者
 ```
 
-模型、身份、授权、飞书和灵魂仓库仍在网页控制台配置；对话与待审批动作也可以通过 `quetzal chat` / `quetzal tui` 完成。终端只连接本机网关，与 App 使用同一个 agent，不另建运行时。命令、认证、保密输入限制与断线行为见 [终端对话](TUI.md)。同一台机器的浏览器打开即登录（网关的 `GET /auth/local`）；手机上的 Quetzal App 连这台机器时才需要配对码：App 里只填这台机器的地址（自动用 `https://…:7789`），先核对 App 显示的证书指纹与 `quetzal status` 里的一致；配对码连同证书短指纹通过 Linux 适配器的 `notify`（`notify-send`）弹桌面通知，并写进服务日志，没有桌面的机器从 `quetzal logs` 里看。用浏览器从别的机器打开 `https://<地址>:7789/` 会提示证书不受信任（自签名），在警告页核对指纹后再继续。
+模型、身份、授权、飞书和灵魂仓库仍在网页控制台配置；对话与待审批动作也可以通过 `quetzal chat` / `quetzal tui` 完成。终端只连接本机网关，与 App 使用同一个 agent，不另建运行时。命令、认证、保密输入限制与断线行为见 [终端对话](TUI.md)。同一台机器的浏览器打开即登录（网关的 `POST /auth/local`）；手机上的 Quetzal App 连这台机器时才需要配对码：App 里只填这台机器的地址（自动用 `https://…:7789`），先核对 App 显示的证书指纹与 `quetzal status` 里的一致；配对码连同证书短指纹通过 Linux 适配器的 `notify`（`notify-send`）弹桌面通知，并写进服务日志，没有桌面的机器从 `quetzal logs` 里看。用浏览器从别的机器打开 `https://<地址>:7789/` 会提示证书不受信任（自签名），在警告页核对指纹后再继续。
 
 ## 一键安装脚本 `install.sh`
 
@@ -141,3 +141,5 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex     # 首选：PowerShel
 版本号必须与 `runtime/package.json`、`console/pubspec.yaml` 一致，`tool/bundle-runtime.sh` 与发版工作流都会校验。发布由 `.github/workflows/release.yml` 在推送 `v<版本>` 标签时完成：npm 包在独立的 job 里构建，经 artifact 交给只做发布的 job，Release 创建成功后才发布（GitHub Packages 总是发布；npmjs.com 需要仓库 Secrets 里的 `NPM_TOKEN`，带 `--provenance`，缺少时跳过）。Release 的 `SHA256SUMS` 覆盖全部资产并带 `commit <提交> <标签>` 行，由仓库 Secret `RELEASE_SIGNING_KEY` 签名为 `SHA256SUMS.sig`。
 
 源码地图见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+M4 本机隔离恢复验证直接复用了 `layout.putRelease / switchTo` 与 `launchd.plistText` 的包装脚本，在唯一临时标签下运行当前生产构建；强杀后自动重启并读取已纠正认识。模型在此部署检查中关闭，真实模型离线补做另测；不等同发布包下载、安装入口、注销 / 登录或跨平台验收。见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
