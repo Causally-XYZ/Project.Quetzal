@@ -12,6 +12,7 @@ import type { Db } from "./db.ts";
 import type { Config } from "./config.ts";
 import type { Hub } from "./hub.ts";
 import { Sessions, beginLogin, finishLogin, type LoginClient } from "./auth.ts";
+import { EventError } from "./events.ts";
 import { DeviceRequest, createCode, createConsoleCode, decide, check, poll } from "./device.ts";
 import { installWebApi, type FindCode } from "./web.ts";
 import { installSoulRoutes, type SoulAuth } from "./soul-link.ts";
@@ -24,7 +25,11 @@ export const VERSION = "1.9.4";
 const TokenRequest = z.object({ device_code: z.string().min(1).max(200) });
 
 /** 登录（OIDC 身份服务）与灵魂仓库（GitHub App；管理员创建 App 之后凭据会换）经这个可变的持有者取用（server.ts 负责更新）。 */
-export interface Auth extends SoulAuth { login?: LoginClient }
+export interface Auth extends SoulAuth {
+  login?: LoginClient;
+  /** 校验身份服务推来的账号删除事件，返回被删除账号的 sub（配置了 OIDC_EVENTS_JWKS 才有）。 */
+  events?: (token: string) => Promise<string>;
+}
 
 export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
   const { db, cfg, hub, auth } = deps;
@@ -35,6 +40,7 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
     lookup: new RateLimiter(10, 10 * 60_000),    // 每个账户 10 分钟最多输错 10 次短码（短码约 34 位熵）
     guess: new RateLimiter(30, 10 * 60_000),     // 每个地址 10 分钟最多输错 30 次短码（不管用几个账户）
     login: new RateLimiter(30, 10 * 60_000),
+    events: new RateLimiter(600, 10 * 60_000),   // 身份服务一次可能推来不少删除事件
   };
   /** 限流用的客户端地址键（IPv6 按 /64 聚合），只在内存里，不写库、不写日志。见 util.clientIp。 */
   const clientIp = (c: Context) => {
@@ -180,6 +186,26 @@ export function createApp(deps: { db: Db; cfg: Config; hub: Hub; auth: Auth }) {
       if (cfg.webUrl) return c.redirect(`${cfg.webUrl}/account?login=failed`);
       return page(c, t(lang(c)).login, html`<p class="note err">${(e as Error).message}</p><p><a href="/">${t(lang(c)).back}</a></p>`, 502);
     }
+  });
+
+  /** 身份服务推来的账号删除事件：签名通过就删掉这个 sub 的账户与全部数据（没有这个账户、重复的事件同样回 202，什么都不做）。
+   *  不通过回 400（不删任何东西）；暂时取不到公钥回 500，身份服务会重试。 */
+  app.post("/auth/events", async (c) => {
+    if (!auth.events) return c.json({ error: "not_found" }, 404);
+    if (!limits.events.take(clientIp(c))) return c.json({ error: "slow_down" }, 429);
+    let sub: string;
+    try { sub = await auth.events(await c.req.text()); } catch (e) {
+      log("auth", `账号删除事件：${(e as Error).message}`);
+      return c.json({ error: e instanceof EventError && e.transient ? "unavailable" : "invalid_event" }, e instanceof EventError && e.transient ? 500 : 400);
+    }
+    const user = db.userBySub(sub);
+    if (user) {
+      const agents = db.agentsOf(user.id);
+      db.deleteUser(user.id); // 外键级联：会话、agent、身体、设备码一起删
+      for (const a of agents) hub.kick(a.id);
+      log("auth", "账号删除事件：已删除一个账户");
+    }
+    return c.body(null, 202);
   });
 
   app.post("/logout", (c) => { sessions.destroy(c); return c.redirect("/?lang=" + lang(c)); });

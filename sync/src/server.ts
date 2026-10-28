@@ -7,6 +7,7 @@ import { openDb } from "./db.ts";
 import { Hub } from "./hub.ts";
 import { createApp, type Auth } from "./app.ts";
 import { oidcClient, type LoginClient } from "./auth.ts";
+import { deletionEvents } from "./events.ts";
 import { loadApp, saveApp, soulGitHub, type AppInfo, type SoulGitHub } from "./github-app.ts";
 import { RateLimiter, clientIp, ipKey } from "./util.ts";
 
@@ -20,6 +21,7 @@ export function createSyncServer(cfg: Config, opts: { login?: LoginClient | null
   const saved = loadApp(cfg.dataDir);
   const auth: Auth = {
     login: opts.login === null ? undefined : opts.login ?? oidcClient(cfg, opts.fetcher),
+    events: cfg.oidc?.eventsJwks ? deletionEvents(cfg, opts.fetcher) : undefined,
     soul: opts.soul ?? (saved ? soulGitHub(saved, opts.fetcher) : undefined),
     fetcher: opts.fetcher,
     onApp(a: AppInfo) { // 管理员刚创建了 App：保存凭据并立即换上，不用重启

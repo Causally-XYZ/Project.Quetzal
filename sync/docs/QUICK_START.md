@@ -50,6 +50,7 @@ cd Project.Quetzal/sync
 | `TURN_HOST` | STUN / TURN 的主机名或 IP，写进发给身体的 `turn:` / `stun:` 地址；留空与 `SYNC_DOMAIN` 相同。隧道模式或域名开了 CDN 代理时必填，必须直连本机 |
 | `COMPOSE_FILE` / `COMPOSE_PROFILES` | 由 `start.sh` 按 `SYNC_FRONT` 写入，不用手改 |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | 登录用的身份服务与客户端；不填则网页不能登录、身体不能绑定 |
+| `OIDC_EVENTS_JWKS` | 可选：身份服务推送「账号已彻底删除」事件时校验签名的公钥地址（HTTPS）。填了才启用 `POST /auth/events`，身份服务里要登记同一个地址 |
 | `SYNC_ADMINS` | 管理员的账号邮箱（逗号分隔，身份服务确认过的邮箱）。管理员登录后打开 `https://<域名>/setup/github-app` 一键创建 GitHub App，它只用来建灵魂仓库、加部署密钥 |
 | `TURN_SECRET` | 自动生成；同步服务与 coturn 共用，用来签发有时效的 TURN 凭据 |
 | `TURN_MIN_PORT` / `TURN_MAX_PORT` | TURN 中转端口段，默认 49160–49250 |
@@ -87,4 +88,5 @@ cd Project.Quetzal/sync
 
 - 升级：`./start.sh update`（`git pull --ff-only`，然后重建、重启）。升级会刷新 `.env` 里官方镜像的摘要。
 - 从 1.4 以前（GitHub 登录）升级：先配好 OIDC。老账户迁移后 `users.sub` 为 `github:<GitHub 数字 id>`，要把它改成身份服务里对应账号的 `sub`，那个人才能登回原来的账户；GitHub 上旧的 OAuth App 可以删掉。
+- 换身份服务（用户的 `sub` 变了）：让新身份服务的维护者给出「已验证邮箱 → 新 `sub`」的对应表（`[{"email": "…", "sub": "…"}]`），先干跑再写入：`docker compose exec sync node src/migrate-sub.ts /data /data/map.json`（把对应表放进 `data/sync/`，加 `--apply` 才写；写之前把库备份成 `sync.db.bak-<时刻>`）。只在两边的已验证邮箱都唯一对应时才改；新 `sub` 已有账户（这个人已经用新账号登录过）的会跳过并列出，不合并，由人处理。`SYNC_ADMINS` 里的邮箱也要是新账号里已验证的邮箱。
 - 停止：`./start.sh stop`。彻底删除：停止后删除 `data/` 与 `.env`，在身份服务里删掉客户端，在 GitHub 删除 GitHub App。

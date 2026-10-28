@@ -91,6 +91,7 @@ export function openDb(dataDir: string) {
       ON CONFLICT(sub) DO UPDATE SET login = excluded.login, name = excluded.name, email = excluded.email, last_login = excluded.last_login RETURNING *`),
     setGitHub: q("UPDATE users SET github_id = ? WHERE id = ? AND github_id IS NULL"),
     user: q<User>("SELECT * FROM users WHERE id = ?"),
+    userBySub: q<User>("SELECT * FROM users WHERE sub = ?"),
     deleteUser: q("DELETE FROM users WHERE id = ?"),
     insertSession: q("INSERT INTO sessions (id, user_id, expires, kind, label, agent, created, last_used) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"),
     session: q<Session>("SELECT * FROM sessions WHERE id = ?"),
@@ -154,6 +155,7 @@ export function openDb(dataDir: string) {
     /** 第一次链接灵魂仓库时记下用的 GitHub 账户（已经记过就不改；这个 GitHub 账户已属于别的账户时失败，返回 false）。 */
     setGitHub: (userId: number, githubId: number) => { try { s.setGitHub.run(githubId, userId); return true; } catch { return false; } },
     user: (id: number) => s.user.get(id),
+    userBySub: (sub: string) => s.userBySub.get(sub),
     deleteUser: (id: number) => s.deleteUser.run(id),
 
     /** 会话：库里只存令牌的 SHA-256。 */

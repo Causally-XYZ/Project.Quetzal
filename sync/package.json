@@ -12,7 +12,8 @@
     "start": "node --disable-warning=ExperimentalWarning src/main.ts",
     "dev": "SYNC_DATA_DIR=./.dev SYNC_PUBLIC_URL=http://localhost:8080 node --disable-warning=ExperimentalWarning --watch src/main.ts",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "migrate-sub": "node --disable-warning=ExperimentalWarning src/migrate-sub.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.3",

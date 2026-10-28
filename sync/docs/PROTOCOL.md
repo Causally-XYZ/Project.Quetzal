@@ -145,6 +145,7 @@ WebSocket 关闭码：`4400` 帧格式错误（含 hello 之前的坏消息）�
 ### 5.1 登录与身份
 
 - **网页前端**：`GET /login?return_to=<前端上的地址>` 经 OIDC 身份服务登录（授权码 + PKCE S256 + nonce，回调 `/auth/oidc/callback`；`state`、`nonce`、`code_verifier` 与回跳地址放在 10 分钟的 `__Host-` 临时 Cookie 里），回到 `return_to`（只接受前端同源的地址，否则回到 `<前端>/account`；失败回到 `<前端>/account?login=failed`）。会话是同步服务自己的 Cookie（`__Host-quetzal_session`，HttpOnly、Secure、SameSite=Lax）；前端与同步服务必须同站（同一个可注册域名），用 `fetch(…, {credentials: "include"})` 调用。
+- **账号删除事件**：配置了 `OIDC_EVENTS_JWKS` 时，身份服务在用户彻底删除账号后 `POST /auth/events`（`Content-Type: application/secevent+jwt`，请求体就是一个 ES256 签名的 JWT，事件类型 `https://schemas.openid.net/secevent/risc/event-type/account-purged`）。校验 `typ`、`kid` 与签名（公钥取自 `OIDC_EVENTS_JWKS`，缓存 10 分钟，遇到不认识的 `kid` 最多每分钟重取一次）、`iss`、`aud`（本客户端）、`iat`（不在未来、不早于 7 天）与事件内容；通过就删除该 `sub` 的账户（会话、agent、身体、设备码一起删，在线的身体被踢下线）→ `202`。没有这个账户、重复的事件同样 `202`，什么都不做；校验不通过 `400`，不删任何东西；暂时取不到公钥 `500`（身份服务会重试）。没配置 `OIDC_EVENTS_JWKS` 时这个路径是 `404`。
 - **会话寿命**：网页会话 `SYNC_SESSION_DAYS`（默认 30）天、控制台登录 30 天，剩余不到一半时随使用续期；无论怎么续，自创建起最长 90 天，到时须重新登录。
 - **控制台**：`Authorization: Bearer qsc_…`（§5.2），只认控制台登录的会话；身体令牌与网页会话的 Cookie 都不能当它用，它也不能当身体令牌或 Cookie 用。
 - **CORS**：只对 `SYNC_WEB_URL` 与同步服务自己的源放行带凭据的请求（`GET`、`POST`，头 `Content-Type`）。所有响应都带 `Vary: Origin`。
