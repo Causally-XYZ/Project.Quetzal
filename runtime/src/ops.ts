@@ -47,7 +47,7 @@ import { canvasOps } from './mind/canvas-ops.ts';
 import { pluginOps } from './plugins/ops.ts';
 import { listSources } from './mcp/runtime.ts';
 import { pendingRecommendations } from './plugins/index.ts';
-import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, queryAdaptiveSemantic, adaptiveJobs, cancelAdaptiveJob } from './memory/adaptive.ts';
+import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, queryAdaptiveSemantic, adaptiveJobs, cancelAdaptiveJob, inspectAdaptiveSource } from './memory/adaptive.ts';
 
 export const status = () => ({
   agent: identity(), version: VERSION, body: config.body, adapter: adapter.name, heart: heart.snapshot(), physical: body,
@@ -251,6 +251,7 @@ export const ops = {
   memory: () => ({ soul: mem.soul(), memory: mem.entries("memory"), user: mem.entries("user"), loops: mem.openLoops() }),
   'memory.records': (a: { state?: string; kind?: string }) => readStructuredRecords().filter((r) => r.scope.agentId === identity().id && (!a.state || r.state === a.state) && (!a.kind || r.kind === a.kind)),
   'memory.adaptive.status': () => adaptiveStatus(),
+  'memory.adaptive.source': (a: { id: number; hash: string }) => inspectAdaptiveSource(a),
   'memory.adaptive.configure': (a: { enabled: boolean; hostBody: string; semantic?: boolean; research?: boolean }, actor: string) => {
     const result = configureAdaptiveMemory(a);
     audit(actor, 'memory.adaptive.configure', '设置固定记忆主机', config.adaptiveMemory, 'ok'); return result;

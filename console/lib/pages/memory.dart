@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../markdown.dart';
 import '../widgets.dart';
+import 'adaptive_memory.dart';
 
 class MemoryPage extends StatelessWidget {
   const MemoryPage({super.key});
@@ -82,6 +83,8 @@ class _CoreState extends State<MemoryCore> with ReloadOnConnect {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.only(bottom: 24), children: [
+        ListTile(leading: const Icon(Icons.psychology_outlined), title: const Text('对话记忆'), subtitle: const Text('来源、补充纠正与处理状态'), trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdaptiveMemoryPage()))),
         Section('人格', [
           // 折叠预览（Markdown），点开看全文；编辑用右上角的笔
           InkWell(

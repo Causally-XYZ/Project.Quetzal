@@ -249,3 +249,5 @@ adapters/
 `ProviderModel.thinkingLevel` 缺省 / LOW / MEDIUM / HIGH，经 registry 原子校验与既有配置同步；router 为每个候选及 testModel 生成相同 Target，Google adapter 映射到 thinkingConfig。跨协议故障转移不继承前一模型的设置。开发观察器只配置隔离身体、记录实际 Target；ADC 不修改正文，回执未知等级只记固定 other，避免日志带入任意内容。无新增依赖、构建项或部署环境变量，现有导入链和测试 glob 覆盖。
 
 Google adapter 将 functionCall 部件的 thoughtSignature 与模型名存入 ToolCall.providerMetadata.google，下一步仅向同名 Google 模型的原调用部件回传。引擎和当前上下文保留该元数据，工具参数及审计记录不包含它；其他供应商不发送。并行调用不复制签名到未签名部件，连续步骤各保留原值。仅覆盖工具续接，不实现非工具文字签名或跨模型签名转换；旧历史缺签名时不伪造补齐，沿用供应商错误 / 路由处理。使用现有工具协议、构建与测试入口，无依赖或部署配置变化。
+
+M4 的 `ops.memory.adaptive.source` 调用 `inspectAdaptiveSource`：输入为查询已返回的来源 id / hash，沿 `withAdaptiveSources` 保持正文和当前修订的一致快照。未启用且无认识历史时仅从同一条原始消息核对摘要；忽略、非对话角色、空正文与急停均拒绝。它是只读管理接口，不扩展 mesh 权限，不触发模型任务或复制；来源正文裁到16000字符并显式标记截断。卫星返回 research 开关配置而不伪造远端队列。无存储迁移、依赖和部署脚本变化；既有构建导入链包含新增函数。

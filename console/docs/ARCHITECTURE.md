@@ -252,3 +252,9 @@ flowchart TB
 模型完整编辑器 `ProvidersEditor` 的 Google 模型行使用 `ModelThinkingField`，把可选 thinkingLevel 放入既有 Map 草稿。保存 / 放弃、重载和未保存时禁用测试均复用原流程；更换协议会明确提示并在确认后清除不适用字段。没有独立本地配置源或额外 API，运行基座负责等级校验与实际出站；模型不支持某等级时由既有测试结果显示。
 
 模型勾选与测试按钮使用并列控件，避免 CheckboxListTile 合并语义后测试点击变成取消勾选。卡片的 testGeneration 在草稿变化、重新绑定配置或 dirty 状态变化时递增并清空结果；异步测试只回填启动时同一代的结果，不能把旧成功显示成新配置已测通。
+
+## 对话记忆页面
+
+`pages/memory.dart` 的 MemoryCore 提供入口，`pages/adaptive_memory.dart` 通过 PageFrame 在两种外壳下复用。状态由 `memory.adaptive.status` 与已有状态推送刷新；三个开关和处理身体通过 configure 修改共享配置。semantic 开启时查 semantic.query，否则查来源 query；来源按钮携带检索返回的 id / hash，调用 source 在同一快照中读取正文和修订。
+
+补充 / 纠正通过 `editMemory {target:user,action:add,remember:true}` 保存为普通用户来源，复用统一事实写入路径。页面不直接改图，不宣称模型纠正已成功。连接作用域包含 profile / agent / body；请求代次防止断线、刷新、配置或新查询后旧结果重新出现。来源弹层也在连接变化后隐藏内容。现有 Material / Markdown / API 能力足够，无新增依赖，原构建入口覆盖；widget 测试覆盖390与1100宽度、保存调用、来源及迟到查询。

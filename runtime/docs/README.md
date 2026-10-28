@@ -134,3 +134,5 @@ Google 工具回查后续接保留供应商返回的 thoughtSignature；不需�
 
 
 开发完整过程的显式 backgroundRetries 也等待原队列中 interrupted 的 queued / running 工作，仍拒绝终局失败与取消。interrupted / research-stale 可能表示安装校验拒绝，不能单凭状态归因为版本竞争；真实提案和来源需另核，详见阶段记录 §5.12。此项仅改开发等待，无依赖、部署或生产行为变化。
+
+M4 控制台通过 `memory.adaptive.source` 回看检索来源：`adaptive.ts` 核查当前 agent 的 id / hash，在既有来源快照内读取原话和当前修订。来源变化、忽略、急停或不可读取时不返回正文；管理响应脱敏、正文最多16000字符。`semantic.research.enabled` 在卫星也返回配置，但中心任务状态仍只有中心本机可见。新增入口复用 ops 认证和已有存储，无新依赖、表、环境变量或部署项；现有 TypeScript、测试 glob 与生产构建覆盖。

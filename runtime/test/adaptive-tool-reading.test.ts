@@ -352,6 +352,20 @@ test('等锁期间替换过程或单工具回查引用，不能退回未经核�
   } finally { ctx.close(); }
 });
 
+test('控制台来源回查保留原话与当前纠正；旧hash、忽略来源和非法引用不能返回正文', async () => {
+  const { invoke } = await import('../src/ops.ts');
+  const f = fixture('source-inspection'), hash = queue.source(f.source)!.hash;
+  f.correct();
+  const result = await invoke('memory.adaptive.source', { id: f.source, hash }, 'synthetic-manager');
+  assert.equal(result.status, 'ready'); assert.equal(result.source.text, '饭友是编辑。');
+  assert.ok(result.reading.notices.some((n: any) => n.current?.text === '饭友是弟弟'));
+  assert.equal(result.source.recordedAt, new Date(store.db.prepare('SELECT ts FROM messages WHERE id=?').get(f.source)!.ts as number).toISOString());
+  assert.deepEqual(await invoke('memory.adaptive.source', { id: f.source, hash: '0'.repeat(64) }, 'synthetic-manager'), { status: 'changed' });
+  store.db.prepare('UPDATE messages SET mode=? WHERE id=?').run('ignored', f.source);
+  assert.deepEqual(await invoke('memory.adaptive.source', { id: f.source, hash }, 'synthetic-manager'), { status: 'unavailable' });
+  await assert.rejects(invoke('memory.adaptive.source', { id: -1, hash }, 'synthetic-manager'), /来源引用/);
+});
+
 test('数据库重新打开后凭据仍在，关闭后台不取消旧工具核查', async () => {
   const conv = 'tool-reopen', turn = 'tool-reopen-turn'; store.ensureSession(conv, '合成'); mem.saveNote('持久笔记', 'PERSISTED_TOOL_TEXT');
   await execute('note_read', { name: '持久笔记' }, turn, conv);

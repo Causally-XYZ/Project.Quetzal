@@ -231,7 +231,7 @@ export async function stopAdaptiveMemory() {
 export function adaptiveStatus() {
   const base = { enabled: config.adaptiveMemory.enabled, hostBody: config.adaptiveMemory.hostBody,
     running: active, local: isHost(), stopped: fs.existsSync(paths.stop), error: lastError,
-    semantic: { enabled: config.adaptiveMemory.semantic, state: semanticState },
+    semantic: { enabled: config.adaptiveMemory.semantic, state: semanticState, research: { enabled: config.adaptiveMemory.research } },
     retrieval: ownedRetrieval?.backend.status() ?? { state: retrieval ? 'attached' :
       active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) ? componentTask ? 'preparing' : 'unavailable' : 'inactive',
       preparation: componentProgress, error: componentFailure, retryAt: nextRetrievalStartAt } };
@@ -341,6 +341,28 @@ export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceR
     return { value: read(view), view };
   }, signal);
   observeReadSources(result.view); return result.value;
+}
+
+/** 管理界面回查已检索到的来源；正文与修订取自同一快照，不能用新原文冒充旧引用。 */
+export async function inspectAdaptiveSource(params: { id: number; hash: string }) {
+  if (!params || !Number.isSafeInteger(params.id) || params.id < 1 || typeof params.hash !== 'string' || !/^[a-f0-9]{64}$/.test(params.hash))
+    throw new Error('来源引用不合法');
+  const unavailable = { status: 'unavailable' as const };
+  try {
+    return await withAdaptiveSources([params.id], (view) => {
+      const row = db.prepare('SELECT id,session,role,channel,text,ts,body,via,mode,attachments FROM messages WHERE id=?').get(params.id) as SourceSnapshot | undefined;
+      if (fs.existsSync(paths.stop) || !row || row.mode === 'ignored' || !['user', 'agent', 'ambient'].includes(row.role) || !row.text) return unavailable;
+      const reading = view ? view.sources.find((s) => s.id === params.id) : {
+        id: params.id, hash: sourceHash(identity().id, row), notices: [], recordedAt: sourceRecordedAt(row.ts),
+      };
+      if (!reading?.hash) return unavailable;
+      if (reading.hash !== params.hash) return { status: 'changed' as const };
+      const text = redactSecrets(String(row.text));
+      return { status: 'ready' as const, freshness: 'local-snapshot' as const, reading,
+        source: { id: params.id, session: String(row.session), role: String(row.role), recordedAt: reading.recordedAt ?? null,
+          text: text.slice(0, 16000), truncated: text.length > 16000 } };
+    });
+  } catch { return unavailable; }
 }
 
 export class AnswerSourcesChanged extends Error {
