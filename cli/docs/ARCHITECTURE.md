@@ -46,6 +46,8 @@ install.sh               一键安装脚本（curl -fsSL https://quetzal.plutoke
 
 ## 安装流程
 
+构建资产脚本在中文输出中显式限定版本变量 `${RT}` / `${PKG}` 的边界，确保 `set -u` 不把相邻标点读入变量名；构建、复制和版本校验的顺序不变，无新增依赖或资产。
+
 ```mermaid
 flowchart LR
   A["dist/runtime/<br/>main.cjs · linux.mjs · VERSION · web/"] --> B["releases/<版本>/"]

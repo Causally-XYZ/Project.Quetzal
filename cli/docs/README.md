@@ -142,6 +142,8 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex     # 首选：PowerShel
 
 版本号必须与 `runtime/package.json`、`console/pubspec.yaml` 一致，`tool/bundle-runtime.sh` 与发版工作流都会校验。发布由 `.github/workflows/release.yml` 在推送 `v<版本>` 标签时完成：npm 包在独立的 job 里构建，经 artifact 交给只做发布的 job，Release 创建成功后才发布（GitHub Packages 总是发布；npmjs.com 需要仓库 Secrets 里的 `NPM_TOKEN`，带 `--provenance`，缺少时跳过）。Release 的 `SHA256SUMS` 覆盖全部资产并带 `commit <提交> <标签>` 行，由仓库 Secret `RELEASE_SIGNING_KEY` 签名为 `SHA256SUMS.sig`。
 
+打包脚本的中文状态输出用 `${RT}` / `${PKG}` 显式限定变量边界，避免 Bash 在 `set -u` 下把相邻中文标点读入变量名。M4 已实际完成带网页资产打包与 CLI bundle，并逐文件核对复制后的运行时和网页；不等同远程发版。
+
 源码地图见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 M4 本机隔离恢复验证直接复用了 `layout.putRelease / switchTo` 与 `launchd.plistText` 的包装脚本，在唯一临时标签下运行当前生产构建；强杀后自动重启并读取已纠正认识。模型在此部署检查中关闭，真实模型离线补做另测；不等同发布包下载、安装入口、注销 / 登录或跨平台验收。见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
