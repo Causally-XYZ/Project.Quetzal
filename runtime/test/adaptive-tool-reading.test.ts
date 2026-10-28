@@ -124,8 +124,14 @@ test('实际笔记工具凭据持久化，下一步模型看到新纠正而原�
   const args = { name: 'QuetzalMemory/tool-correct_v1' }, out = await execute('note_read', args, turn, conv);
   assert.equal(out.reading?.checked, true); assert.ok(out.reading!.sources.some((s) => s.id === f.source));
   assert.ok(out.reading!.documents.some((d) => d.kind === 'note')); const saved = store.getToolCall('read-call', turn);
+  const prepared = prepareToolReadings([saved!], conv);
+  const unchanged = await withAdaptiveSources(prepared.sources, (view) => prepared.render(view));
+  assert.match(unchanged.get(toolReadingKey(saved!))!.currentReading, /状态均与原读取一致/);
+  assert.ok(unchanged.get(toolReadingKey(saved!))!.result.endsWith(out.text));
+  const sourceHash = queue.source(f.source)!.hash;
   const messages = toolMessages('note_read', args, out.text), original = structuredClone(messages), context = contextHost.createTurnContext(turn, conv, messages);
   f.correct();
+  assert.equal(queue.source(f.source)!.hash, sourceHash); // 新纠正没有编辑旧原文，仍必须发现修订变化。
   try {
     await router.chat(await context.prepare({ messages, maxTokens: 256 }));
     assert.match(joined(seen.at(-1)), /饭友是弟弟/); assert.match(joined(seen.at(-1)), /ORIGINAL_TOOL_FACT/);
@@ -135,6 +141,23 @@ test('实际笔记工具凭据持久化，下一步模型看到新纠正而原�
     await router.chat(await context.prepare({ messages, maxTokens: 256 }));
     assert.ok(!joined(seen.at(-1)).includes('ORIGINAL_TOOL_FACT')); assert.match(joined(seen.at(-1)), /不输出旧正文/);
     assert.ok(!JSON.stringify(context.snapshot().state).includes('ORIGINAL_TOOL_FACT'));
+  } finally { context.close(); }
+});
+
+test('长工具分页结果不再因重复核查元数据被替换为指向自身的回查', async () => {
+  const conv = 'tool-page-no-recursion', turn = 'tool-page-no-recursion-turn'; store.ensureSession(conv, '合成');
+  mem.saveNote('分页读取', 'PAGED_BEGIN\n' + '内容'.repeat(12000));
+  await execute('note_read', { name: '分页读取' }, turn, conv, 'large-read');
+  const context = contextHost.createTurnContext(turn, conv, [{ role: 'user', content: '读取第一页' }]);
+  store.saveContextSource('large-page-ref', conv, JSON.stringify({ toolRef: { call: 'large-read', turn } }));
+  try {
+    const page = await execute('context_read', { ref: 'large-page-ref', limit: 8000 }, turn, conv, 'page-read');
+    const row = store.getToolCall('page-read', turn)!, prepared = prepareToolReadings([row], conv);
+    const views = await withAdaptiveSources(prepared.sources, (view) => prepared.render(view, () => 'SELF_REFERENCE'));
+    const text = views.get(toolReadingKey(row))!.result;
+    assert.match(text, /PAGED_BEGIN/); assert.ok(!text.includes('SELF_REFERENCE'));
+    assert.ok(text.length < 12000);
+    assert.equal(store.getToolCall('page-read', turn)!.result, page.text);
   } finally { context.close(); }
 });
 

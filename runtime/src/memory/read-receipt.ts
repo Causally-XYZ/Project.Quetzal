@@ -8,18 +8,18 @@ export const readDigest = (value: unknown) => crypto.createHash('sha256').update
 export interface ReadDocument { kind: 'note' | 'record' | 'document' | 'message' | 'tool' | 'context'; key: string; hash: string }
 export interface ReadReceipt {
   version: 1; agent: string; body: string; conv: string; tool: string; resultHash: string; checked: boolean;
-  sources: { id: number; hash: string | null }[]; documents: ReadDocument[];
+  sources: { id: number; hash: string | null; stateHash?: string }[]; documents: ReadDocument[];
 }
-interface Capture { checked: boolean; invalid: boolean; sources: Map<number, string | null>; documents: Map<string, ReadDocument> }
+interface Capture { checked: boolean; invalid: boolean; sources: Map<number, { hash: string | null; stateHash: string }>; documents: Map<string, ReadDocument> }
 const captures = new AsyncLocalStorage<Capture>();
 export function observeReadSources(view: SourceReading): void {
   const capture = captures.getStore(); if (!capture) return;
   capture.checked = true;
   for (const source of view.sources) {
-    const hash = source.hash ?? null;
-    if (capture.sources.has(source.id) && capture.sources.get(source.id) !== hash) capture.invalid = true;
+    const hash = source.hash ?? null, stateHash = readDigest(source), previous = capture.sources.get(source.id);
+    if (previous && (previous.hash !== hash || previous.stateHash !== stateHash)) capture.invalid = true;
     if (capture.sources.size >= 1000 && !capture.sources.has(source.id)) { capture.invalid = true; continue; }
-    capture.sources.set(source.id, hash);
+    capture.sources.set(source.id, { hash, stateHash });
   }
 }
 export function observeReadDocument(kind: ReadDocument['kind'], key: string, value: unknown): void {
@@ -38,7 +38,7 @@ export async function captureMemoryRead<T extends { text: string; status: string
     const result = await run();
     if (result.status !== 'ok') return result;
     return { ...result, reading: { version: 1, ...scope, resultHash: readDigest(result.text), checked: capture.checked && !capture.invalid,
-      sources: [...capture.sources].map(([id, hash]) => ({ id, hash })), documents: [...capture.documents.values()] } };
+      sources: [...capture.sources].map(([id, state]) => ({ id, ...state })), documents: [...capture.documents.values()] } };
   });
 }
 export function parseReadReceipt(value: unknown): ReadReceipt {
@@ -47,7 +47,8 @@ export function parseReadReceipt(value: unknown): ReadReceipt {
   if (!r || typeof r !== 'object' || r.version !== 1 || ![r.agent, r.body, r.conv, r.tool].every((v) => typeof v === 'string' && v.length <= 2000) ||
       !MEMORY_READ_TOOLS.has(r.tool) || !hash(r.resultHash) || typeof r.checked !== 'boolean' ||
       !Array.isArray(r.sources) || r.sources.length > 1000 || !Array.isArray(r.documents) || r.documents.length > 200) fail();
-  if (r.sources.some((s) => !s || !Number.isSafeInteger(s.id) || s.id <= 0 || !(s.hash === null || hash(s.hash))) || new Set(r.sources.map((s) => s.id)).size !== r.sources.length) fail();
+  if (r.sources.some((s) => !s || !Number.isSafeInteger(s.id) || s.id <= 0 || !(s.hash === null || hash(s.hash))
+    || (s.stateHash !== undefined && !hash(s.stateHash))) || new Set(r.sources.map((s) => s.id)).size !== r.sources.length) fail();
   if (r.documents.some((d) => !d || !['note', 'record', 'document', 'message', 'tool', 'context'].includes(d.kind) || typeof d.key !== 'string' || d.key.length > 2000 || !hash(d.hash))) fail();
   if (new Set(r.documents.map((d) => JSON.stringify([d.kind, d.key]))).size !== r.documents.length) fail();
   return r;

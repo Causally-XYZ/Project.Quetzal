@@ -56,7 +56,11 @@ export function prepareToolReadings(records: ToolCallRow[], conv: string) {
             // context_read 再读取本结果时，继续绑定本次实际核对的文件状态。
             observeReadDocument(d.kind, d.key, value);
           }
-          const headers = sourceReadingsHeader(view, receipt.sources.filter((s) => sources.get(s.id)?.hash).map((s) => s.id));
+          // 原文 hash 不涵盖后来的语义纠正；只有完整来源修订状态也相同才沿用已核查展示。
+          // 旧凭据缺 stateHash，仍走完整修订投影，不把缺失当成未变化。
+          const sameReading = !changed && receipt.sources.every((s) => s.stateHash && s.stateHash === readDigest(sources.get(s.id)));
+          const headers = sameReading ? '【来源、修订与文档状态均与原读取一致；沿用下方原结果，不重复展开核查元数据。】\n'
+            : sourceReadingsHeader(view, receipt.sources.filter((s) => sources.get(s.id)?.hash).map((s) => s.id));
           const body = changed ? '【原消息或文档已改变 / 不可访问；此结果没有逐句依赖映射，不输出旧正文，请重新读取相关资料。】'
             : reference && record.result.length > 12000 ? `【完整工具结果超过首屏预算；没有截断修订后保留片段。请回查：${reference(record)}】` : record.result;
           currentReading = `【历史工具 ${record.tool} 的当前来源核查；未重新执行工具，当时结果不是现行事实确认。】\n${headers}${changed ? '【原来源已改变或不可访问，不沿用旧正文。】\n' : ''}`;

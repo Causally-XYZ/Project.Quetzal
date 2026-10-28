@@ -34,4 +34,16 @@ test('凭据解析拒绝未知版本、重复来源及超限文档', async () =>
   assert.throws(() => parseReadReceipt({ ...receipt, version: 2 }), /损坏/);
   assert.throws(() => parseReadReceipt({ ...receipt, sources: [...receipt.sources, ...receipt.sources] }), /损坏/);
   assert.throws(() => parseReadReceipt({ ...receipt, documents: Array.from({ length: 201 }, (_, i) => ({ kind: 'note', key: String(i), hash: 'a'.repeat(64) })) }), /损坏/);
+  assert.throws(() => parseReadReceipt({ ...receipt, sources: receipt.sources.map((s) => ({ ...s, stateHash: 'invalid' })) }), /损坏/);
+  assert.equal(parseReadReceipt({ ...receipt, sources: receipt.sources.map(({ stateHash, ...s }) => s) }).checked, true);
+});
+
+test('原文未改但同一次读取的修订状态变化，也拒绝沿用混合结果', async () => {
+  const result = await captureMemoryRead(scope, async () => {
+    observe(1);
+    observeReadSources({ generation: 2, freshness: 'local-snapshot', sources: [{ id: 1, hash: 'a'.repeat(64), notices: [],
+      answer: { status: 'changed', sources: [2] } }] });
+    return { text: 'mixed-reading-state', status: 'ok' };
+  });
+  assert.equal(result.reading!.checked, false);
 });
