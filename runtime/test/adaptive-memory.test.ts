@@ -166,3 +166,38 @@ test('持续新输入与失效来源不能挤掉较早已处理材料，FTS 和�
   assert.ok(!host.queryAdaptiveLocal({ agent: identity().id, query: '远古铜铃' }).observations.some((s) => s.id === id));
   assert.ok(!recentChats(0, Infinity, 20, 'source-v1').some((s) => s.id === id));
 });
+
+test('管理重试仅在当前中心和已开启处理器生效，保留原失败审计与尝试次数', async () => {
+  const { ops } = await import('../src/ops.ts');
+  const previous = structuredClone(cfg.config.adaptiveMemory);
+  const q = new AdaptiveStore(store.db, identity().id);
+  const id = store.addMessage('user', '合成', '修正模型配置后继续处理的来源', { session: 'local' });
+  q.scheduleSource('semantic-v1', id, 0);
+  let now = 0;
+  for (let n = 0; n < 5; n++) { q.fail(q.claim('semantic-v1', now)!, 'processor_failed', now + 1); now += 61000; }
+  const job = q.jobs(100, true).find((j) => j.source === id)!;
+  const reviewProcessor = `review-${'f'.repeat(56)}`;
+  q.scheduleSource(reviewProcessor, id, now);
+  for (let n = 0; n < 5; n++) { q.fail(q.claim(reviewProcessor, now)!, 'processor_failed', now + 1); now += 61000; }
+  const review = q.jobs(100, true).find((j) => j.processor === reviewProcessor)!;
+  try {
+    assert.equal(host.retryAdaptiveJob(job.id, 5), undefined, '整理未开启');
+    cfg.saveConfig({ adaptiveMemory: { enabled: true, semantic: true, hostBody: 'remote' } });
+    assert.equal(host.retryAdaptiveJob(job.id, 5), undefined, '卫星不能重试中心工作');
+    cfg.saveConfig({ adaptiveMemory: { hostBody: 'center' } });
+    assert.equal(host.retryAdaptiveJob(review.id, 5), undefined, '依赖重评仍受独立额度约束，不能排入无法领取的旧任务');
+    assert.ok(!host.adaptiveJobs(true).some((j) => j.id === review.id));
+    fs.writeFileSync(cfg.paths.stop, '合成急停');
+    assert.equal(host.retryAdaptiveJob(job.id, 5), undefined);
+    fs.rmSync(cfg.paths.stop);
+    assert.ok(host.adaptiveJobs(true).some((j) => j.id === job.id));
+    assert.equal(ops['memory.adaptive.retry']({ id: job.id, attempts: 5 }, '合成管理者'), true);
+    const audit = store.db.prepare("SELECT actor,args,result FROM audit WHERE action='memory.adaptive.retry' ORDER BY id DESC LIMIT 1").get()!;
+    assert.equal(audit.actor, '合成管理者'); assert.equal(audit.result, 'queued');
+    assert.equal(JSON.parse(String(audit.args)).error, 'processor_failed');
+    assert.equal(q.processed(id, 'semantic-v1'), undefined);
+    assert.equal(ops['memory.adaptive.retry']({ id: job.id, attempts: 5 }, '合成管理者'), false);
+    const retry = q.claim('semantic-v1', Date.now())!; assert.equal(retry.attempts, 6);
+    assert.equal(q.complete(retry), true);
+  } finally { fs.rmSync(cfg.paths.stop, { force: true }); cfg.saveConfig({ adaptiveMemory: previous }); }
+});

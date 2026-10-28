@@ -69,4 +69,38 @@ void main() {
     pending[2].complete({'status': 'unavailable', 'items': []}); await t.pumpAndSettle();
     expect(find.textContaining('暂时无法读取记忆'), findsOneWidget); expect(find.text('没有找到可用记忆。'), findsNothing);
   });
+  for (final width in [390.0, 1100.0]) {
+    testWidgets('中心重试使用已观察尝试次数，不将排队说成完成，宽度 $width', (t) async {
+      t.view.physicalSize = Size(width, 1800); t.view.devicePixelRatio = 1;
+      addTearDown(t.view.resetPhysicalSize); addTearDown(t.view.resetDevicePixelRatio);
+      Map? submitted;
+      api.fake = (method, params) async {
+        if (method == 'memory.adaptive.status') return status();
+        if (method == 'memory.adaptive.jobs') { expect(params, {'retryable': true}); return [{'id': 'failed-source', 'attempts': 5}]; }
+        if (method == 'memory.adaptive.retry') { submitted = params; return true; }
+        throw StateError(method);
+      };
+      await t.pumpWidget(const MaterialApp(home: AdaptiveMemoryPage())); await t.pumpAndSettle();
+      await t.ensureVisible(find.text('重试失败的处理任务')); await t.tap(find.text('重试失败的处理任务')); await t.pumpAndSettle();
+      expect(submitted, {'id': 'failed-source', 'attempts': 5});
+      expect(find.text('已提交 1 项重试；不代表理解或同步完成。'), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+  }
+  testWidgets('切换身份后迟到失败列表不能向新连接发起重试', (t) async {
+    t.view.physicalSize = const Size(1100, 1800); t.view.devicePixelRatio = 1;
+    addTearDown(t.view.resetPhysicalSize); addTearDown(t.view.resetDevicePixelRatio);
+    final jobs = Completer<List>(); var retried = 0;
+    api.fake = (method, params) async {
+      if (method == 'memory.adaptive.status') return status();
+      if (method == 'memory.adaptive.jobs') return jobs.future;
+      if (method == 'memory.adaptive.retry') { retried++; return true; }
+      throw StateError(method);
+    };
+    await t.pumpWidget(const MaterialApp(home: AdaptiveMemoryPage())); await t.pumpAndSettle();
+    await t.ensureVisible(find.text('重试失败的处理任务')); await t.tap(find.text('重试失败的处理任务')); await t.pump();
+    api.status = {'body': 'center', 'agent': {'id': 'different-agent'}}; api.notifyListeners(); await t.pumpAndSettle();
+    jobs.complete([{'id': 'old-agent-task', 'attempts': 5}]); await t.pumpAndSettle();
+    expect(retried, 0); expect(find.textContaining('已提交 1 项重试'), findsNothing);
+  });
 }

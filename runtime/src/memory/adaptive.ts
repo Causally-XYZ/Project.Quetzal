@@ -575,7 +575,17 @@ export function adaptiveContext(p: MemoryPacket) {
     reference: `message:${s.id} session:${s.session}` }));
 }
 
-export function adaptiveJobs() { return active && isHost() ? localStore().jobs() : []; }
+const retryProcessorEnabled = (job: { processor: string }) => job.processor === SOURCE_PROCESSOR || config.adaptiveMemory.semantic &&
+  (job.processor === SEMANTIC_PROCESSOR || config.adaptiveMemory.research && job.processor === RESEARCH_PROCESSOR);
+export function adaptiveJobs(retryable = false) {
+  if (!active || !isHost()) return [];
+  const store = localStore();
+  return retryable ? store.jobs(100, true).filter((j) => j.attempts >= 5 && retryProcessorEnabled(j) && !!store.source(j.source, j.revision)) : store.jobs();
+}
+export function retryAdaptiveJob(id: string, attempts: number) {
+  if (!active || !isHost() || fs.existsSync(paths.stop)) return;
+  return localStore().retryFailed(id, attempts, Date.now(), retryProcessorEnabled);
+}
 export function cancelAdaptiveJob(id: string) {
   const cancelled = active && isHost() && localStore().cancel(id);
   if (cancelled && semanticJob === id) semanticAbort?.abort();

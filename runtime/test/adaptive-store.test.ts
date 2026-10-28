@@ -139,3 +139,43 @@ test('AM-15/16：错误 agent、未知存储版本和畸形参数拒绝，原任
   assert.throws(() => new AdaptiveStore(f.db, 'synthetic-agent'), /不匹配/);
   assert.equal(q.status().counts.queued, 1);
 });
+
+test('失败任务显式追加一次尝试；重发旧请求不能批准下一次重试，也不伪造成功回执', (t) => {
+  const f = fixture(t), q = f.queue(); f.add(1); q.schedule('source-v1', 0);
+  let now = 0;
+  for (let n = 0; n < 5; n++) { q.fail(q.claim('source-v1', now)!, 'processor_failed', now + 1); now += 61000; }
+  const failed = q.jobs()[0];
+  assert.equal(q.retryFailed(failed.id, 5, now)?.error, 'processor_failed');
+  assert.equal(q.processed(1), undefined); assert.equal(q.pendingPublications(now).length, 0);
+  assert.equal(q.retryFailed(failed.id, 5, now), undefined);
+  const sixth = q.claim('source-v1', now)!; assert.equal(sixth.attempts, 6);
+  q.fail(sixth, 'timeout', now + 1); assert.equal(q.status().counts.failed, 1);
+  assert.equal(q.retryFailed(failed.id, 5, now + 2), undefined, '旧RPC即使此时又failed也不能重开');
+  assert.equal(q.claim('source-v1', now + 61000), undefined);
+  assert.ok(q.retryFailed(failed.id, 6, now + 61000));
+  const seventh = q.claim('source-v1', now + 61000, 10)!;
+  assert.equal(q.claim('source-v1', now + 61010), undefined, '追加尝试的租约过期后不自动再领');
+  assert.equal(q.retryFailed(failed.id, 6, now + 61011), undefined);
+  assert.ok(q.retryFailed(failed.id, seventh.attempts, now + 61011));
+  assert.equal(q.complete(q.claim('source-v1', now + 61011)!, now + 61012), true);
+  assert.equal(q.retryFailed(failed.id, 8, now + 61013), undefined, '完成结果不可重做');
+});
+
+test('重试拒绝取消、已变来源和关闭的处理器；失败列表不被较新的成功任务遮住', (t) => {
+  const f = fixture(t), q = f.queue(); f.add(1); q.schedule('source-v1', 0);
+  let now = 0;
+  for (let n = 0; n < 5; n++) { q.fail(q.claim('source-v1', now)!, 'timeout', now + 1); now += 61000; }
+  const failed = q.jobs()[0];
+  assert.equal(q.retryFailed(failed.id, 5, now, () => false), undefined);
+  for (let id = 2; id <= 30; id++) f.add(id);
+  q.schedule('source-v1', now);
+  for (let id = 2; id <= 30; id++) q.complete(q.claim('source-v1', now)!, now + 1);
+  assert.ok(!q.jobs().some((j) => j.id === failed.id));
+  assert.equal(q.jobs(100, true)[0].id, failed.id);
+  q.cancel(failed.id, now + 2); assert.equal(q.retryFailed(failed.id, 5, now + 3), undefined);
+  f.add(31); q.scheduleSource('source-v1', 31, now);
+  for (let n = 0; n < 5; n++) { q.fail(q.claim('source-v1', now)!, 'timeout', now + 1); now += 61000; }
+  const stale = q.jobs(100, true)[0];
+  f.db.prepare("UPDATE messages SET mode='ignored' WHERE id=31").run();
+  assert.equal(q.retryFailed(stale.id, 5, now), undefined); assert.equal(q.source(31), undefined);
+});

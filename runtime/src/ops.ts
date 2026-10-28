@@ -47,7 +47,7 @@ import { canvasOps } from './mind/canvas-ops.ts';
 import { pluginOps } from './plugins/ops.ts';
 import { listSources } from './mcp/runtime.ts';
 import { pendingRecommendations } from './plugins/index.ts';
-import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, queryAdaptiveSemantic, adaptiveJobs, cancelAdaptiveJob, inspectAdaptiveSource } from './memory/adaptive.ts';
+import { adaptiveStatus, configureAdaptiveMemory, queryAdaptive, queryAdaptiveSemantic, adaptiveJobs, cancelAdaptiveJob, retryAdaptiveJob, inspectAdaptiveSource } from './memory/adaptive.ts';
 import { createMemoryBackup, listMemoryBackups, verifyMemoryBackup } from './memory/backup.ts';
 
 export const status = () => ({
@@ -271,7 +271,13 @@ export const ops = {
     if (typeof a?.query !== 'string' || a.query.length > 8000) throw new Error('认识查询过长或形状不合法');
     return queryAdaptiveSemantic(a.query);
   },
-  'memory.adaptive.jobs': () => adaptiveJobs(),
+  'memory.adaptive.jobs': (a: { retryable?: boolean } = {}) => adaptiveJobs(a?.retryable === true),
+  'memory.adaptive.retry': (a: { id: string; attempts: number }, actor: string) => {
+    if (typeof a?.id !== 'string' || a.id.length > 100 || !Number.isSafeInteger(a.attempts) || a.attempts < 5) throw new Error('记忆重试参数不合法');
+    const before = retryAdaptiveJob(a.id, a.attempts);
+    audit(actor, 'memory.adaptive.retry', '重试失败的记忆处理', before ?? a, before ? 'queued' : 'rejected');
+    return !!before;
+  },
   'memory.adaptive.cancel': (a: { id: string }, actor: string) => {
     if (typeof a?.id !== 'string' || a.id.length > 100) throw new Error('记忆任务编号不合法');
     const result = cancelAdaptiveJob(a.id);

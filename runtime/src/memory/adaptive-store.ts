@@ -206,13 +206,26 @@ export class AdaptiveStore {
       .run(now, id).changes) === 1;
   }
 
+  /** 管理者仅为已耗尽尝试的当前来源追加一次机会；不清累计次数或生成成功回执。 */
+  retryFailed(id: string, attempts: number, now = Date.now(), guard?: (job: MemoryJob) => boolean): MemoryJob | undefined {
+    if (typeof id !== 'string' || id.length > 100 || !Number.isSafeInteger(attempts) || attempts < 5) throw new Error('记忆重试参数不合法');
+    return this.transaction(() => {
+      const job = this.db.prepare(`SELECT ${jobColumns} FROM adaptive_jobs WHERE id=? AND state='failed' AND attempts=?`).get(id, attempts) as MemoryJob | undefined;
+      if (!job || !this.source(job.source, job.revision) || guard && !guard(job)
+        || this.db.prepare('SELECT 1 FROM adaptive_publications WHERE id=?').get(id)
+        || this.processed(job.source, job.processor)?.revision === job.revision) return;
+      this.db.prepare("UPDATE adaptive_jobs SET state='queued',available=?,token=NULL,lease=0,error=NULL,updated=? WHERE id=?").run(now, now, id);
+      return job;
+    });
+  }
+
   processed(id: number, processor = SOURCE_PROCESSOR): MemorySource | undefined {
     const receipt = this.db.prepare('SELECT revision FROM adaptive_receipts WHERE source=? AND processor=?').get(id, processor) as { revision: number } | undefined;
     return receipt ? this.source(id, receipt.revision) : undefined;
   }
 
-  jobs(limit = 20): MemoryJob[] {
-    return this.db.prepare(`SELECT ${jobColumns} FROM adaptive_jobs ORDER BY updated DESC,id LIMIT ?`).all(Math.max(1, Math.min(100, limit))) as unknown as MemoryJob[];
+  jobs(limit = 20, failedOnly = false): MemoryJob[] {
+    return this.db.prepare(`SELECT ${jobColumns} FROM adaptive_jobs ${failedOnly ? "WHERE state='failed'" : ''} ORDER BY updated DESC,id LIMIT ?`).all(Math.max(1, Math.min(100, limit))) as unknown as MemoryJob[];
   }
 
   status(processor = SOURCE_PROCESSOR) {

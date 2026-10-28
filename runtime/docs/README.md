@@ -137,6 +137,8 @@ Google 工具回查后续接保留供应商返回的 thoughtSignature；不需�
 
 M4 控制台通过 `memory.adaptive.source` 回看检索来源：`adaptive.ts` 核查当前 agent 的 id / hash，在既有来源快照内读取原话和当前修订。来源变化、忽略、急停或不可读取时不返回正文；管理响应脱敏、正文最多16000字符。`semantic.research.enabled` 在卫星也返回配置，但中心任务状态仍只有中心本机可见。新增入口复用 ops 认证和已有存储，无新依赖、表、环境变量或部署项；现有 TypeScript、测试 glob 与生产构建覆盖。
 
+原话、整合与探索处理达到failed终态后，可先修正模型 / 配置，再由中心管理接口 `memory.adaptive.retry {id,attempts}` 显式追加一次机会；累计次数不归零，旧请求重发不能再次批准，来源变更、取消、急停和处理器关闭均不能绕过。重试不重发用户对话、不写成功回执、不重做已接受结果；原失败按现有ops模式写入审计。控制台提供正常入口，依赖重评额度与发布失败不由此操作处理，无需SQL或源码修改；现有依赖与构建入口覆盖。
+
 记忆备份管理接口 `memory.backup.create / list / verify` 由 `memory/backup.ts` 实现，保存在 `QUETZAL_HOME/data/memory-backups/`；复用 Node SQLite / 文件系统、灵魂同步队列和写锁，无新依赖、数据库迁移或部署项。既有 TypeScript include、测试 glob 和 main 导入链覆盖。`test/memory-backup.test.ts` 验证 WAL 原话、认识修订、未发布结果、Git 历史、附件与缺损拒绝。离线恢复由 `memory/restore.ts` 经正式 CLI 调用 main 的 `--restore-memory` 分支；新建配置与身体身份，隔离旧执行状态并保留来源 / 修订，完整多身体验收仍待 M4。
 
 M4 跨身体恢复的多样化开发材料见 [recovery-development.json](../tool/adaptive-eval/recovery-development.json)，它只提供预登记输入与核读要点，复用已有进程客户端、模型观察器和生产入口，不增加依赖、环境变量或部署资产。合成轨迹结果与真实用户试用分开，详见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。

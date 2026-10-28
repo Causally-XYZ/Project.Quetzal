@@ -293,8 +293,9 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 | `memory.adaptive.query` | `{query: string}`（最多 8000 字符）→ `MemoryPacket` | 经正式身体的认证网状通道转给中心，网络读取 500ms 截止；故障降级为空材料，不触发学习或通知 |
 | `memory.adaptive.semantic.query` | 网关 `{query: string}` → `SemanticMemoryReading`；mesh 另带 agent、使用 v3 信封 | semantic 试验启用后读取指定主机；正式身体认证，只读灵魂桥不可调用。含认识与来源版本摘要，网络及本机核查共享500ms截止；不缓存上次 ready，来源冲突 / 缺失或协议不兼容则空降级 |
 | `memory.adaptive.source` | `{id: 正整数, hash: 64位十六进制来源摘要}` → `{status: ready / changed / unavailable, freshness?, source?, reading?}` | 仅管理网关回查本机已复制来源；原文与已知修订取同一快照，校验当前 agent 的来源摘要。changed / unavailable 不返回正文；忽略、非对话来源及急停不可读。ready 的 source 含 id / session / role / recordedAt / text / truncated，正文脱敏并最多16000字符；reading 包含当前已知修订，freshness 为 local-snapshot，不保证中心最新，也不重写历史原话 |
-| `memory.adaptive.jobs` | — → 最近最多 20 条任务 | 当前仅中心本机可见；包含来源、修订、处理器、状态、尝试次数、租约和错误代码，不含正文 |
+| `memory.adaptive.jobs` | — → 最近最多20条任务；`{retryable:true}` → 从最多100条失败任务筛选当前来源、已开启处理器的候选 | 仅中心本机可见；包含来源、修订、处理器、状态、累计尝试、租约和错误代码，不含正文。失败筛选先于LIMIT，不被较新的成功任务遮住 |
 | `memory.adaptive.cancel` | `{id: string}` → boolean | 只取消本机中心的 queued/running/failed 任务并审计；同一来源修订和处理器不被补扫自动复活 |
+| `memory.adaptive.retry` | `{id: string, attempts: 已观察到的累计次数（至少5）}` → boolean | 认证管理者在本机中心为failed的source-v1 / semantic-v1 / research-v1追加一次机会；核对当前来源修订、处理器开关、急停及attempts，旧RPC重发不能批准下一次。保留累计次数、审计原失败，不写成功回执；取消、来源过期及已接受结果不可重做。依赖重评受独立额度约束，不由此重开；发布失败也不由此重试 |
 | `memory.backup.create` | — → `{id, createdAt, agent, body, runtime, files, bytes, captureMs, directory, verified:true}` | 创建并校验本机记忆备份，成功后审计；同一进程只允许一份在途创建。固定写入 `data/memory-backups/<id>`，不接受调用者路径、不调用模型或上传。captureMs 为文件捕获及清单准备时间，不含之后的刷盘与校验；不是端到端耗时 |
 | `memory.backup.list` | — → 清单摘要数组 | 按创建时间升序；可读项带上述摘要与 readable:true，不含 verified；坏清单返回 `{id,readable:false}`。列表读取不等于完整性检查 |
 | `memory.backup.verify` | `{id: UUID v4}` → 摘要及 verified:true | 校验文件集合、SHA-256、SQLite integrity_check 及数据库与灵魂 agent 一致；失败抛错。不执行备份中的代码，不安装 / 恢复；摘要校验不是备份来源的密码学认证 |

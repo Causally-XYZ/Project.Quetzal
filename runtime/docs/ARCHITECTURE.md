@@ -35,6 +35,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 `memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
 
+`AdaptiveStore.retryFailed` 在事务内核对failed、所见attempts、当前可用来源修订及无已接受结果；保留累计次数，只重排一次。宿主仅允许source-v1 / semantic-v1 / research-v1，并核对本机中心、急停和当前处理器开关，ops审计原失败；取消与过期任务不可重开，依赖重评不绕过自己的持久额度。`jobs(..., true)` 先筛失败再限量，管理`memory.adaptive.jobs {retryable:true}`不依赖最近20项；retry仅管理端可用，既有打包导入链覆盖，无新表 / 依赖 / 配置。
+
 提案规则明确局部纠正应以原文和纠正联合支持未变内容；真正撤回该内容时不继续保留。时间字段说明禁止借 recordedAt 的 Z 填充事件时区或月末时分秒，有明确 UTC 依据的时间仍可输出。只改生成说明，不改存档 schema、规范化形状或宿主信任边界；既有提案 / 引用 / 结构化输出 / 归档审核测试覆盖工程路径，真实质量另经公开多轮材料核查。无新依赖、配置或部署项，原 tsconfig 与构建导入链覆盖。
 
 开发评测在 `tool/adaptive-vertex-*.py` 保留安全失败分类和可选 curl 传输，未报告用量为 null；取消会结束 HTTP 子进程。`tool/adaptive-checkpoint-probe/` 单独锁定开源探针的开发依赖，实际执行真实 MemorySaver 契约，不加入生产依赖 / 打包路径；范围和复现命令见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。

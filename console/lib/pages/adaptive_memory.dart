@@ -15,7 +15,7 @@ class _AdaptiveMemoryState extends State<AdaptiveMemoryPage> {
   final query = TextEditingController(), correction = TextEditingController();
   Map? status, reading;
   bool loading = false, saving = false, searching = false;
-  String? error, saved;
+  String? error, saved, retryResult;
   int epoch = 0, searchEpoch = 0;
   late String scope;
   String get currentScope => '${api.current?.id}:${(api.status['agent'] as Map?)?['id']}:${api.status['body']}';
@@ -27,7 +27,7 @@ class _AdaptiveMemoryState extends State<AdaptiveMemoryPage> {
   void _connection() {
     if (scope != currentScope || !online) {
       epoch++; searchEpoch++; scope = currentScope;
-      setState(() { status = null; reading = null; error = null; saved = null; loading = saving = searching = false; });
+      setState(() { status = null; reading = null; error = null; saved = null; retryResult = null; loading = saving = searching = false; });
       query.clear(); correction.clear();
       if (online) _load();
     } else if (status == null && !loading) {
@@ -84,6 +84,24 @@ class _AdaptiveMemoryState extends State<AdaptiveMemoryPage> {
       if (valid(token)) setState(() { saved = r; correction.clear(); reading = null; });
     } catch (e) { if (valid(token)) setState(() => error = '$e'); }
     finally { if (valid(token)) setState(() => saving = false); }
+  }
+  Future<void> _retryFailed() async {
+    if (!online || saving || status?['local'] != true || status?['stopped'] == true) return;
+    final token = epoch;
+    searchEpoch++;
+    setState(() { saving = true; error = null; retryResult = null; reading = null; searching = false; });
+    try {
+      final jobs = await api.call<List>('memory.adaptive.jobs', {'retryable': true});
+      var queued = 0;
+      for (final job in jobs.take(100)) {
+        if (!valid(token)) return;
+        if (job is! Map || job['id'] is! String || job['attempts'] is! int) throw StateError('失败任务格式不完整，请刷新。');
+        if (await api.call<bool>('memory.adaptive.retry', {'id': job['id'], 'attempts': job['attempts']})) queued++;
+      }
+      if (valid(token)) setState(() => retryResult = queued == 0 ? '没有可重试的失败处理任务。' : '已提交 $queued 项重试；不代表理解或同步完成。');
+    } catch (e) { if (valid(token)) setState(() => error = '$e'); }
+    finally { if (valid(token)) setState(() => saving = false); }
+    if (valid(token)) await _load();
   }
   Future<void> _source(Map root) async {
     final request = api.call<Map>('memory.adaptive.source', {'id': root['id'], 'hash': root['hash']});
@@ -152,6 +170,11 @@ class _AdaptiveMemoryState extends State<AdaptiveMemoryPage> {
             SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('空闲时探索关联'), value: (sem['research'] as Map?)?['enabled'] == true,
               onChanged: saving || !enabled || sem['enabled'] != true ? null : (v) => _configure(research: v)),
             Text(adaptiveStatusLabel(s)),
+            if (enabled && s['local'] == true) ...[
+              TextButton(onPressed: saving || s['stopped'] == true ? null : _retryFailed, child: const Text('重试失败的处理任务')),
+              const Text('请先检查模型或配置问题。每项只追加一次尝试；不会重做已接受的结果或修复发布失败。'),
+              if (retryResult != null) Text(retryResult!),
+            ],
             if (enabled) const Text('同一 agent 的可访问对话会关联；新事实由此保存和纠正，旧资料保留作历史参考。'),
           ]),
           if (enabled) ...[
