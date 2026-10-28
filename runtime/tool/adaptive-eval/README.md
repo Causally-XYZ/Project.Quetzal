@@ -176,7 +176,7 @@ packet 包含绑定原回执的全部断言、要求的材料类别、可用 art
 
 ### M3 开发研究选项
 
-程序入口 `runTrack` 可显式使用 `research:true` 启用正常中心后台研究；等待条件额外核对每个 user / ambient 来源的 `research-v1` 回执及 `research-idle`，避免尚未研究就释放下一步。`backgroundRetries:true` 仅用于开发完整过程，允许既有后台任务自动重试，所有失败调用及尝试数原样保存；截断、前台失败、后台重试耗尽仍停止。两个选项禁止用于 `fullEvidence` 或受控图，原正式执行、输入和评分门槛不变，不是新验收框架。缺省均关闭。
+程序入口 `runTrack` 可显式使用 `research:true` 启用正常中心后台研究；等待条件额外核对每个 user / ambient 来源的 `research-v1` 回执及 `research-idle`，避免尚未研究就释放下一步。`backgroundRetries:true` 仅用于开发完整过程，允许既有后台任务自动重试，所有失败调用及尝试数原样保存；包括 queued / running 的 processor_failed 和 interrupted，允许原队列继续处理，后者可能来自版本过期或任务中断。终局 failed / cancelled、截断、前台失败、后台重试耗尽仍停止。两个选项禁止用于 `fullEvidence` 或受控图，原正式执行、输入和评分门槛不变，不是新验收框架。缺省均关闭。
 
 ### M3 三基线开发对照
 

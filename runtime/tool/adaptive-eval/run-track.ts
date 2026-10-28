@@ -58,7 +58,7 @@ export async function runTrack(options: TrackOptions) {
   const checkFailures = (state: any) => {
     const optionalMemory = (c: ObservedCall) => legacy && ['memory-selection', 'memory-learning'].includes(c.purpose) && c.failure?.category !== 'call-budget';
     if (state.calls.some((c: ObservedCall) => !optionalMemory(c) && ((c.state === 'failed' && (!options.backgroundRetries || c.purpose !== 'proposal')) || c.result?.truncated))
-      || state.jobs.some((j: any) => j.error && j.error !== 'source_changed' && !(options.backgroundRetries && j.error === 'processor_failed' && ['queued', 'running'].includes(j.state))) || state.status.error)
+      || state.jobs.some((j: any) => j.error && j.error !== 'source_changed' && !(options.backgroundRetries && ['processor_failed', 'interrupted'].includes(j.error) && ['queued', 'running'].includes(j.state))) || state.status.error)
       throw new Error('evaluation-background-or-model-failed');
     if (options.kind === 'live' && state.calls.some((c: ObservedCall) => c.state === 'returned' && (!c.transport.length
       || c.transport.some((t) => t.versions.length !== 1 || t.versions[0] !== options.model || !t.finish.length || (!optionalMemory(c) && !t.finish.includes('STOP'))))))
