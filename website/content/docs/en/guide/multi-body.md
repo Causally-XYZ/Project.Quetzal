@@ -23,7 +23,7 @@ Every console shows which body is talking with you right now. If you speak to th
 
 1. **A sync service** helps bodies find each other and passes traffic between them when they cannot connect directly. It stores only accounts, agents and body registrations, and keeps no conversations or memory. By default Quetzal uses the official service, run personally by this project's author. You can also host it yourself (`sync/` in the repository, one Linux server with a public address, one command); see [sync/README](https://github.com/PlutoKeating/Project.Quetzal/blob/main/sync/README.md).
 2. **A soul repository** connected on every body (see [Soul sync](/docs/guide/soul-sync)). The public keys the bodies use to check each other are registered there, so even someone who breaks into the sync service cannot pose as your bodies.
-3. **An account** to sign in and approve bodies on the sync service's website. The official sync service uses a PlutoKeating account (the author's single account), and you can sign in with email, a passkey or GitHub. A sync service you host yourself uses the identity provider you configured. The GitHub app you install when the first soul repository is created can manage the repositories you chose; see [Trust and limits](/docs/guide/trust#what-the-github-app-can-do).
+3. **An account** to sign in and approve bodies on the sync service's website. The official sync service uses a Causally account (id.causally.xyz). A sync service you host yourself uses the identity provider you configured. The GitHub app you install when the first soul repository is created can manage the repositories you chose; see [Trust and limits](/docs/guide/trust#what-the-github-app-can-do).
 4. **Version 1.0.3 or later** on every body. All versions since 1.0.3 use the same connection protocol, so you can mix them and do not have to upgrade together; some newer cross-body features work only once both sides run a version that supports them.
 
 ## Signing in a body
@@ -115,7 +115,7 @@ All account settings are on the site's [Account](/account) page. In the app, the
 | Overview | Every agent in the account and each of its devices, with online state, kind and version. Remove a device or delete an agent |
 | Add a device | Enter the code a new device shows, check it, then approve or deny |
 | Signed in | Which apps can manage this account. Sign out the ones you do not use at any time |
-| Settings | Manage your account (email, password, passkeys, linked GitHub), sign out (of this browser, or of every browser at once), or delete the account |
+| Settings | Manage your account (opens the Causally account settings page), sign out (of this browser, or of every browser at once), or delete the account |
 
 **One sign-in**: once you sign a device in and approve it, the app on that device can manage the account too, with no second approval. That sign-in ends when you remove the device, and you can also sign it out under Signed in. The Account page asks you to tap **Sign in** again only with an older sync service that does not grant this.
 

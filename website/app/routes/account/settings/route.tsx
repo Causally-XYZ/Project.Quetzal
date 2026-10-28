@@ -37,7 +37,7 @@ function Settings({ login, onDone }: { login: string; onDone: (msg: string) => v
         <Heading as="h2" size="sm">{t.profileHeading}</Heading>
         <p className="text-sm text-fg">{login}</p>
         <p className="text-sm text-fg-muted">{t.profile}</p>
-        <ButtonAnchor variant="secondary" href="#" onClick={(e) => { e.preventDefault(); window.location.assign(accountUrl(window.location.href)); }} className="self-start">{t.manage}</ButtonAnchor>
+        <ButtonAnchor variant="secondary" href="#" onClick={(e) => { e.preventDefault(); window.location.assign(accountUrl()); }} className="self-start">{t.manage}</ButtonAnchor>
       </Card>
       <Card className="flex flex-col items-start gap-3">
         <Heading as="h2" size="sm">{t.logoutHeading}</Heading>
