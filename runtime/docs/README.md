@@ -142,3 +142,5 @@ M4 控制台通过 `memory.adaptive.source` 回看检索来源：`adaptive.ts` �
 M4 跨身体恢复的多样化开发材料见 [recovery-development.json](../tool/adaptive-eval/recovery-development.json)，它只提供预登记输入与核读要点，复用已有进程客户端、模型观察器和生产入口，不增加依赖、环境变量或部署资产。合成轨迹结果与真实用户试用分开，详见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。
 
 M4 已在检索组件空缓存的隔离双身体上测量120次管理语义读取（其中100次在组件就绪后），并行真实模型增量和正常对话，计时 / 回执与边界见阶段记录 §6.11。该运行复用现有依赖与启动链；后续模型角色模拟只作开发试用，不替代真人反馈或真实半年老化验证。
+
+前台 `mind/context.ts` 复核两次语义读取的 agent / host / status / freshness 与完整 basis，不要求词面和向量降级后的排名或 matched 相等；历史 / 工具 / 摘要投影仍按原规则复核。`adaptive-query-host.test.ts` 用相同依据、不同候选的实际 converse 验证首次对话可用性，原纠正和撤回门禁继续覆盖；无新 RPC、格式、依赖或配置。

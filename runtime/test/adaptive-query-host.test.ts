@@ -105,6 +105,29 @@ test('向量等待不占灵魂锁；等待中的纠正由最终快照拒绝旧�
   } finally { detach(); store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction); }
 });
 
+test('上下文准备的词面与向量排名切换不使有效依据的正常对话失败', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const f = fixture('vector-ranking-conversation');
+  let keys: string[] = [], queries = 0;
+  const detach = adaptive.setAdaptiveRetriever(identity().id, {
+    replace: (candidates) => { keys = candidates.filter((c) => c.item.roots.some((r) => r.id === f.source)).map((c) => c.key); },
+    query: async (query) => ++queries % 2 ? { queryHash: semanticDigest(query), keys } : undefined,
+  });
+  script = async () => ({ content: '候选排名变化不阻断有效资料' });
+  try {
+    await adaptive.refreshAdaptiveRetrieval(); assert.equal(keys.length, 1);
+    const dense = await adaptive.queryAdaptiveSemantic('涮肉同行者'), lexical = await adaptive.queryAdaptiveSemantic('涮肉同行者');
+    assert.notDeepEqual(dense.items, lexical.items); assert.deepEqual(dense.basis, lexical.basis); queries = 0;
+    const reply = await brain.converse('合成用户', '涮肉同行者', '控制台', { conv: 'ranking-switch-chat', local: true }); markBusy(true);
+    assert.equal(reply, '候选排名变化不阻断有效资料');
+    assert.equal(seen.length, 1); assert.ok(queries >= 2);
+    assert.match(joined(seen[0]), /饭友是编辑/);
+  } finally {
+    detach(); script = async () => ({ content: '完成' });
+    store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction);
+  }
+});
+
 test('向量服务不响应时100ms内放弃等待，保留当前词面读取与调用者取消', async () => {
   const f = fixture('vector-timeout');
   const detach = adaptive.setAdaptiveRetriever(identity().id, { replace() {}, query: () => new Promise(() => {}) });
@@ -484,6 +507,23 @@ test('最终核查期间的插话仍并入当前轮次；恢复等待中的停�
   } finally { release?.(); script = async () => ({ content: '完成' }); }
 });
 
+test('恢复不能用重复调用编号覆盖原有执行记录', async () => {
+  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
+  const f = fixture('recovery-call-id-source'), conv = 'recovery-call-id';
+  const call = { id: 'existing-call', type: 'function', function: { name: 'memory_records', arguments: '{}' } };
+  script = async () => {
+    if (seen.length === 2) { await exclusive(() => f.correct()); return { content: 'OLD_CALL_ID_DRAFT' }; }
+    return { tool_calls: [call] };
+  };
+  try {
+    const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
+    assert.equal(seen.length, 3); assert.match(reply, /调用编号重复/);
+    const row = store.getToolCall('existing-call'); assert.ok(row); assert.equal(row.status, 'ok');
+    assert.equal(store.sessionMessages(conv).filter((m) => m.role === 'agent').length, 1);
+  } finally { script = async () => ({ content: '完成' }); }
+});
+
+// 真正等待30秒会跨过后台调度让步窗口，放在最后避免影响后续模型请求计数。
 test('自动恢复的30秒截止传到实际 HTTP 等待，不借供应商90秒墙延长', { timeout: 45000 }, async () => {
   configure([{ id: 'large', context: 131072 }]); seen.length = 0;
   const f = fixture('recovery-timeout-source'), conv = 'recovery-timeout';
@@ -505,20 +545,4 @@ test('自动恢复的30秒截止传到实际 HTTP 等待，不借供应商90秒�
     release(); await new Promise((resolve) => setImmediate(resolve));
     assert.ok(!store.sessionMessages(conv).some((m) => m.role === 'agent' && m.text.includes('TIMEOUT_DRAFT')));
   } finally { release?.(); script = async () => ({ content: '完成' }); cfg.saveConfig({ adaptiveMemory: before }); }
-});
-
-test('恢复不能用重复调用编号覆盖原有执行记录', async () => {
-  configure([{ id: 'large', context: 131072 }]); seen.length = 0;
-  const f = fixture('recovery-call-id-source'), conv = 'recovery-call-id';
-  const call = { id: 'existing-call', type: 'function', function: { name: 'memory_records', arguments: '{}' } };
-  script = async () => {
-    if (seen.length === 2) { await exclusive(() => f.correct()); return { content: 'OLD_CALL_ID_DRAFT' }; }
-    return { tool_calls: [call] };
-  };
-  try {
-    const reply = await brain.converse('合成用户', '饭友是谁', '控制台', { conv, local: true }); markBusy(true);
-    assert.equal(seen.length, 3); assert.match(reply, /调用编号重复/);
-    const row = store.getToolCall('existing-call'); assert.ok(row); assert.equal(row.status, 'ok');
-    assert.equal(store.sessionMessages(conv).filter((m) => m.role === 'agent').length, 1);
-  } finally { script = async () => ({ content: '完成' }); }
 });

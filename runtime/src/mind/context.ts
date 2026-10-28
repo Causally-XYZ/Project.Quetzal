@@ -7,7 +7,7 @@ import type { ChatRequest, Msg } from '../providers/types.ts';
 import type { MemoryStage, MemoryRecord } from '../../../engine/src/memory.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
 import { selectContextMemory } from '../memory/semantic.ts';
-import { queryAdaptive, adaptiveContext, withAdaptiveSources, adaptiveReadingRequired, queryAdaptiveSemantic, adaptiveSemanticContext } from '../memory/adaptive.ts';
+import { queryAdaptive, adaptiveContext, withAdaptiveSources, adaptiveReadingRequired, queryAdaptiveSemantic, adaptiveSemanticContext, type SemanticMemoryReading } from '../memory/adaptive.ts';
 import { sourceReadingHeader, type SourceReading } from '../memory/adaptive-reading.ts';
 import { materialSources, materialContext, checkMaterialVersions } from '../memory/adaptive-material.ts';
 import { identity } from '../memory/identity.ts';
@@ -39,6 +39,9 @@ const readingKey = (view: SourceReading, ids = view.sources.map((s) => s.id)) =>
   return crypto.createHash('sha256').update(JSON.stringify({ generation: view.generation,
     sources: view.sources.filter((s) => related.has(s.id)).sort((a, b) => a.id - b.id) })).digest('hex');
 };
+// 排名可能因向量超时降级而变化；复核依据，不要求再次检索选中相同候选。
+// 暂保留完整图依据的保守核查，真实来源 / 认识变化仍会触发重建。
+const semanticBasisKey = ({ agent, host, status, freshness, basis }: SemanticMemoryReading) => JSON.stringify({ agent, host, status, freshness, basis });
 function summaryBasis(value: unknown): SummaryBasis | undefined {
   const b = value as SummaryBasis | null;
   return b && Array.isArray(b.sources) && b.sources.length <= 1000 && b.sources.every((id) => Number.isSafeInteger(id) && id > 0) &&
@@ -211,7 +214,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[], fre
           signal.throwIfAborted();
           const checked = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources);
           const checkedSemantic = await queryAdaptiveSemantic(context.query, signal);
-          if (reading.key !== checked.key || JSON.stringify(semantic) !== JSON.stringify(checkedSemantic)) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
+          if (reading.key !== checked.key || semanticBasisKey(semantic) !== semanticBasisKey(checkedSemantic)) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
           context.plan = plan;
           if (reading.answerSources) answerSources = mergeAnswerSources(answerSources, reading.answerSources);
           kv.set(`context.plan.${context.conv}`, { turn: id, model, estimate: plan.estimate, selectedIds: plan.selectedIds, skippedMemoryIds: plan.skippedMemoryIds,

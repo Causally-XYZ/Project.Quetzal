@@ -210,6 +210,8 @@ adapters/
 
 `memory/adaptive-query-packet.ts` 处理语义信封形状、请求绑定、版本及来源引用核查；`adaptive-query.ts` 生成当前图的版本摘要并判断与本机状态兼容性。`mesh/adaptive-memory.ts` 为 memory.adaptive.semantic.query 注册默认非 readable 方法（只读桥拒绝），`ops.ts` 同名网关入口调用宿主查询。旧 M1 方法保持原格式。无依赖、配置、数据库迁移或独立服务变更，现有构建入口覆盖；详细协议和保守冲突策略见全局 API 与语义文档。
 
+`mind/context.ts` 在上下文准备的再次检索中只比较语义作用域、状态、新鲜度和完整图 basis；向量100ms降级导致的排名 / 候选数变化不等同于依据失效。完整 basis 的来源 hash / 认识修订与摘要、历史、工具的原严格复核保留；当前仍可能因无关全库更新重建，不声称实现了仅核所选依赖的协议。无需新信封、RPC、依赖或部署项。
+
 `mesh/soul-sync.ts` 的 installSoulSync 由 startMesh 和多身体夹具共用，监听真实 mesh event 与本机 soul.pushed / sense；停止时清理监听和去抖计时器。替代 main.ts 启动时的全局 wireMesh 绑定。Git 排队、锁、身份守卫与错误重试仍由 memory/soul-sync.ts / soul-repo.ts 管理，协议与灵魂格式不变。
 
 多身体开发运行器的显式向量模式复用中心默认准备器，不注入近邻。retrieval-observer 只预热摘要绑定的公开文件、观察真实 query；检查点核对 worker.snapshot 与 archive 当前候选摘要。卫星 mesh 停止 / 重连由测试 IPC 控制，离线来源与 unavailable 查询先落盘，再等待实际复制、处理和发布。生产 API、配置和灵魂格式均不改变；正式语义评分与浏览器验收仍单独进行。
