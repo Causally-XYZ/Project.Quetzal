@@ -54,10 +54,12 @@ flowchart LR
   D --> E["~/.config/systemd/user/quetzal.service<br/>daemon-reload · enable · restart"]
   E --> F{"40 秒内 /health<br/>且 version 相符?"}
   F -- 是 --> G["只保留 3 个版本<br/>第一次安装：打开浏览器"]
-  F -- 否 --> H["切回 previous · restart · 报错"]
+  F -- 否 --> H["切回 previous · 重新注册 / 启动<br/>再次核对健康 · 报告实际状态"]
 ```
 
 与 Android 安装器（`console/assets/install/install.sh`）逐步对应：软件包一步换成 Node 版本检查（22.13+），runit 换成 systemd 用户服务，日志由 journald 接管。
+
+Linux / macOS 的版本切换后准备、服务注册和启动异常也进入相同恢复分支，不只处理健康超时；仅对本次实际切换且仍有前版的情形自动回切。同版本覆盖不是字节快照，重复安装失败不擅自退到更早版本。macOS `bootout` 返回后最多等待10秒确认旧任务已卸载，再 bootstrap；回切只恢复程序指针，配置 / 数据不回退，服务健康与数据格式兼容须分别验证。无新增依赖、环境变量、部署资产或构建入口，现有 CLI bundle 包含该路径。
 
 ## 设备上的文件
 

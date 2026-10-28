@@ -63,23 +63,34 @@ export async function install(o: Options, say: Say): Promise<void> {
   fs.mkdirSync(l.releases, { recursive: true });
   const { version, changed, before } = placeRelease(l, o.force);
   say(!changed ? `运行基座 ${version} 已是内置版本` : before === version ? `重新安装 ${version}` : before ? `升级：${before} → ${version}` : `安装运行基座 ${version}`);
-  if (!fs.existsSync(path.join(l.current, "node_modules", "node-datachannel"))) await installMeshModules(l, bundled().dir, fs.realpathSync(l.current), say);
-  writeDefaults(l, o.lan);
+  let h: Awaited<ReturnType<typeof waitHealthy>>, linger = false;
+  try {
+    if (!fs.existsSync(path.join(l.current, "node_modules", "node-datachannel"))) await installMeshModules(l, bundled().dir, fs.realpathSync(l.current), say);
+    writeDefaults(l, o.lan);
 
-  if (!(await svc.available())) {
-    say(isMac ? "这台 Mac 上用不了 launchctl：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。"
-      : "没有可用的 systemd 用户实例（容器或未开启 systemd 的 WSL）：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。");
-    return;
-  }
-  await svc.install({ home: l.home, node: process.execPath });
-  const linger = await svc.enableLinger();
-  await svc.restart();
-  say("服务已启动，等待运行基座响应…");
-  const h = await waitHealthy(gatewayPort(l), version);
-  if (!h) {
-    const back = rollback(l);
-    if (back) { await svc.restart().catch(() => {}); throw new Error(`新版本 40 秒内没有响应，已切回 ${back}。日志：quetzal logs`); }
-    throw new Error("运行基座 40 秒内没有响应。日志：quetzal logs");
+    if (!(await svc.available())) {
+      say(isMac ? "这台 Mac 上用不了 launchctl：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。"
+        : "没有可用的 systemd 用户实例（容器或未开启 systemd 的 WSL）：已放好文件，请用 `quetzal run` 前台运行，并交给你自己的进程守护者。");
+      return;
+    }
+    await svc.install({ home: l.home, node: process.execPath });
+    linger = await svc.enableLinger();
+    await svc.restart();
+    say("服务已启动，等待运行基座响应…");
+    h = await waitHealthy(gatewayPort(l), version);
+    if (!h) throw new Error("运行基座 40 秒内没有响应");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    // 只回退本次真正切换的版本；重复安装不能误退到更早版本，同版本覆盖也不是旧字节快照。
+    if (!changed || !before || before === version) throw new Error(`安装未完成：${reason}。本次没有可恢复的版本切换。日志：quetzal logs`, { cause: error });
+    let back: string | undefined;
+    try { back = rollback(l); }
+    catch { throw new Error(`安装未完成：${reason}。版本指针回切失败。日志：quetzal logs`, { cause: error }); }
+    if (!back) throw new Error(`安装未完成：${reason}。没有找到可切回的版本。日志：quetzal logs`, { cause: error });
+    // 注册也可能只完成一部分；恢复原程序后重新注册，再用健康结果判断是否真正恢复。
+    try { await svc.install({ home: l.home, node: process.execPath }); await svc.restart(); } catch { /* 仍核对实际健康，不能把重启命令返回等同服务状态。 */ }
+    const recovered = await waitHealthy(gatewayPort(l), back);
+    throw new Error(`安装未完成：${reason}。已切回 ${back}，${recovered ? "并已确认服务恢复健康" : "但尚未恢复健康，请检查服务日志"}。日志：quetzal logs`, { cause: error });
   }
   say(`运行基座 ${h.version} 正常${h.safeMode ? "（安全模式：反复崩溃，请看日志）" : ""}。`);
   if (hasConsole(l)) say(`网页控制台：${consoleUrl(l)}（这台机器上的浏览器打开即登录；别的设备用 Quetzal App 加配对码）`);

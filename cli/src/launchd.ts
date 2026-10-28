@@ -103,7 +103,15 @@ export async function install(o: { home: string; node: string }) {
   fs.mkdirSync(path.join(o.home, "logs"), { recursive: true });
   fs.writeFileSync(f, plistText(o), { mode: 0o644 });
   const d = await domain();
-  if (await loaded(d)) await lc("bootout", `${d}/${LABEL}`); // 换成新写的 plist（bootout 会停掉正在运行的版本，下面马上拉起）
+  if (await loaded(d)) {
+    await lc("bootout", `${d}/${LABEL}`);
+    // bootout 返回时旧任务可能仍在退出；此时 bootstrap 会失败，kickstart 也不能接管它。
+    const deadline = Date.now() + 10_000;
+    while (await loaded(d)) {
+      if (Date.now() >= deadline) throw new Error("旧的 launchd 用户代理尚未退出，请检查服务日志");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
   await lc("enable", `${d}/${LABEL}`);
   const r = await lc("bootstrap", d, f);
   if (r.code !== 0 && !(await loaded(d))) throw new Error(`注册 launchd 用户代理失败：${r.out.trim()}`);
