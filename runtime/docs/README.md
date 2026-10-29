@@ -1,6 +1,6 @@
 # runtime · 运行基座
 
-M5未决争议读取：`memory/adaptive-conflict.ts`复用Claim证据关系，语义查询返回完整有界争议，身体信封升至v4，来源 / 版本不全时保守不呈现。无新依赖、环境变量、服务或部署步骤；现有runtime构建自动打包，数据库和灵魂记录格式不变。单元、图读取及信封回归分别见`adaptive-query` / `adaptive-graph` / `adaptive-query-packet`测试；真实模型行为需另行核读。
+M5纠正规则明确区分直接纠正、仍有效约束的实质冲突和偏好变化。专用争议视图经真实重放未体现新增收益，已撤回试验接线；语义信封保持v3、存储格式不变。此次没有新依赖、环境变量或部署步骤，既有构建自动包含提案规则；下一步检索对照见阶段记录§7.7。
 
 TypeScript / Node.js 22+。核心存储用内置 `node:sqlite`，无需额外 SQLite 原生扩展，打包为单文件 `dist/main.cjs`。平台级身体适配器：`adapters/android/`（任意安卓手机，身体能力经 Quetzal App 的本机身体接口提供，操作屏幕靠 App 的无障碍服务）打包为 `dist/android.mjs`，随 Quetzal App 内置（App 只装一个，运行环境也在里面，见 `../console/tool/android-runtime/`）；`adapters/termux/`（旧的 Termux 安装：安卓手机 + Termux:API）打包为 `dist/termux.mjs`，保留以兼容；`adapters/linux/`（任意 Linux 电脑或服务器：电池与温度读 `/sys`，通知、播放、剪贴板、相机、录音，以及看屏幕与操作应用（xdotool / ydotool / wtype、AT-SPI、截图程序）按可用程序探测）打包为 `dist/linux.mjs`，随 npm 包 `@plutokeating/quetzal`（`../cli`）内置；`adapters/macos/`（任意 Mac：电量读 pmset、电池温度与设备标识读 ioreg，通知、截图、剪贴板、打开、播放用系统自带的程序，拍照录音按可用程序探测；hands 用 JXA 经 System Events 读无障碍树与窗口、按键输入，鼠标用 cliclick 或 CoreGraphics 的 CGEvent）打包为 `dist/macos.mjs`，同样随 npm 包内置；`adapters/windows/`（任意 Windows 10 1809 起 / 11 电脑：电源、温度、Toast、截图与操作屏幕（UI Automation + SendInput）、剪贴板、打开、播放、拍照、录音，常驻一个 PowerShell 5.1 进程执行）打包为 `dist/windows.mjs`，另有用户桌面里的身体助手 `dist/windows-body.mjs` 与守护进程 `dist/windows-supervise.mjs`，随 Windows 安装包（`../cli/windows`）分发。Windows 与 macOS 的命令沙箱库单独打包为 `dist/srt.mjs`（Windows 的 srt-win.exe 由安装包放进 `srt-win\`；macOS 用系统自带的 sandbox-exec，srt.mjs 随 npm 包放进版本目录），Mermaid 兜底渲染器为 `dist/mermaid.mjs`（桌面用，按需加载）。
 

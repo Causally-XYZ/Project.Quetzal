@@ -291,7 +291,7 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean, research?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic / research 为默认关闭的后台整合 / 研究开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
 | `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic}` | semantic 含 enabled / state / research.enabled，中心另含语义队列、lastModel `{model,input,output,reasoning?,total?}` 、重评预算及 research `{enabled,queue,last}`；last 含私人研究问题、步骤与来源版本，仅按既有管理权限访问；reasoning 已包含于 output，total 为供应商报告，可选字段未报告则省略，lastModel 不是完整调用历史；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
 | `memory.adaptive.query` | `{query: string}`（最多 8000 字符）→ `MemoryPacket` | 经正式身体的认证网状通道转给中心，网络读取 500ms 截止；故障降级为空材料，不触发学习或通知 |
-| `memory.adaptive.semantic.query` | 网关 `{query: string}` → `SemanticMemoryReading`；mesh 另带 agent、使用 v4 信封 | semantic 试验启用后读取指定主机；正式身体认证，只读灵魂桥不可调用。含认识与来源版本摘要，网络及本机核查共享500ms截止；不缓存上次 ready，来源冲突 / 缺失或协议不兼容则空降级 |
+| `memory.adaptive.semantic.query` | 网关 `{query: string}` → `SemanticMemoryReading`；mesh 另带 agent、使用 v3 信封 | semantic 试验启用后读取指定主机；正式身体认证，只读灵魂桥不可调用。含认识与来源版本摘要，网络及本机核查共享500ms截止；不缓存上次 ready，来源冲突 / 缺失或协议不兼容则空降级 |
 | `memory.adaptive.source` | `{id: 正整数, hash: 64位十六进制来源摘要}` → `{status: ready / changed / unavailable, freshness?, source?, reading?}` | 仅管理网关回查本机已复制来源；原文与已知修订取同一快照，校验当前 agent 的来源摘要。changed / unavailable 不返回正文；忽略、非对话来源及急停不可读。ready 的 source 含 id / session / role / recordedAt / text / truncated，正文脱敏并最多16000字符；reading 包含当前已知修订，freshness 为 local-snapshot，不保证中心最新，也不重写历史原话 |
 | `memory.adaptive.jobs` | — → 最近最多20条任务；`{retryable:true}` → 从最多100条失败任务筛选当前来源、已开启处理器的候选 | 仅中心本机可见；包含来源、修订、处理器、状态、累计尝试、租约和错误代码，不含正文。失败筛选先于LIMIT，不被较新的成功任务遮住 |
 | `memory.adaptive.cancel` | `{id: string}` → boolean | 只取消本机中心的 queued/running/failed 任务并审计；同一来源修订和处理器不被补扫自动复活 |
@@ -302,9 +302,7 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 恢复不经管理 RPC 覆盖当前身体；使用目标设备的 `quetzal restore --from <备份文件夹> --home <新家目录>`。命令、状态隔离与限制见[存储说明](engine/ADAPTIVE_MEMORY_STORAGE.md#离线恢复命令)。
 
-语义 mesh 方法使用独立信封（当前version 4）：`{version:4, queryHash, generatedAt, agent, host, status, freshness, generation, items, matched, basis}`。queryHash 为本次查询的 JSON SHA-256；信封校验请求、指定身份、时间范围和全部字段，未知字段拒绝。basis.records 为实际输出及其依赖当前版本的 `{id,revision,hash}`，basis.sources 为这些记录直接来源的 `{id,hash|null}`；只含版本摘要，不传整图正文。两者各至多1000项，信封最多512 KiB。网关返回去掉 version / queryHash / generatedAt 的读取视图，不把传输时间纳入上下文缓存比较。
-
-M5新增未决争议读取视图：`kind:conflict, status:indeterminate` 的条目以现有Claim的支持 / 反证关系为依据，携带根认识及完整当前依赖`records`、来源`roots`。它不是确定事实，不让未决前提支持确定下游。仅返回双方来源在本机 / 全局均可核对、引用版本完整的有根争议；明确生效的反证、无根循环不伪装成未决争议。单束依赖最多64KiB、1000条、100个来源，遍历最多10000项；缺失或超限不返回半束，重复的完整争议去重。接收端v4核对嵌套记录与basis摘要；已有v1–v3不接受新条目。普通对话在相关时指出具体不协调处并请用户复核；澄清后的当前版本不再保留已解决争议。模型能否正确识别和保存实质冲突仍需真实试验，结构测试不构成语义准确率证明。
+语义 mesh 方法使用独立信封（当前version 3）：`{version:3, queryHash, generatedAt, agent, host, status, freshness, generation, items, matched, basis}`。queryHash 为本次查询的 JSON SHA-256；信封校验请求、指定身份、时间范围和全部字段，未知字段拒绝。basis.records 为实际输出及其依赖当前版本的 `{id,revision,hash}`，basis.sources 为这些记录直接来源的 `{id,hash|null}`；只含版本摘要，不传整图正文。两者各至多1000项，信封最多512 KiB。网关返回去掉 version / queryHash / generatedAt 的读取视图，不把传输时间纳入上下文缓存比较。
 
 matched 为本次有界检索检查到的有效候选数，不是全库穷举数量。接收身体先核对本机权威存档：本机整体代次较新、结果依赖版本落后或同版摘要冲突时拒绝整包；只点读返回basis中的记录，不比较无关正文。主机可读来源必须已在本机复制且 hash 一致；本机编辑、忽略或删除不会因远端 ready 恢复。主机较新版本可以读取，但只代表主机已知快照。协议依赖原有同 agent 正式身体互信，结构 / 摘要检查不是语义真值证明，也不是不信任主机情况下的完整性证明。旧身体没有新方法时正常降级。
 
