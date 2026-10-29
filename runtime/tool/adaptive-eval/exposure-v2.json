@@ -1,0 +1,780 @@
+{
+  "status": "已冻结；本清单记录冻结时的曝光情况",
+  "suiteHash": "292fa2481e54829c311a5a23591798b1706365355b264f3efad48ab249d44ac7",
+  "cases": [
+    {
+      "id": "AM-01-H1",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S4",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "实质替换旧AM01模板；开发者已审题，尚未向被测模型发送。 题材与具体事件已变，但仍复用昵称或指称碰撞、跨语境区分及局部更正等机制骨架；开发者已审阅，不是盲测或完全独立的新机制检验。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-01-H2",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S4",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "实质替换旧AM01模板；不复用饭局/小说亲属结构。 题材与具体事件已变，但仍复用昵称或指称碰撞、跨语境区分及局部更正等机制骨架；开发者已审阅，不是盲测或完全独立的新机制检验。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-01-H3",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S4",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "实质替换；保留跨语境同称但不沿用旧修钟/父亲/补写故事。 题材与具体事件已变，但仍复用昵称或指称碰撞、跨语境区分及局部更正等机制骨架；开发者已审阅，不是盲测或完全独立的新机制检验。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-01-H4",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S4",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "实质替换；无饭局，采用发件/引文归属而非单句说话人替换。 题材与具体事件已变，但仍复用昵称或指称碰撞、跨语境区分及局部更正等机制骨架；开发者已审阅，不是盲测或完全独立的新机制检验。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-01-H5",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S4",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "实质替换；增加人/实物/虚构同名差别，不使用录音笔或硬盘。 题材与具体事件已变，但仍复用昵称或指称碰撞、跨语境区分及局部更正等机制骨架；开发者已审阅，不是盲测或完全独立的新机制检验。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-02-H1",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "替换确认曝光并用于identityGap修复的旧AM-02-H1；新题仍只是待独立审题草案。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-02-H2",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "旧H2是否live未知，同模板已用于开发；实质换成器材标签错绑。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-02-H3",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "旧H3live未知；改为组织+描述后续澄清，不能把全部description-open固定为永远未知。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-02-H4",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "旧H4live未知；模拟用户报告转写误差，不声称真实ASR采样或真实录音。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-02-H5",
+      "action": "实质改写来源与任务",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "旧H5live未知；活动/地点跨类型，避免再用近音人名发稿。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-03-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "actual-change",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        },
+        {
+          "track": "historical-correction",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "已用于stub执行/审核链接线；无直接live语义曝光证据，不等于开发者未见。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-03-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "actual-change",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        },
+        {
+          "track": "historical-correction",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-03-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "actual-change",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        },
+        {
+          "track": "historical-correction",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-03-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "actual-change",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        },
+        {
+          "track": "historical-correction",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-03-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "actual-change",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        },
+        {
+          "track": "historical-correction",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-04-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-04-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-04-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-04-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-04-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-05-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-05-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-05-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-05-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-05-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S2",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-06-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-06-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-06-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-06-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-06-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-07-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "controlled-support",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-07-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "controlled-support",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-07-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "controlled-support",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-07-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "controlled-support",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-07-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "controlled-support",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-09-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-09-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-09-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-09-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-09-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "change": "S3",
+          "unrelated": "U",
+          "first": "R1",
+          "second": "R2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-10-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "ambiguous",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        },
+        {
+          "track": "conflicting-reports",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-10-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "ambiguous",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        },
+        {
+          "track": "conflicting-reports",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-10-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "ambiguous",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        },
+        {
+          "track": "conflicting-reports",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-10-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "ambiguous",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        },
+        {
+          "track": "conflicting-reports",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-10-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "ambiguous",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        },
+        {
+          "track": "conflicting-reports",
+          "dynamic": "not-applicable",
+          "final": "S2"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-16-H1",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-16-H2",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-16-H3",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-16-H4",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    },
+    {
+      "id": "AM-16-H5",
+      "action": "保留v1素材及能力；改末问；适用时加观察",
+      "keyPoints": [
+        {
+          "track": "main",
+          "dynamic": "not-applicable",
+          "final": "S3"
+        }
+      ],
+      "exposure": "本次未核出该冻结ID的直接live/修复记录，标unknown；公开v1模板已由开发者阅读，非盲测。",
+      "reuseLimits": "不声称机制独立或真实用户总体准确率；原v1和既有开发失败均保留。"
+    }
+  ],
+  "reviewedDraftHash": "72a7f05a025617ec61d9f5c74944d1196f8da7735c33bf6c230b8d5747cc0772",
+  "freezeChange": "独立审题后仅将suite.id由m5-sequence-v2-review-draft-20261029改为m5-sequence-v2；案例内容、预期与required均不变。",
+  "review": "两位Agent分别编制与独立审题；35个动态轨的R2/second-use均为required，R1不要求全部通过。未调用被测模型审题。",
+  "limits": "公开开发者可见，机制存在复用；曝光栏记录冻结前已知情况，不断言unknown等于未见。分项计数是检查结果，不直接等同真实复发率、修复耗时或独立统计样本。原v1及失败保持不变。"
+}
