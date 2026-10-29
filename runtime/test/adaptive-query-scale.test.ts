@@ -38,4 +38,17 @@ test('1000条认识的实际宿主读取：100次查询、来源失效与坏文�
   reading = await host.queryAdaptiveSemantic('港口采风'); assert.equal(reading.status, 'unavailable'); assert.deepEqual(reading.items, []);
   fs.writeFileSync(firstFile, original);
   reading = await host.queryAdaptiveSemantic('港口采风'); assert.equal(reading.status, 'ready'); assert.equal(reading.matched, 999);
+  // 推进时钟验证正式周期入口，不直接调用archive.audit，不真实等待一分钟。
+  const before = host.adaptiveStatus().integrity.checkedAt!;
+  const advanced = Date.now() + 60_001;
+  const clock = t.mock.method(Date, 'now', () => advanced);
+  try {
+    host.processAdaptiveBatch();
+    const end = performance.now() + 5000;
+    while ((host.adaptiveStatus().integrity.checkedAt ?? 0) <= before) {
+      assert.ok(performance.now() < end, '正式宿主应自动完成巡检');
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(host.adaptiveStatus().integrity.state, 'ready');
+  } finally { clock.mock.restore(); }
 });

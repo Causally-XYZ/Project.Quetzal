@@ -232,7 +232,9 @@ test('急停、关闭、非主机与未启动只返回空降级，取消传播�
 });
 
 test('已接受结果损坏时查询降级，不使用 SQLite 中还存在的旧投影', async () => {
-  const row = store.db.prepare('SELECT id,digest FROM adaptive_publications LIMIT 1').get()!;
+  const item = (await adaptive.queryAdaptiveSemantic('饭友')).items[0]; assert.ok(item);
+  const row = store.db.prepare(`SELECT p.id,p.digest FROM adaptive_publications p JOIN adaptive_graph_records r ON r.artifact=p.id
+    WHERE r.id=? AND r.revision=?`).get(item.id, item.revision)!;
   store.db.prepare('UPDATE adaptive_publications SET digest=? WHERE id=?').run('0'.repeat(64), row.id);
   try {
     const result = await adaptive.queryAdaptiveSemantic('饭友');

@@ -205,3 +205,83 @@ test('外层事务回滚后不使用先前的投影见证跳过恢复', (t) => {
   assert.equal(new AdaptiveArchive(f.queue, f.soul).assess().get(f.claim.id)?.status, 'withdrawn');
   assert.equal(f.graph.generation(), 2);
 });
+
+test('热路径：读取与正常接受纠正不枚举全库；新 Archive 共用事务见证', (t) => {
+  const f = fixture(t); f.accept(f.claim); f.publish();
+  assert.equal(f.archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是编辑');
+  t.mock.method(fs, 'opendirSync', () => { throw new Error('热路径不应扫描目录'); });
+  const archive = new AdaptiveArchive(f.queue, f.soul);
+  assert.equal(archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是编辑');
+  f.accept({ ...f.claim, revision: 2, text: '饭友是弟弟', reasons: [f.span(2)], supports: [{ id: 'new', premises: [f.span(2)], assumptions: [] }] });
+  assert.equal(archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是弟弟');
+  f.queue.db.exec("UPDATE messages SET mode='ignored' WHERE id=2");
+  assert.deepEqual(archive.query('饭友').items, [], '来源权限变化不等待巡检');
+});
+
+test('按需核对：同大小同mtime的当前权威改动立即拒绝，恢复后不沿用坏缓存', (t) => {
+  const f = fixture(t); f.accept(f.claim); f.publish(); f.archive.query('饭友');
+  const file = f.file(f.artifacts()[0]), original = fs.readFileSync(file, 'utf8'), stat = fs.statSync(file);
+  fs.writeFileSync(file, original.replace('饭友是编辑', '饭友是医生')); fs.utimesSync(file, stat.atime, stat.mtime);
+  assert.throws(() => f.archive.query('饭友'), /权威结果/);
+  assert.equal(fs.readFileSync(file, 'utf8').includes('饭友是医生'), true, '拒绝时不覆盖权威');
+  fs.writeFileSync(file, original);
+  assert.equal(f.archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是编辑');
+});
+
+test('后台巡检：损坏的派生检索索引自动发现并重建，不等待命中缺失行', async (t) => {
+  const f = fixture(t); f.queue.db.exec('PRAGMA journal_mode=WAL'); f.accept(f.claim); f.publish(); f.archive.query('饭友');
+  f.queue.db.exec('DELETE FROM adaptive_lookup_terms');
+  assert.deepEqual(f.archive.query('饭友').items, [], '外部直接删索引允许到巡检才发现');
+  await f.archive.audit(true);
+  assert.equal(f.archive.integrity().state, 'failed');
+  assert.equal(f.archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是编辑', '从权威重建派生索引');
+  assert.equal(f.archive.integrity().state, 'ready');
+  assert.deepEqual(fs.readdirSync(path.join(f.home, 'adaptive-audit')), []);
+});
+
+test('后台巡检：pending无需文件，written缺文件拒绝；恢复权威后可继续', async (t) => {
+  const f = fixture(t); f.queue.db.exec('PRAGMA journal_mode=WAL'); f.accept(f.claim);
+  await f.archive.audit(true); assert.equal(f.archive.integrity().state, 'ready');
+  f.publish(); const file = f.file(f.artifacts()[0]), original = fs.readFileSync(file, 'utf8');
+  fs.unlinkSync(file);
+  await f.archive.audit(true); assert.equal(f.archive.integrity().state, 'failed');
+  assert.throws(() => f.archive.query('饭友'), /缺失/);
+  const scan = t.mock.method(fs, 'opendirSync', () => { throw new Error('失败后的周期应退避'); });
+  assert.doesNotThrow(() => { f.archive.audit(); f.archive.audit(); });
+  scan.mock.restore();
+  fs.writeFileSync(file, original);
+  assert.equal(f.archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是编辑');
+});
+
+test('后台巡检：未知文件不被过滤掉；正常同步使在途巡检结果过期', async (t) => {
+  const { invalidateAdaptiveArchives } = await import('../src/memory/adaptive-integrity.ts');
+  const f = fixture(t); f.queue.db.exec('PRAGMA journal_mode=WAL'); f.accept(f.claim); f.publish(); f.archive.query('饭友');
+  fs.writeFileSync(path.join(publicationRoot(f.soul), 'unknown.txt'), 'unexpected');
+  await f.archive.audit(true); assert.equal(f.archive.integrity().state, 'failed');
+  assert.throws(() => f.archive.query('饭友'), /未知文件/);
+  fs.unlinkSync(path.join(publicationRoot(f.soul), 'unknown.txt')); f.archive.query('饭友');
+  const running = f.archive.audit(true); assert.ok(running);
+  invalidateAdaptiveArchives(f.soul);
+  await running; assert.equal(f.archive.integrity().state, 'changed');
+  assert.equal(f.archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是编辑');
+});
+
+test('重建见证：外层SAVEPOINT回滚不能保留内存中已验证的标记', (t) => {
+  const f = fixture(t); f.accept(f.claim); f.publish(); f.archive.query('饭友');
+  const wrong = { ...f.claim, text: '错误投影' };
+  f.queue.db.prepare('UPDATE adaptive_graph_records SET document=? WHERE id=?').run(JSON.stringify(wrong), f.claim.id);
+  f.queue.db.exec('SAVEPOINT outer');
+  assert.equal(f.archive.current()[0].kind, 'claim');
+  f.queue.db.exec('ROLLBACK TO outer; RELEASE outer');
+  assert.equal(f.archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是编辑');
+});
+
+test('巡检固定前缀：正常追加与发布不要求系统全程静止', async (t) => {
+  const f = fixture(t); f.queue.db.exec('PRAGMA journal_mode=WAL'); f.accept(f.claim); f.publish(); f.archive.query('饭友');
+  const audit = f.archive.audit(true); assert.ok(audit);
+  f.accept({ ...f.claim, revision: 2, text: '饭友是弟弟', reasons: [f.span(2)], supports: [{ id: 'new', premises: [f.span(2)], assumptions: [] }] });
+  f.publish();
+  await audit;
+  assert.equal(f.archive.integrity().state, 'ready');
+  assert.equal(f.archive.query('饭友').items.filter((item) => item.kind === 'claim')[0].text, '饭友是弟弟');
+});

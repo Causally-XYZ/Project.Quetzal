@@ -26,7 +26,18 @@ test('认识自动传播：真实发件箱、Git 推拉、纠正和离线身体�
   const keys: Record<string, string> = {};
   for (const name of ['center', 'satellite']) keys[name] = loadNodeKey(path.join(tmp, name, 'secrets', 'mesh_ed25519')).nodeKey;
   const sync = await fakeSync(keys);
-  t.after(async () => { await Promise.all(processes.map(stop)); sync.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
+  t.after(async () => {
+    try {
+      for (const p of processes) if (p.exitCode === null && p.signalCode === null && p.connected) {
+        await new Promise<void>((resolve, reject) => {
+          const done = (m: any) => { if (m.id === -1) { clearTimeout(timer); p.off('message', done); m.error ? reject(new Error(m.error)) : resolve(); } };
+          const timer = setTimeout(() => { p.off('message', done); reject(new Error('测试身体未排空后台与Git子进程')); }, 10_000);
+          p.on('message', done); p.send({ id: -1, cmd: 'quiesce' });
+        });
+      }
+    } finally { await Promise.all(processes.map(stop)); sync.close(); }
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
   const remote = path.join(tmp, 'soul.git'), seed = path.join(tmp, 'seed');
   git(tmp, 'init', '--bare', '-b', 'main', remote);
   fs.mkdirSync(seed); git(seed, 'init', '-b', 'main');

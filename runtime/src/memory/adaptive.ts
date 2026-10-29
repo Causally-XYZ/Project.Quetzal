@@ -13,6 +13,8 @@ import { publishPending, commitPending, publicationRoot } from './adaptive-publi
 import { exclusive, search, searchEntries, formatSearchEntries, type SearchOptions } from './memory.ts';
 import { touched, verifyRecordedFiles } from './soul-sync.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
+import { drainAdaptiveAudits } from './adaptive-audit.ts';
+import { integrityState } from './adaptive-integrity.ts';
 import { processSemanticNext, SEMANTIC_PROCESSOR } from './adaptive-worker.ts';
 import { reviewNext } from './adaptive-review.ts';
 import { researchNext, RESEARCH_PROCESSOR } from './adaptive-research.ts';
@@ -47,6 +49,7 @@ let active = false;
 let timer: NodeJS.Timeout | undefined;
 let lastError: string | null = null;
 let publishing = false;
+let auditing = false;
 let semanticTask: Promise<void> | undefined;
 let semanticAbort: AbortController | undefined;
 let semanticJob: string | undefined;
@@ -133,6 +136,15 @@ const isHost = () => config.adaptiveMemory.enabled && config.adaptiveMemory.host
 /** 来源观察一批让出事件循环；语义处理器异步复用同一持久任务 / 发布边界。 */
 export function processAdaptiveBatch() {
   try { reconcileAdaptiveRetriever(); } catch { lastError = 'retrieval_unavailable'; }
+  if (active && !auditing && !fs.existsSync(paths.stop) && (config.adaptiveMemory.semantic || queue)) {
+    auditing = true;
+    void exclusive(() => {
+      if (!active || fs.existsSync(paths.stop)) return;
+      // 卫星与关闭新整理的身体也巡检其已读取的认识；不把后台等待放进写锁。
+      const archive = new AdaptiveArchive(localStore(), paths.soul);
+      void archive.audit();
+    }).catch(() => { lastError = 'integrity_unavailable'; }).finally(() => { auditing = false; });
+  }
   if (!active || !isHost() || fs.existsSync(paths.stop)) { semanticAbort?.abort(); return; }
   try {
     const store = localStore();
@@ -226,10 +238,12 @@ export function startAdaptiveMemory() {
 export async function stopAdaptiveMemory() {
   active = false; clearInterval(timer); timer = undefined; semanticAbort?.abort(); reconcileAdaptiveRetriever();
   await Promise.all([semanticTask, retrievalRefresh, retrievalClosing, componentTask]);
+  await drainAdaptiveAudits();
 }
 
 export function adaptiveStatus() {
   const base = { enabled: config.adaptiveMemory.enabled, hostBody: config.adaptiveMemory.hostBody,
+    integrity: queue ? { state: integrityState(queue.db, paths.soul, queue.agent).status, checkedAt: integrityState(queue.db, paths.soul, queue.agent).checkedAt || null } : { state: 'unchecked', checkedAt: null },
     running: active, local: isHost(), stopped: fs.existsSync(paths.stop), error: lastError,
     semantic: { enabled: config.adaptiveMemory.semantic, state: semanticState, research: { enabled: config.adaptiveMemory.research } },
     retrieval: ownedRetrieval?.backend.status() ?? { state: retrieval ? 'attached' :

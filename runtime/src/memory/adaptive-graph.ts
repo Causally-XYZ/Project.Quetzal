@@ -18,7 +18,9 @@ const verified = new WeakMap<DatabaseSync, { agent: string; artifacts: string; p
 export class AdaptiveGraph {
   readonly queue: AdaptiveStore;
   readonly lookup: AdaptiveLookup;
-  constructor(queue: AdaptiveStore) {
+  private readonly check?: (record: SemanticRecord) => void;
+  constructor(queue: AdaptiveStore, privateCheck?: (record: SemanticRecord) => void) {
+    this.check = privateCheck;
     this.queue = queue;
     const db = queue.db;
     db.exec('SAVEPOINT adaptive_graph_schema');
@@ -49,7 +51,9 @@ export class AdaptiveGraph {
     } catch (error) {
       db.exec('ROLLBACK TO adaptive_graph_schema'); db.exec('RELEASE adaptive_graph_schema'); throw error;
     }
-    this.lookup = new AdaptiveLookup(db);
+    db.exec('CREATE TABLE IF NOT EXISTS adaptive_graph_witness(singleton INTEGER PRIMARY KEY CHECK(singleton=1),token TEXT NOT NULL)');
+    db.prepare('INSERT OR IGNORE INTO adaptive_graph_witness VALUES(1,?)').run(crypto.randomUUID());
+    this.lookup = new AdaptiveLookup(db, privateCheck);
     db.exec('SAVEPOINT adaptive_lookup_schema');
     try { this.lookup.ensure(this.generation()); db.exec('RELEASE adaptive_lookup_schema'); }
     catch (error) { db.exec('ROLLBACK TO adaptive_lookup_schema'); db.exec('RELEASE adaptive_lookup_schema'); throw error; }
@@ -70,7 +74,7 @@ export class AdaptiveGraph {
     const result: SemanticRecord[] = [];
     for (const row of this.queue.db.prepare('SELECT document FROM adaptive_graph_records WHERE id=? ORDER BY revision').iterate(id)) {
       if (result.length >= 1000) throw new Error('认识单目标历史超过工作上限');
-      const value: unknown = JSON.parse(String(row.document)); validateRecord(value); result.push(value);
+      const value: unknown = JSON.parse(String(row.document)); validateRecord(value); this.check?.(value); result.push(value);
     }
     return result;
   }
@@ -103,16 +107,8 @@ export class AdaptiveGraph {
   /** 宿主先把 LLM 提案规范化成带宿主 ID 的批次；不能把模型输出直接当批次使用。 */
   accept(job: MemoryJob, inputs: ArtifactInput[], batch: SemanticBatch, now = Date.now()): boolean {
     validateBatch(batch);
-    const witness = verified.get(this.queue.db);
-    const trusted = witness?.agent === this.queue.agent && witness.projection === this.projectionDigest();
     const accepted = this.queue.acceptResult(job, inputs, { schema: SEMANTIC_SCHEMA, data: batch }, now, (artifact) => this.install(artifact));
-    // 经过已核验快照接受的局部增量不必全链重放。事务回滚后摘要会不匹配。
-    if (accepted && trusted) {
-      const hash = crypto.createHash('sha256');
-      for (const row of this.queue.db.prepare('SELECT digest FROM adaptive_graph_batches ORDER BY generation').iterate()) hash.update(String(row.digest));
-      const projection = this.projectionDigest();
-      if (projection) verified.set(this.queue.db, { agent: this.queue.agent, artifacts: hash.digest('hex'), projection });
-    }
+    if (accepted) verified.delete(this.queue.db);
     return accepted;
   }
 
@@ -184,24 +180,7 @@ export class AdaptiveGraph {
 
   /** 对实际投影逐行核对，不能只信 generation / 文件 mtime / SQLite data_version。 */
   private projectionDigest(): string | undefined {
-    const hash = crypto.createHash('sha256'); let rows = 0, bytes = 0;
-    for (const sql of ['SELECT singleton,version,generation FROM adaptive_graph_meta ORDER BY singleton',
-      'SELECT artifact,generation,digest FROM adaptive_graph_batches ORDER BY generation',
-      'SELECT id,revision,kind,document,artifact FROM adaptive_graph_records ORDER BY id,revision',
-      'SELECT singleton,generation FROM adaptive_lookup_meta ORDER BY singleton',
-      'SELECT id,revision,generation,kind,world,realm,state FROM adaptive_lookup_heads ORDER BY id',
-      'SELECT term,id,weight FROM adaptive_lookup_terms ORDER BY term,id',
-      'SELECT owner,revision,source FROM adaptive_lookup_sources ORDER BY owner,revision,source',
-      'SELECT owner,revision,target,kind FROM adaptive_lookup_refs ORDER BY owner,revision,target,kind']) {
-      hash.update(sql);
-      for (const row of this.queue.db.prepare(sql).iterate()) {
-        const text = JSON.stringify(row); bytes += Buffer.byteLength(text);
-        // 超出权威结果可能具有的投影规模则不走快路径，由完整重放修复。
-        if (++rows > 1_010_001 || bytes > 128 * 1024 * 1024) return undefined;
-        hash.update(text); hash.update('\n');
-      }
-    }
-    return hash.digest('hex');
+    return projectionDigest(this.queue.db);
   }
 
   /** 从完整权威结果链重建；来源可能已改动 / 尚未复制，由读取时的 hash 门禁决定可用性。
@@ -248,6 +227,7 @@ export class AdaptiveGraph {
         }
         this.lookup.mark(this.generation());
         const projection = this.projectionDigest();
+        db.prepare('UPDATE adaptive_graph_witness SET token=? WHERE singleton=1').run(crypto.randomUUID());
         db.exec('RELEASE adaptive_graph_rebuild');
         if (projection) verified.set(db, { agent: this.queue.agent, artifacts: artifactsDigest, projection });
         else verified.delete(db);
@@ -369,4 +349,26 @@ export class AdaptiveGraph {
         evidence: states.get(record.id)! })); // 不返回已失效 / 无权来源的其他依据组、反证或审计正文
     });
   }
+}
+
+/** 只读摘要供后台巡检复用；不把排序临时数据装进 JS 全库 Map。 */
+export function projectionDigest(db: DatabaseSync): string | undefined {
+  const hash = crypto.createHash('sha256'); let rows = 0, bytes = 0;
+  for (const sql of ['SELECT singleton,version,generation FROM adaptive_graph_meta ORDER BY singleton',
+    'SELECT artifact,generation,digest FROM adaptive_graph_batches ORDER BY generation',
+    'SELECT id,revision,kind,document,artifact FROM adaptive_graph_records ORDER BY id,revision',
+    'SELECT singleton,generation FROM adaptive_lookup_meta ORDER BY singleton',
+    'SELECT id,revision,generation,kind,world,realm,state FROM adaptive_lookup_heads ORDER BY id',
+    'SELECT term,id,weight FROM adaptive_lookup_terms ORDER BY term,id',
+    'SELECT owner,revision,source FROM adaptive_lookup_sources ORDER BY owner,revision,source',
+    'SELECT owner,revision,target,kind FROM adaptive_lookup_refs ORDER BY owner,revision,target,kind']) {
+    hash.update(sql);
+    for (const row of db.prepare(sql).iterate()) {
+      const text = JSON.stringify(row); bytes += Buffer.byteLength(text);
+      // 超出权威结果可能具有的投影规模则不走快路径，由完整重放修复。
+      if (++rows > 1_010_001 || bytes > 128 * 1024 * 1024) return undefined;
+      hash.update(text); hash.update('\n');
+    }
+  }
+  return hash.digest('hex');
 }

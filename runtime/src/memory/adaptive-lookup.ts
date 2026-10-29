@@ -5,7 +5,9 @@ import { directSpans, recordRefs, validateRecord, type SemanticRecord } from './
 
 export class AdaptiveLookup {
   private readonly db: DatabaseSync;
-  constructor(db: DatabaseSync) {
+  private readonly check?: (record: SemanticRecord) => void;
+  constructor(db: DatabaseSync, check?: (record: SemanticRecord) => void) {
+    this.check = check;
     this.db = db;
     db.exec(`CREATE TABLE IF NOT EXISTS adaptive_lookup_meta(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation INTEGER NOT NULL);
       INSERT OR IGNORE INTO adaptive_lookup_meta VALUES(1,-1);
@@ -75,14 +77,14 @@ export class AdaptiveLookup {
   get(id: string): SemanticRecord | undefined {
     const row = this.db.prepare('SELECT document FROM adaptive_graph_records WHERE id=? ORDER BY revision DESC LIMIT 1').get(id);
     if (!row) return;
-    const record: unknown = JSON.parse(String(row.document)); validateRecord(record); return record;
+    const record: unknown = JSON.parse(String(row.document)); validateRecord(record); this.check?.(record); return record;
   }
 
   page(after = '', limit = 100): SemanticRecord[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw new Error('认识分页范围不合法');
     return this.db.prepare(`SELECT r.document FROM adaptive_lookup_heads h JOIN adaptive_graph_records r
       ON r.id=h.id AND r.revision=h.revision WHERE h.id>? ORDER BY h.id LIMIT ?`).all(after, limit)
-      .map((r) => { const value: unknown = JSON.parse(String(r.document)); validateRecord(value); return value; });
+      .map((r) => { const value: unknown = JSON.parse(String(r.document)); validateRecord(value); this.check?.(value); return value; });
   }
 
   recent(limit = 32): string[] {

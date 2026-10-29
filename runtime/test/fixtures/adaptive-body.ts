@@ -50,6 +50,7 @@ const { identity } = await import('../../src/memory/identity.ts');
 const queue = () => new AdaptiveStore(store.db, identity().id);
 const { AdaptiveArchive } = await import('../../src/memory/adaptive-archive.ts');
 const { exclusive } = await import('../../src/memory/memory.ts');
+const { invalidateAdaptiveArchives } = await import('../../src/memory/adaptive-integrity.ts');
 const { installPublication } = await import('../../src/memory/adaptive-publication.ts');
 const { markBusy } = await import('../../src/heart/heart.ts');
 let loadTimer: NodeJS.Timeout | undefined;
@@ -78,7 +79,13 @@ const commands: Record<string, (a: any) => unknown> = {
     return { id };
   }),
   semanticExport: () => store.db.prepare('SELECT id,document,digest FROM adaptive_publications ORDER BY created').all(),
-  semanticImport: (a) => exclusive(() => { for (const row of a.rows) installPublication(cfg.paths.soul, identity().id, row); return true; }),
+  semanticImport: (a) => exclusive(() => {
+    // 故障注入模拟受控同步；绕过产品直接复制文件只能等巡检发现。
+    invalidateAdaptiveArchives(cfg.paths.soul);
+    for (const row of a.rows) installPublication(cfg.paths.soul, identity().id, row);
+    return true;
+  }),
+  quiesce: async () => { clearInterval(loadTimer); mesh.stop(); await adaptive.stopAdaptiveMemory(); await (await import('../../src/memory/soul-sync.ts')).idle(); return true; },
   semanticRequest: (a) => mesh.request(a.body, 'memory.adaptive.semantic.query', a.params, 1000),
   localText: (a) => { store.db.prepare('UPDATE messages SET text=? WHERE id=?').run(a.text, a.id); return true; },
   localMode: (a) => { store.db.prepare('UPDATE messages SET mode=? WHERE id=?').run(a.mode, a.id); return true; },

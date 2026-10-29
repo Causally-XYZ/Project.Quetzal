@@ -4,6 +4,8 @@ import { build } from 'esbuild';
 const notice = fs.readFileSync(new URL('../third_party/graphiti/NOTICE.md', import.meta.url), 'utf8');
 const license = fs.readFileSync(new URL('../third_party/graphiti/LICENSE', import.meta.url), 'utf8');
 if (notice.includes('*/') || license.includes('*/')) throw new Error('第三方许可不能安全嵌入注释');
+const audit = await build({ entryPoints: ['src/memory/adaptive-audit-worker.ts'], bundle: true, platform: 'node', target: 'node22', format: 'cjs', write: false });
 await build({ entryPoints: ['src/main.ts'], bundle: true, platform: 'node', target: 'node22', format: 'cjs', sourcemap: true,
   external: ['node-datachannel', '@anthropic-ai/sandbox-runtime'], outfile: 'dist/main.cjs',
+  define: { QUETZAL_ADAPTIVE_AUDIT_CODE: JSON.stringify(audit.outputFiles[0].text) },
   banner: { js: `/*!\n${notice}\n${license}\n*/` } });

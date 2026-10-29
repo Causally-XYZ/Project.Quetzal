@@ -60,9 +60,11 @@ test('超过旧全图1000条上限后，增量整合、接受、查询与来源�
   assert.ok(loads < size / 2);
 });
 
-test('倒排与邻接索引随事务更新，污染后从权威文件恢复，不把索引当事实', (t) => {
+test('倒排与邻接索引随事务更新，外部污染经巡检发现后从权威恢复', async (t) => {
   const f = fixture(t, 3);
   f.db.exec("UPDATE adaptive_lookup_heads SET revision=999; DELETE FROM adaptive_lookup_terms;");
+  await f.archive.audit(true);
+  assert.equal(f.archive.integrity().state, 'failed');
   const result = f.archive.query('线索');
   assert.equal(result.matched, 3);
   assert.equal(f.db.prepare('SELECT MAX(revision) n FROM adaptive_lookup_heads').get()!.n, 1);

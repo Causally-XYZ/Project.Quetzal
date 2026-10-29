@@ -1,14 +1,14 @@
-// 权威存档入口：每次读取先核对文件和待交付发件箱，失败不退回 SQLite 旧投影。
+// 权威存档入口：启动 / 受控同步后全检，热读取逐项核对，自动后台巡检全链。
 // 宿主须在已有灵魂 exclusive 内调用，避免与本机 Git 合并 / 发布交错。
-import fs from 'node:fs';
-import path from 'node:path';
 import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { AdaptiveGraph } from './adaptive-graph.ts';
-import { ARTIFACT_ID, artifactDigest, parseArtifact, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
-import { publicationRoot, readPublication } from './adaptive-publication.ts';
-import { semanticSchema, type SemanticBatch, type SourceReader } from './adaptive-evidence.ts';
+import { ARTIFACT_ID, type ArtifactInput } from './adaptive-artifact.ts';
+import { type SemanticBatch, type SemanticRecord, type SourceReader } from './adaptive-evidence.ts';
 import type { AdaptiveLookup } from './adaptive-lookup.ts';
 import type { SemanticNeighbors } from './adaptive-query.ts';
+import { archiveArtifacts, recordAuthority } from './adaptive-authority.ts';
+import { integrityState, trustedIntegrity, trustIntegrity, soulEpoch } from './adaptive-integrity.ts';
+import { auditIntegrity } from './adaptive-audit.ts';
 
 export interface ArchiveCheckpoint { generation: number; artifact: string; digest: string }
 export class AdaptiveArchive {
@@ -16,9 +16,10 @@ export class AdaptiveArchive {
   private readonly queue: AdaptiveStore;
   private readonly soul: string;
   private readonly minimum?: ArchiveCheckpoint;
+  private check?: (record: SemanticRecord) => void;
   constructor(queue: AdaptiveStore, soul: string, minimum?: ArchiveCheckpoint) {
     this.queue = queue; this.soul = soul; this.minimum = minimum;
-    this.graph = new AdaptiveGraph(queue);
+    this.graph = new AdaptiveGraph(queue, (record) => this.check?.(record));
     if (minimum && (!Number.isSafeInteger(minimum.generation) || minimum.generation < 1 || !ARTIFACT_ID.test(minimum.artifact) || !/^[a-f0-9]{64}$/.test(minimum.digest)))
       throw new Error('认识恢复检查点不合法');
   }
@@ -32,61 +33,58 @@ export class AdaptiveArchive {
 
   refresh(): void {
     const soul = this.soul, queue = this.queue;
-    // 枚举与核验仍覆盖完整权威链，但不保留全体结果正文或全图的 JS Map。
-    function* artifacts(): Generator<MemoryArtifact> {
-      let exists = true;
-      for (const dir of [soul, path.join(soul, 'notes'), path.join(soul, 'notes', 'QuetzalMemory'), publicationRoot(soul)]) {
-        try { const st = fs.lstatSync(dir); if (!st.isDirectory() || st.isSymbolicLink()) throw new Error('认识存档目录不合法'); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; exists = false; break; }
-      }
-      if (exists) {
-        let count = 0; const dir = fs.opendirSync(publicationRoot(soul));
-        try {
-          for (let entry = dir.readSync(); entry; entry = dir.readSync()) {
-            if (++count > 10000) throw new Error('认识存档枚举超过工作上限');
-            if (entry.name.endsWith('.tmp')) continue;
-            if (!entry.name.endsWith('.md')) throw new Error('认识存档包含未知文件');
-            const id = entry.name.slice(0, -3);
-            if (!ARTIFACT_ID.test(id)) throw new Error('认识存档包含未知文件');
-            const artifact = readPublication(soul, id, queue.agent);
-            if (semanticSchema(artifact.payload.schema)) yield artifact;
-          }
-        } finally { dir.closeSync(); }
-      }
-      let count = 0;
-      for (const row of queue.db.prepare('SELECT id,document,digest,state,published,error FROM adaptive_publications').iterate()) {
-        if (++count > 10000) throw new Error('认识发件箱核对超过工作上限');
-        if (typeof row.document !== 'string' || typeof row.id !== 'string') throw new Error('认识发件箱格式不合法');
-        const artifact = parseArtifact(row.document, queue.agent);
-        if (!semanticSchema(artifact.payload.schema)) continue;
-        if (artifact.id !== row.id || artifactDigest(row.document) !== row.digest) throw new Error('认识发件箱完整性不符');
-        if (exists && fs.existsSync(path.join(publicationRoot(soul), `${row.id}.md`))) {
-          if (artifactDigest(JSON.stringify(readPublication(soul, row.id, queue.agent))) !== row.digest)
-            throw new Error('认识文件与已接受结果不同');
-        } else {
-          if (row.published !== null || row.state === 'published' || row.state === 'written' || row.error === 'conflict') throw new Error('已交付认识文件缺失');
-          yield artifact;
-        }
-      }
+    const state = integrityState(queue.db, soul, queue.agent); state.token = undefined;
+    try {
+      new AdaptiveGraph(queue).rebuild(archiveArtifacts(queue.db, soul, queue.agent), this.minimum);
+      trustIntegrity(queue.db, state);
+    } catch (error) {
+      state.status = 'failed'; state.epoch = soulEpoch(soul); state.retryAt = Date.now() + 10_000;
+      throw error;
     }
-    this.graph.rebuild(artifacts(), this.minimum);
   }
 
-  generation(): number { this.refresh(); return this.graph.generation(); }
+  private ensure() {
+    const state = integrityState(this.queue.db, this.soul, this.queue.agent);
+    if (!trustedIntegrity(this.queue.db, state)) this.refresh();
+    if (this.minimum) {
+      const row = this.queue.db.prepare('SELECT generation,digest FROM adaptive_graph_batches WHERE artifact=?').get(this.minimum.artifact);
+      if (!row || row.generation !== this.minimum.generation || row.digest !== this.minimum.digest) throw new Error('认识存档未达到备份检查点');
+    }
+  }
+  private read<T>(run: () => T): T {
+    this.ensure();
+    const previous = this.check;
+    this.check = recordAuthority(this.queue.db, this.soul, this.queue.agent);
+    try { return run(); } finally { this.check = previous; }
+  }
+  /** 在灵魂写锁内启动；返回后释放锁，巡检线程不写实时数据库。 */
+  audit(force = false) {
+    const state = integrityState(this.queue.db, this.soul, this.queue.agent);
+    // 缺失权威不能让500ms宿主tick反复全检；明确读取仍可在文件恢复后立即重新核对。
+    if (!force && state.status === 'failed' && state.epoch === soulEpoch(this.soul) && Date.now() < state.retryAt) return;
+    this.ensure();
+    return auditIntegrity(this.queue.db, integrityState(this.queue.db, this.soul, this.queue.agent), force);
+  }
+  integrity() {
+    const state = integrityState(this.queue.db, this.soul, this.queue.agent);
+    return { state: state.status, checkedAt: state.checkedAt || null };
+  }
+
+  generation(): number { this.ensure(); return this.graph.generation(); }
   current() { this.refresh(); return this.graph.current(); }
   readLocal<T>(read: (lookup: Pick<AdaptiveLookup, 'get' | 'page' | 'search' | 'recent' | 'sourceOwners' | 'references' | 'dependents' | 'matches' | 'neighbors' | 'objects' | 'reviewTargets'>, generation: number) => T): T {
-    this.refresh(); return this.graph.readLocal(read);
+    return this.read(() => this.graph.readLocal(read));
   }
-  history(id: string) { this.refresh(); return this.graph.history(id); }
+  history(id: string) { return this.read(() => this.graph.history(id)); }
   assess(read?: SourceReader) { this.refresh(); return this.graph.assess(read); }
   supportedClaims(read?: SourceReader) { this.refresh(); return this.graph.supportedClaims(read); }
-  candidates(read?: SourceReader) { this.refresh(); return this.graph.candidates(read); }
-  query(query: string, read?: SourceReader, neighbors?: SemanticNeighbors) { this.refresh(); return this.graph.query(query, read, neighbors); }
-  readSources(ids: number[], read?: SourceReader) { this.refresh(); return this.graph.readSources(ids, read); }
+  candidates(read?: SourceReader) { return this.read(() => this.graph.candidates(read)); }
+  query(query: string, read?: SourceReader, neighbors?: SemanticNeighbors) { return this.read(() => this.graph.query(query, read, neighbors)); }
+  readSources(ids: number[], read?: SourceReader) { return this.read(() => this.graph.readSources(ids, read)); }
   accept(job: MemoryJob, inputs: ArtifactInput[], batch: SemanticBatch, now = Date.now()): boolean {
-    this.refresh(); return this.graph.accept(job, inputs, batch, now);
+    return this.read(() => this.graph.accept(job, inputs, batch, now));
   }
   complete(job: MemoryJob, inputs: ArtifactInput[], generation: number, now = Date.now()): boolean {
-    this.refresh(); return this.graph.complete(job, inputs, generation, now);
+    return this.read(() => this.graph.complete(job, inputs, generation, now));
   }
 }

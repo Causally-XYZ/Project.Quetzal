@@ -17,6 +17,7 @@ import { bus } from "../bus.ts";
 import { mergeEntries } from "./entries.ts";
 import { VERSION } from "../version.ts";
 import { nodeKey } from "../mesh/node-key.ts";
+import { invalidateAdaptiveArchives } from './adaptive-integrity.ts';
 export { mergeEntries };
 
 let repo: SoulRepo | undefined;
@@ -37,7 +38,10 @@ function r(): SoulRepo {
       // meshKey：网状层的节点公钥（规范 v8），其他身体以它为准核对这具身体；uuid：绑定到设备的身体 uuid（规范 v14，body/uuid.ts），工具的 body 参数用它
       bodyInfo: () => { const uuid = bodyUuid(); return { kind: "runtime", runtime: VERSION, meshKey: nodeKey().nodeKey, ...(uuid ? { uuid } : {}) }; },
       log: (m) => log("soul", m),
-      exclusive, // 合并与写记忆的入口互斥（memory.ts）
+      exclusive: (run) => exclusive(async () => {
+        invalidateAdaptiveArchives(paths.soul);
+        try { return await run(); } finally { invalidateAdaptiveArchives(paths.soul); }
+      }), // 合并 / 撤回在锁内作废见证，包含失败后的文件状态。
     });
     if (prev) repo.status = prev;
     key = k;
@@ -56,7 +60,10 @@ export const syncStatus = () => ({ ...r().status, remote: config.soul.remote, br
 
 /** 接入灵魂仓库：克隆或初始化，并按规范补齐目录结构（见 docs/SOUL_REPO_SPEC.md）。 */
 export async function ensureSoul() {
-  await serial(() => r().ensure());
+  await serial(() => exclusive(async () => {
+    invalidateAdaptiveArchives(paths.soul);
+    try { await r().ensure(); } finally { invalidateAdaptiveArchives(paths.soul); }
+  }));
 }
 
 // 多个会话、醒来可能同时触发 git 操作：全部排队串行执行，避免索引锁冲突
