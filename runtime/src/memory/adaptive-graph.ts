@@ -311,8 +311,36 @@ export class AdaptiveGraph {
           }
         } catch (error) { if (!(error instanceof WorksetOverflow)) throw error; }
       }
+      const initial = selectSemantic([...selected.values()], query, this.generation(), read, (id) => this.queue.source(id), neighbors);
+      // 只从已选中、共同有效的根来源补一次候选，不沿“共用人物”或新候选递归扩张。
+      // 索引枚举本身限界；当前版本可经审计来源找到修正后的正文，但旧词项 / 失效来源不能复活。
+      const seeds = new Set(initial.items.map((item) => item.id)), roots = new Map<number, string>();
+      for (const item of initial.items) for (const root of item.roots) if (roots.size < 64) roots.set(root.id, root.hash);
+      const associated: string[] = [], examined = new Set<string>(); let visits = 0, extraBytes = 0;
+      for (const [source, hash] of roots) {
+        if (visits >= 64) break;
+        for (const id of this.lookup.sourceOwners(source, 64 - visits)) {
+          visits++;
+          if (seeds.has(id) || examined.has(id)) continue;
+          try {
+            const records = new LocalClosure(this.lookup, read).collect([id], false, false);
+            if (!records) continue;
+            const own = semanticCandidates(records, read, (source) => this.queue.source(source)).find((c) => c.item.id === id);
+            const record = records.find((r) => r.id === id)!;
+            if (!own || !(own.item.roots.some((s) => s.id === source && s.hash === hash) ||
+              directSpans(record).some((s) => s.source === source && s.hash === hash && spanCurrent(s, read) && spanCurrent(s, (id) => this.queue.source(id))))) continue;
+            examined.add(id);
+            const additions = records.filter((r) => !selected.has(r.id));
+            const bytes = additions.reduce((sum, r) => sum + Buffer.byteLength(JSON.stringify(r)), 0);
+            if (selected.size + additions.length > 1000 || extraBytes + bytes > 256 * 1024) continue;
+            extraBytes += bytes; for (const r of additions) selected.set(r.id, r);
+            associated.push(own.key);
+          } catch (error) { if (!(error instanceof WorksetOverflow)) throw error; }
+        }
+      }
       const records = [...selected.values()];
-      const result = selectSemantic(records, query, this.generation(), read, (id) => this.queue.source(id), neighbors);
+      const result = selectSemantic(records, query, this.generation(), read, (id) => this.queue.source(id), neighbors,
+        { queryHash: semanticDigest(query), keys: associated });
       const used = new LocalClosure(this.lookup, read).collect(result.items.map((item) => item.id), false, false) ?? [];
       return { ...result, matched: Math.max(result.matched, matched), basis: semanticBasis(used, read) };
     });

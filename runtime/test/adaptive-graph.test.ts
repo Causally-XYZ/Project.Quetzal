@@ -281,3 +281,41 @@ test('AM-12：未知投影版本或缺失元数据拒绝打开，DDL 失败不�
   assert.equal(f.db.prepare("SELECT 1 FROM sqlite_master WHERE name='adaptive_graph_meta'").get(), undefined);
   assert.equal(f.db.prepare("SELECT 1 FROM sqlite_master WHERE name='adaptive_graph_batches'").get(), undefined);
 });
+
+test('无主题节点时从同源候选补回相关正文；纠正后只带当前版本，不以共现作证明', (t) => {
+  const f = fixture(t); f.add(1, '地板修补联系周师傅；报价两千。'); f.add(2, '核实人工费是一千八。'); f.add(3, '明天天气晴。');
+  const contact = claim('地板修补联系人是周师傅', f.span(1, '地板修补联系周师傅'));
+  const fee = claim('人工报价两千', f.span(1, '报价两千'));
+  const weather = claim('明天天气晴', f.span(3)); f.accept([contact, fee, weather]);
+  const first = f.graph.query('地板修补');
+  assert.ok(first.items.some((r) => r.id === fee.id)); assert.ok(!first.items.some((r) => r.id === weather.id));
+  const revised = { ...fee, revision: 2, text: '人工费一千八', reasons: [f.span(1, '报价两千'), f.span(2)], supports: [group('corrected', f.span(2))] };
+  f.accept([revised]);
+  const result = f.graph.query('地板修补'), item = result.items.find((r) => r.id === fee.id);
+  assert.ok(item?.kind === 'claim'); assert.equal(item.revision, 2); assert.equal(item.text, revised.text);
+  assert.deepEqual(item.supports, revised.supports, '共现只帮助召回，不添加支持组');
+  const restricted = f.graph.query('地板修补', (id) => id === 2 ? undefined : f.queue.source(id));
+  assert.ok(!restricted.items.some((r) => r.id === fee.id), '当前纠正依据不可见时不回到旧报价');
+});
+
+test('同源线索只采用当前版本的可核查来源，不沿失效审计来源或隐藏反证恢复结论', (t) => {
+  const f = fixture(t); f.add(1, '排练场地已定；租金五百。'); f.add(2, '租金三百'); f.add(3, '预订已取消');
+  const venue = claim('排练场地已定', f.span(1, '排练场地已定'));
+  const fee = claim('租金三百', f.span(2)); fee.reasons.push(f.span(1, '租金五百'));
+  assert.ok(f.accept([venue, fee]));
+  assert.ok(f.graph.query('排练场地').items.some((r) => r.id === fee.id));
+  assert.ok(f.accept([{ ...fee, revision: 2, reasons: [f.span(2)] }]));
+  assert.ok(!f.graph.query('排练场地').items.some((r) => r.id === fee.id), '已从当前版本移除的历史来源不提供关联');
+  const countered = { ...fee, revision: 3, reasons: [f.span(1, '租金五百'), f.span(2)], counters: [group('cancelled', f.span(3))] };
+  assert.ok(f.accept([countered]));
+  assert.ok(!f.graph.query('排练场地', (id) => id === 3 ? undefined : f.queue.source(id)).items.some((r) => r.id === fee.id));
+});
+
+test('同源扩展在索引枚举时限制总行数，不随高扇出来源递归扩张', (t) => {
+  const f = fixture(t); f.add(1, '公开活动安排');
+  for (let i = 0; i < 3; i++) f.accept(Array.from({ length: 60 }, (_, n) => claim(`公开活动安排${i}-${n}`, f.span(1))));
+  const original = f.graph.lookup.sourceOwners.bind(f.graph.lookup), calls: number[] = [];
+  f.graph.lookup.sourceOwners = (source, limit) => { const rows = original(source, limit); calls.push(rows.length); assert.ok(limit! <= 64); return rows; };
+  const result = f.graph.query('公开活动');
+  assert.equal(result.items.length, 6); assert.ok(calls.length > 0); assert.ok(calls.reduce((a, b) => a + b, 0) <= 64);
+});

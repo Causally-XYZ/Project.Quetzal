@@ -134,23 +134,25 @@ export function semanticCandidates(records: SemanticRecord[], read: SourceReader
 
 /** 索引只建议候选摘要的次序；查询和当前候选不匹配时不能沿用旧排名。 */
 export interface SemanticNeighbors { queryHash: string; keys: string[] }
-export function selectSemantic(records: SemanticRecord[], query: string, generation: number, read: SourceReader, global: SourceReader, neighbors?: SemanticNeighbors): SemanticSelection {
+export function selectSemantic(records: SemanticRecord[], query: string, generation: number, read: SourceReader, global: SourceReader, neighbors?: SemanticNeighbors, related?: SemanticNeighbors): SemanticSelection {
   if (records.length > 1000 || query.length > 8000) throw new Error('认识查询超过工作上限');
   if (!query.trim()) return { generation, items: [], matched: 0 };
   const candidates = semanticCandidates(records, read, global);
   const byKey = new Map(candidates.map((c) => [c.item.id, c.item]));
   const ranked = rank(query, candidates.map((c) => ({ kind: 'memory', source: c.item.id, title: c.title, text: c.text, mtime: 0 })), 0);
   let items = ranked.slice(0, 6).map((hit) => byKey.get(hit.source)!), matched = ranked.length;
-  if (neighbors && neighbors.queryHash === semanticDigest(query) && Array.isArray(neighbors.keys) && neighbors.keys.length <= 1000 &&
-      neighbors.keys.every((key) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key))) {
+  if (neighbors || related) {
     const current = new Map(candidates.map((c) => [c.key, c.item]));
     const keys = new Map(candidates.map((c) => [c.item.id, c.key]));
     // 先核对当前候选再截断；重复条目不能获得额外票数，旧版本 / 隐藏 / 其他范围的摘要无权加入结果。
-    const dense = [...new Set(neighbors.keys)].filter((key) => current.has(key)).slice(0, 6);
-    if (dense.length) {
+    const valid = (hints?: SemanticNeighbors) => hints && hints.queryHash === semanticDigest(query) && Array.isArray(hints.keys) && hints.keys.length <= 1000 &&
+      hints.keys.every((key) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key))
+      ? [...new Set(hints.keys)].filter((key) => current.has(key)).slice(0, 6) : [];
+    const dense = valid(neighbors), associated = valid(related);
+    if (dense.length || associated.length) {
       const lexical = ranked.map((hit) => keys.get(hit.source)!);
-      items = reciprocalRankFusion([lexical.slice(0, 6), dense]).slice(0, 6).map((hit) => current.get(hit.key)!);
-      matched = new Set([...lexical, ...dense]).size;
+      items = reciprocalRankFusion([lexical.slice(0, 6), dense, associated]).slice(0, 6).map((hit) => current.get(hit.key)!);
+      matched = new Set([...lexical, ...dense, ...associated]).size;
     }
   }
   const result = { generation, items, matched };

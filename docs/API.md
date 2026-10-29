@@ -304,6 +304,8 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 语义 mesh 方法使用独立信封（当前version 3）：`{version:3, queryHash, generatedAt, agent, host, status, freshness, generation, items, matched, basis}`。queryHash 为本次查询的 JSON SHA-256；信封校验请求、指定身份、时间范围和全部字段，未知字段拒绝。basis.records 为实际输出及其依赖当前版本的 `{id,revision,hash}`，basis.sources 为这些记录直接来源的 `{id,hash|null}`；只含版本摘要，不传整图正文。两者各至多1000项，信封最多512 KiB。网关返回去掉 version / queryHash / generatedAt 的读取视图，不把传输时间纳入上下文缓存比较。
 
+语义查询内部增加一次有界同源候选扩展：来源共现只提名，所有候选仍核对当前正文 / 依据，可能返回无直接词面重合的相关记录。信封保持v3，条目形状、请求参数和来源权限不变；具体预算见架构文档。
+
 matched 为本次有界检索检查到的有效候选数，不是全库穷举数量。接收身体先核对本机权威存档：本机整体代次较新、结果依赖版本落后或同版摘要冲突时拒绝整包；只点读返回basis中的记录，不比较无关正文。主机可读来源必须已在本机复制且 hash 一致；本机编辑、忽略或删除不会因远端 ready 恢复。主机较新版本可以读取，但只代表主机已知快照。协议依赖原有同 agent 正式身体互信，结构 / 摘要检查不是语义真值证明，也不是不信任主机情况下的完整性证明。旧身体没有新方法时正常降级。
 
 `queue.publications` 为 `{pending, written, published, failed}` 计数：依次表示待写文件、文件已落盘但未确认 Git、已确认本地 HEAD、交付失败。published 不代表远端同步或语义确认，任务 done 也不等于交付完成。具体[发布协议](engine/ADAPTIVE_MEMORY_STORAGE.md)与普通来源回执分别解释；当前没有发布重试管理 RPC。
