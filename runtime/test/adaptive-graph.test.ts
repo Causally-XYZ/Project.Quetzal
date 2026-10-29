@@ -23,6 +23,148 @@ const claim = (text: string, reason: SourceSpan, supports = [group('direct', rea
   occurred: { text: '', earliest: null, latest: null }, valid: { text: '', earliest: null, latest: null },
 });
 
+test('索引票据只由ACK消费；来源跨连接排除不会被旧ACK擦掉，也不抢重评队列', (t) => {
+  const f = fixture(t); f.add(1, '共同来源');
+  const a = claim('原始认识', f.span(1)), b = claim('依赖认识', f.span(1), [group('parent', ref(a))]);
+  assert.equal(f.accept([a, b]), true);
+  const batch = f.graph.candidateBatch(undefined, true);
+  assert.equal(batch.entries.length, 2); assert(batch.entries.every((e) => e.candidate));
+  const state = f.graph.retrievalState();
+  assert.deepEqual(f.graph.candidatePage().entries, batch.entries.slice().sort((a, b) => a.id.localeCompare(b.id)));
+  assert.deepEqual(f.graph.retrievalState(), state, '开发只读观察不推进生产水位');
+  assert.deepEqual(f.graph.candidateBatch(), batch, '未确认的一页可以重试，不提前移动游标');
+  f.graph.lookup.reviewTargets();
+  assert.equal(f.graph.retrievalState().dirty, true, '重评不得消费检索票据');
+  const other = f.open(); other.prepare("UPDATE messages SET mode='ignored' WHERE id=1").run();
+  assert.equal(f.graph.acknowledgeCandidates(batch), true);
+  assert.equal(f.graph.retrievalState().dirty, true, 'ACK期间新票据保留');
+  const excluded = f.graph.candidateBatch(); assert(excluded.entries.every((e) => e.candidate === null));
+  assert.equal(f.graph.acknowledgeCandidates(excluded), true); assert.equal(f.graph.retrievalState().dirty, false);
+  assert.deepEqual(f.graph.lookup.neighbors(batch.entries.map((e) => e.candidate!.key)), []);
+  other.prepare('UPDATE messages SET mode=NULL WHERE id=1').run();
+  const restored = f.graph.candidateBatch(); assert(restored.entries.every((e) => e.candidate));
+  assert.equal(f.graph.acknowledgeCandidates(restored), true);
+  assert.equal(f.graph.lookup.neighbors(restored.entries.map((e) => e.candidate!.key)).length, 2);
+  other.prepare('UPDATE messages SET text=? WHERE id=1').run('来源版本已经改变');
+  assert(f.graph.candidateBatch().entries.every((e) => e.candidate === null), 'hash改变也必须清旧候选');
+});
+
+test('持续dirty仍公平扫到后部历史；每批有界且不会清除其他页的rank key', (t) => {
+  const f = fixture(t); f.add(1, '全体共享的合成来源');
+  const records = Array.from({ length: 40 }, (_, i) => ({ ...claim(`历史${i}`, f.span(1)), id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}` }));
+  assert.equal(f.accept(records), true);
+  const scanned: string[] = [], keys = new Map<string, string>();
+  for (let i = 0; i < 3; i++) {
+    const batch = f.graph.candidateBatch(undefined, i === 0);
+    assert(batch.entries.length <= 32); scanned.push(batch.page.nextCursor);
+    for (const e of batch.entries) if (e.candidate) keys.set(e.id, e.candidate.key);
+    assert.equal(f.graph.acknowledgeCandidates(batch), true);
+    if (i < 2) {
+      // 同一次实际来源变更/恢复使低ID重新dirty，仍须为全扫保留另一页。
+      f.db.exec("UPDATE messages SET mode='ignored' WHERE id=1; UPDATE messages SET mode=NULL WHERE id=1");
+    }
+  }
+  assert.deepEqual(scanned, [records[15].id, records[31].id, records[39].id]);
+  assert.equal(f.graph.retrievalState().complete, true); assert.equal(keys.size, 40);
+  assert.equal(f.graph.lookup.neighbors([...keys.values()]).length, 40);
+});
+
+test('投影重建旋转索引epoch，旧ACK不得覆盖新扫描和重新入队的票据', (t) => {
+  const f = fixture(t); f.add(1, '合成依据'); assert.equal(f.accept([claim('历史认识', f.span(1))]), true);
+  const old = f.graph.candidateBatch(undefined, true);
+  const artifacts = f.db.prepare('SELECT document FROM adaptive_publications ORDER BY rowid').all().map((r) => JSON.parse(String(r.document)));
+  f.graph.rebuild(artifacts);
+  assert.notEqual(f.graph.retrievalState().epoch, old.page.epoch);
+  assert.equal(f.graph.acknowledgeCandidates(old), false);
+  assert.equal(f.graph.retrievalState().complete, false); assert.equal(f.graph.retrievalState().dirty, true);
+  const next = f.graph.candidateBatch(); assert.equal(f.graph.acknowledgeCandidates(next), true);
+  assert.equal(f.graph.lookup.neighbors(next.entries.map((e) => e.candidate!.key)).length, 1);
+});
+
+test('合法长候选的JSON转义使批次超限时缩页，保留正文与下一页位置', (t) => {
+  const f = fixture(t);
+  for (let i = 1; i <= 7; i++) f.add(i, `s${i}` + '\n'.repeat(7990));
+  const supports = [group('long', ...Array.from({ length: 7 }, (_, i) => f.span(i + 1)))];
+  const records = Array.from({ length: 32 }, (_, i) => ({ ...claim('\u0001'.repeat(8000), f.span(1, 's1'), supports),
+    id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}` }));
+  for (const record of records) assert.equal(f.accept([record]), true);
+  const first = f.graph.candidateBatch(undefined, true); assert.equal(first.entries.length, 16);
+  assert(first.entries.every((e) => e.candidate));
+  assert.equal(f.graph.acknowledgeCandidates(first), true);
+  f.db.exec("UPDATE messages SET mode='ignored' WHERE id=1; UPDATE messages SET mode=NULL WHERE id=1");
+  const perItem = Buffer.byteLength(JSON.stringify(first.entries[0]));
+  assert(perItem * 32 > 4 * 1024 * 1024, '32条合法候选确实可超过批上限');
+  const next = f.graph.candidateBatch();
+  assert.equal(next.entries.length, 16); assert.equal(next.page.nextCursor, records[23].id);
+  assert(Buffer.byteLength(JSON.stringify(next.entries)) <= 4 * 1024 * 1024);
+  assert(next.entries.every((e) => e.candidate?.text === first.entries[0].candidate!.text), '缩页不截断单条正文');
+  assert.equal(f.graph.acknowledgeCandidates(next), true);
+  const tail = f.graph.candidateBatch(); assert(tail.entries.some((e) => e.id === records[31].id && e.candidate));
+});
+
+function drainCandidates(graph: AdaptiveGraph) {
+  for (let i = 0; i < 64; i++) {
+    const batch = graph.candidateBatch(); assert(batch.entries.length <= 32);
+    assert.equal(graph.acknowledgeCandidates(batch), true);
+    const state = graph.retrievalState(); if (state.complete && !state.dirty) return i + 1;
+  }
+  assert.fail('有界合成图的传播未结束');
+}
+
+test('源版本不改generation仍逐批传播A到B到C；旧ACK不能把深层旧候选称为已追平', (t) => {
+  const f = fixture(t); f.add(1, 'A的根'); f.add(2, 'B的审计理由'); f.add(3, 'C的审计理由');
+  const a = claim('A', f.span(1)), b = claim('B', f.span(2), [group('a', ref(a))]);
+  const c = claim('C', f.span(3), [group('b', ref(b))]);
+  assert.equal(f.accept([a, b, c]), true); drainCandidates(f.graph);
+  const generation = f.graph.generation(), old = f.graph.candidateBatch(undefined, true);
+  const keys = old.entries.map((e) => e.candidate!.key);
+  f.db.exec("UPDATE messages SET mode='ignored' WHERE id=1");
+  assert.equal(f.graph.generation(), generation);
+  assert.equal(f.graph.acknowledgeCandidates(old), true); assert.equal(f.graph.retrievalState().dirty, true);
+  for (const id of [a.id, b.id, c.id]) {
+    const batch = f.graph.candidateBatch();
+    assert.deepEqual(batch.entries.map((e) => e.id), [id]); assert.equal(batch.entries[0].candidate, null);
+    assert.equal(f.graph.acknowledgeCandidates(batch), true);
+    assert.equal(f.graph.retrievalState().dirty, id !== c.id);
+  }
+  assert.deepEqual(f.graph.lookup.neighbors(keys), []);
+});
+
+test('依赖传播不因node没有候选而截断，带环支持只处理每id的新波次', (t) => {
+  const f = fixture(t); for (let i = 1; i <= 4; i++) f.add(i, `合成依据${i}`);
+  const person = node('甲', f.span(1)), m = mention(f.span(2), [person], person);
+  const a = claim('甲的引语', f.span(3), [group('mention', ref(m))]);
+  const b = claim('依赖引语', f.span(4), [group('a', ref(a))]);
+  a.supports.push(group('cycle', ref(b)));
+  assert.equal(f.accept([person, m, a, b]), true); drainCandidates(f.graph);
+  const original = f.graph.candidatePage().entries.flatMap((e) => e.candidate ? [e.candidate.key] : []);
+  f.db.exec("UPDATE messages SET mode='ignored' WHERE id=1");
+  const first = f.graph.candidateBatch();
+  assert.deepEqual(first.entries, [{ id: person.id, candidate: null }]);
+  assert.equal(f.graph.acknowledgeCandidates(first), true); assert.equal(f.graph.retrievalState().dirty, true);
+  assert(drainCandidates(f.graph) <= 5, 'node→mention→claim→cycle有界结束');
+  assert.deepEqual(f.graph.lookup.neighbors(original), []);
+  const settled = f.db.prepare('SELECT id,ticket,queued FROM adaptive_lookup_retrieval_dirty ORDER BY id').all();
+  assert(settled.every((r) => r.queued === 0));
+  assert.deepEqual(f.graph.candidateBatch().entries, []);
+  assert.deepEqual(f.db.prepare('SELECT id,ticket,queued FROM adaptive_lookup_retrieval_dirty ORDER BY id').all(), settled);
+});
+
+test('高扇出依赖按16项推进，父目标在传播尾页确认前保持dirty', (t) => {
+  const f = fixture(t); f.add(1, '共同根'); f.add(2, '独立审计文字');
+  const a = { ...claim('父认识', f.span(1)), id: '00000000-0000-4000-8000-000000000000' };
+  const children = Array.from({ length: 40 }, (_, i) => ({ ...claim(`后代${i}`, f.span(2), [group('parent', ref(a))]),
+    id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}` }));
+  assert.equal(f.accept([a, ...children]), true); drainCandidates(f.graph);
+  f.db.exec("UPDATE messages SET mode='ignored' WHERE id=1");
+  const first = f.graph.candidateBatch(); assert.equal(first.entries.length, 1);
+  assert.equal(f.graph.acknowledgeCandidates(first), true);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM adaptive_lookup_retrieval_dirty WHERE queued=1').get()!.n, 17);
+  assert.equal(f.db.prepare('SELECT cursor,queued FROM adaptive_lookup_retrieval_dirty WHERE id=?').get(a.id)!.cursor, children[15].id);
+  assert(drainCandidates(f.graph) < 10);
+  assert.equal(f.db.prepare('SELECT COUNT(*) n FROM adaptive_lookup_rank_keys').get()!.n, 0);
+});
+
 test('纠正影响沿精确版本、参与者、支持和反证传递，不撤回独立依据', (t) => {
   const f = fixture(t); f.add(1, '编辑'); f.add(2, '吃饭并说了一句话'); f.add(3, '独立证明');
   const person = node('编辑', f.span(1)), m = mention(f.span(2), [person], person);

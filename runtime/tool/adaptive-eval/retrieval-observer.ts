@@ -1,6 +1,8 @@
 // 开发取证：只预热摘要匹配的公开文件，旁路观察真实向量调用，不改候选或结果。
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import type { AdaptiveArchive } from '../../src/memory/adaptive-archive.ts';
 import { createHash } from 'node:crypto';
 import { verifyComponentFile } from '../../src/memory/adaptive-component.ts';
 import { AdaptiveVectorRetriever, VECTOR_SPACE } from '../../src/memory/adaptive-vector.ts';
@@ -42,4 +44,44 @@ export function observeRetrieval() {
     finally { call.elapsedMs = performance.now() - started; }
   };
   return { calls, close: () => { AdaptiveVectorRetriever.prototype.query = original; } };
+}
+
+// 只在开发检查点枚举清单；生产维护仍逐批推进，不用此取证函数驱动索引。
+export function retrievalInventory(archive: AdaptiveArchive, cache: string, agent: string) {
+  const expected: { id: string; key: string }[] = [];
+  let after = '';
+  for (;;) {
+    const page = archive.candidatePage(after);
+    for (const entry of page.entries) if (entry.candidate) expected.push({ id: entry.id, key: entry.candidate.key });
+    if (expected.length > 10000) throw new Error('evaluation-inventory-too-large');
+    if (page.done) break;
+    after = page.next;
+  }
+  let database: DatabaseSync | undefined;
+  let observed: { id: string; key: string }[] | null = null, meta: any = null;
+  try {
+    database = new DatabaseSync(cache, { readOnly: true }); database.exec('BEGIN');
+    meta = database.prepare('SELECT epoch,seq,hash,complete FROM vector_catalog_meta WHERE agent=? AND space=?').get(agent, VECTOR_SPACE) ?? null;
+    observed = database.prepare('SELECT id,key FROM vector_catalog WHERE agent=? AND space=? ORDER BY id LIMIT 10001')
+      .all(agent, VECTOR_SPACE).map((r) => ({ id: String(r.id), key: String(r.key) }));
+    database.exec('COMMIT');
+  } catch { observed = null; meta = null; }
+  finally { database?.close(); }
+  return { schema: 'candidate-inventory-v1', expected, observed, meta };
+}
+
+/** 旧档案保留原快照口径；新档案逐项比对独立读取的已落盘清单和当时有效候选。 */
+export function retrievalSnapshotReady(state: any): boolean {
+  const r = state.status?.retrieval;
+  if (!r || r.state !== 'ready' || !r.current || r.pending !== 0 || r.failure || r.errors || r.blocked) return false;
+  if (!Object.hasOwn(state, 'retrievalInventory')) return r.snapshot === state.retrievalExpected;
+  const inventory = state.retrievalInventory;
+  const valid = (rows: any): rows is { id: string; key: string }[] => Array.isArray(rows) && rows.length <= 10000
+    && rows.every((x, i) => typeof x?.id === 'string' && x.id.length > 0 && /^[a-f0-9]{64}$/.test(x.key)
+      && (!i || rows[i - 1].id < x.id));
+  return inventory?.schema === 'candidate-inventory-v1' && valid(inventory.expected) && valid(inventory.observed)
+    && semanticDigest(inventory.expected) === state.retrievalExpected
+    && semanticDigest(inventory.expected) === semanticDigest(inventory.observed)
+    && r.scanComplete === true && inventory.meta?.complete === 1 && inventory.meta.epoch === r.epoch
+    && inventory.meta.seq === r.seq && inventory.meta.hash === r.snapshot && r.indexed === inventory.expected.length;
 }

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { digest, sourceInputPath, type Case, type Surface } from './spec.ts';
+import { retrievalSnapshotReady } from './retrieval-observer.ts';
 import type { Artifact, Receipt } from './score.ts';
 import { readEvidence, trackConfiguration, type ExecutionPlan } from './plan.ts';
 
@@ -21,9 +22,7 @@ function verifyV2Snapshot(directory: string, state: any, body: string, plan: Exe
       || research && state.messages.some((m: any) => m.mode !== 'ignored' && ['user', 'ambient'].includes(m.role)
         && !state.receipts.some((r: any) => r.source === m.id && r.processor === 'research-v1')))
       throw new Error('v2 后台尚未完成整合或研究');
-    if (plan.configuration.kind === 'live' && (state.status.retrieval?.state !== 'ready' || !state.status.retrieval.current
-      || state.status.retrieval.pending !== 0 || state.status.retrieval.snapshot !== state.retrievalExpected
-      || state.status.retrieval.failure || state.status.retrieval.errors || state.status.retrieval.blocked))
+    if (plan.configuration.kind === 'live' && !retrievalSnapshotReady(state))
       throw new Error('v2 向量快照未就绪');
   }
   for (const call of state.calls) {

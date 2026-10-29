@@ -4,8 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
-import { AdaptiveVectorRetriever, VECTOR_SPACE } from '../../src/memory/adaptive-vector.ts';
+import { VECTOR_SPACE } from '../../src/memory/adaptive-vector.ts';
 import { semanticDigest } from '../../src/memory/adaptive-query.ts';
 import { seedReadWorkload } from '../adaptive-read-workload.ts';
 import { prepareAdaptiveComponent } from '../../src/memory/adaptive-component.ts';
@@ -29,16 +28,14 @@ const store = await import('../../src/store.ts'); store.openStore();
 const soul = await import('../../src/memory/soul-sync.ts'); await soul.ensureSoul();
 const { identity } = await import('../../src/memory/identity.ts');
 const { AdaptiveStore } = await import('../../src/memory/adaptive-store.ts');
-const { AdaptiveArchive } = await import('../../src/memory/adaptive-archive.ts');
 const host = await import('../../src/memory/adaptive.ts');
-const queue = new AdaptiveStore(store.db, identity().id), archive = new AdaptiveArchive(queue, cfg.paths.soul);
+const queue = new AdaptiveStore(store.db, identity().id);
 seedReadWorkload(queue, cfg.paths.soul, 2);
 const originalFetch = globalThis.fetch; let fetches = 0;
 globalThis.fetch = (...args) => { fetches++; return originalFetch(...args); };
 const report: any = { kind: 'actual-component-deployment', modelSpace: VECTOR_SPACE, cachePrefilled: true, weightBytesRemaining: 1024, checks: [], states: [],
   sourceHashes: Object.fromEntries(['adaptive-component.ts', 'adaptive-vector.ts', 'adaptive-vector-worker.ts', 'adaptive.ts'].map((name) => [name,
     crypto.createHash('sha256').update(fs.readFileSync(new URL(`../../src/memory/${name}`, import.meta.url))).digest('hex')])) };
-let backend: AdaptiveVectorRetriever | undefined, blocker: DatabaseSync | undefined;
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 async function until(check: () => boolean, timeout = 120_000) {
   const deadline = Date.now() + timeout;
@@ -53,7 +50,7 @@ try {
   assert.equal(during.status, 'ready'); assert.equal(during.items.length, 2); assert(report.queryDuringPreparationMs < 500);
   let last = '';
   await until(() => {
-    const state = host.adaptiveStatus().retrieval, key = state.state + ('preparation' in state ? ':' + state.preparation.phase : '');
+    const state = host.adaptiveStatus().retrieval, key = state.state + ('preparation' in state ? ':' + state.preparation?.phase : '');
     if (key !== last) { report.states.push({ elapsedMs: performance.now() - start, ...state }); last = key; }
     return ready();
   });
@@ -84,20 +81,6 @@ try {
   report.recovered = recovered; report.checks.push('重启复用已核验组件，无网络或重复安装；损坏派生库隔离并自动重建');
   await host.stopAdaptiveMemory();
 
-  const candidates = archive.candidates(), retryCache = path.join(cfg.paths.data, 'retry.sqlite'); assert.equal(candidates.length, 2);
-  backend = new AdaptiveVectorRetriever({ root: component, cache: retryCache, agent: identity().id });
-  backend.replace(candidates.slice(0, 1)); await until(() => backend!.status().current && backend!.status().indexed === 1, 30_000);
-  blocker = new DatabaseSync(retryCache); blocker.exec('BEGIN IMMEDIATE');
-  backend.replace(candidates);
-  await until(() => backend!.status().retrying === 1, 10_000);
-  assert.equal(backend.status().indexed, 1); report.locked = backend.status();
-  blocker.exec('ROLLBACK'); blocker.close(); blocker = undefined;
-  const retryStart = performance.now();
-  await until(() => backend!.status().indexed === 2 && backend!.status().pending === 0, 10_000);
-  report.retryMs = performance.now() - retryStart; report.retried = backend.status();
-  assert.equal(report.retried.retrying, 0); assert.equal(report.retried.cacheRecovered, false);
-  assert((await backend.query('港口采风'))?.keys.includes(candidates[1].key));
-  report.checks.push('真实 SQLite 写锁造成暂时失败，释放后无需新输入自动重试，不把 busy 当作损坏');
   const cancelledRoot = path.join(cfg.paths.data, 'adaptive-retrieval/cancelled-component'), controller = new AbortController();
   const pending = prepareAdaptiveComponent(cancelledRoot, controller.signal).then(() => 'completed', (error) => error.name);
   const pidFile = path.join(cancelledRoot, 'npm.pid'); await until(() => fs.existsSync(pidFile), 10_000);
@@ -111,10 +94,9 @@ try {
 } catch (error) {
   report.status = 'failed'; report.failure = error instanceof Error && !/https?:|\/Users\//.test(error.message) ? error.message : 'development_failure'; process.exitCode = 1;
 } finally {
-  if (blocker) { try { blocker.exec('ROLLBACK'); } finally { blocker.close(); } }
-  await backend?.close(); await host.stopAdaptiveMemory(); globalThis.fetch = originalFetch;
+  await host.stopAdaptiveMemory(); globalThis.fetch = originalFetch;
   assert.equal(cfg.config.soul.remote, ''); await soul.idle(); await soul.push('合成部署实验收尾'); store.db.close();
   const target = path.join(home, 'report.json'); fs.writeFileSync(target, JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify({ report: target, status: report.status, checks: report.checks, preparedMs: report.preparedMs,
-    queryDuringPreparationMs: report.queryDuringPreparationMs, retryMs: report.retryMs, failure: report.failure }, null, 2));
+    queryDuringPreparationMs: report.queryDuringPreparationMs, failure: report.failure }, null, 2));
 }

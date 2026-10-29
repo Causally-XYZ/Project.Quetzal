@@ -7,7 +7,7 @@ import { loadNodeKey } from '../../src/mesh/identity.ts';
 import { startBody, type BodyClient } from './process-client.ts';
 import { digest, sourceInputPath, type Track } from './spec.ts';
 import type { ObservedCall } from './model-observer.ts';
-import { seedPublicRetrievalCache } from './retrieval-observer.ts';
+import { seedPublicRetrievalCache, retrievalSnapshotReady } from './retrieval-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
 export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number;
   retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean; thinkingLevel?: 'LOW'; research?: boolean; backgroundRetries?: boolean;
@@ -105,7 +105,7 @@ export async function runTrack(options: TrackOptions) {
       if (options.retrievalCache) {
         const r = state.status.retrieval;
         if (r.error || r.failure || r.errors || r.blocked) throw new Error('evaluation-vector-failed');
-        if (r.state !== 'ready' || !r.current || r.pending !== 0 || r.snapshot !== state.retrievalExpected) return;
+        if (!retrievalSnapshotReady(state)) return;
       }
       const remote = await snapshot(satellite); checkFailures(remote);
       if (options.baseline && [state, remote].some((s) => s.structured.length

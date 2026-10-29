@@ -62,7 +62,9 @@ node runtime/tool/adaptive-retrieval-probe/host.ts "$PROBE_ROOT"
 node runtime/tool/adaptive-retrieval-probe/deploy.ts "$PROBE_ROOT" "$PREPARED_PUBLIC_ROOT"
 ```
 
-该入口新建隔离家目录，仅预热公开 npm 内容缓存及模型部分文件，不复制 node_modules 或完成标记。正常中心自己执行真实 npm ci，并从固定公开端点续传最后1024字节；准备期间验证前台可读。然后删除该隔离安装的库入口，验证自动识别、退避重装；损坏派生数据库，验证保留现场并重建；用第二个 SQLite 连接制造写锁，验证自动重试；取消实际运行的 npm，核查子进程已退出并能自动补做。报告明确 cachePrefilled，不当作全冷下载速度或跨平台成绩，不调用生成模型。
+该入口新建隔离家目录，仅预热公开 npm 内容缓存及模型部分文件，不复制 node_modules 或完成标记。正常中心自己执行真实 npm ci，并从固定公开端点续传最后1024字节；准备期间验证前台可读。然后删除该隔离安装的库入口，验证自动识别、退避重装；损坏派生数据库，验证保留现场并重建；取消实际运行的 npm，核查子进程已退出并能自动补做。报告明确 cachePrefilled，不当作全冷下载速度或跨平台成绩，不调用生成模型。
+
+真实嵌入结果提交时的 SQLite 写锁与释放后恢复，由现有 [`adaptive-vector.test.ts`](../../test/adaptive-vector.test.ts) 覆盖。`deploy.ts` 不再使用旧的“持锁后替换整份候选”片段；新持久批次清单写入阶段的锁恢复未由此部署入口验证，不能与嵌入结果提交锁测试混为同一覆盖。
 
 普通 query / production 工程夹具通过内部准备器注入隔离网络安装；`host.ts` 也只复用已有组件。`deploy.ts` 不替换准备器，专门核查生产自动部署。多身体运行器缺省仍停用准备，可显式启用真实向量模式，旧成绩不能据此重新算作向量覆盖。
 

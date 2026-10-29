@@ -44,6 +44,46 @@ export async function adaptiveVectorWorker() {
         database.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS vectors (agent TEXT, space TEXT, key TEXT, value TEXT NOT NULL, digest TEXT NOT NULL, PRIMARY KEY(agent,space,key))');
         const columns = database.prepare('PRAGMA table_info(vectors)').all().map((r) => [r.name, r.type, r.pk, r.notnull]);
         if (JSON.stringify(columns) !== JSON.stringify([['agent', 'TEXT', 1, 0], ['space', 'TEXT', 2, 0], ['key', 'TEXT', 3, 0], ['value', 'TEXT', 0, 1], ['digest', 'TEXT', 0, 1]])) throw new Error('cache_schema');
+        // 清单与向量都是可重建派生数据；旧 vectors 空间不变，首次扫描结束前保留未遇到的缓存。
+        database.exec(`CREATE TABLE IF NOT EXISTS vector_catalog (
+      agent TEXT NOT NULL,space TEXT NOT NULL,id TEXT NOT NULL,key TEXT NOT NULL,title TEXT NOT NULL,text TEXT NOT NULL,
+      seen TEXT NOT NULL,state TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,available INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(agent,space,id),UNIQUE(agent,space,key));
+      CREATE TABLE IF NOT EXISTS vector_catalog_meta (
+      agent TEXT NOT NULL,space TEXT NOT NULL,epoch TEXT NOT NULL,seq INTEGER NOT NULL,hash TEXT NOT NULL,complete INTEGER NOT NULL,
+      PRIMARY KEY(agent,space));
+      CREATE TABLE IF NOT EXISTS vector_catalog_counts (
+      agent TEXT NOT NULL,space TEXT NOT NULL,total INTEGER NOT NULL,indexed_count INTEGER NOT NULL,retrying INTEGER NOT NULL,blocked INTEGER NOT NULL,
+      PRIMARY KEY(agent,space));`);
+        const shapes = {
+          vector_catalog: [['agent','TEXT',1,1],['space','TEXT',2,1],['id','TEXT',3,1],['key','TEXT',0,1],['title','TEXT',0,1],['text','TEXT',0,1],
+            ['seen','TEXT',0,1],['state','TEXT',0,1],['attempts','INTEGER',0,1],['available','INTEGER',0,1]],
+          vector_catalog_counts: [['agent','TEXT',1,1],['space','TEXT',2,1],['total','INTEGER',0,1],['indexed_count','INTEGER',0,1],['retrying','INTEGER',0,1],['blocked','INTEGER',0,1]],
+          vector_catalog_meta: [['agent','TEXT',1,1],['space','TEXT',2,1],['epoch','TEXT',0,1],['seq','INTEGER',0,1],['hash','TEXT',0,1],['complete','INTEGER',0,1]],
+        };
+        for (const [table, expected] of Object.entries(shapes)) {
+          const actual = database.prepare('SELECT name,type,pk,"notnull" FROM pragma_table_info(?)').all(table)
+            .map((r) => [r.name,r.type,r.pk,r.notnull]);
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('cache_schema');
+        }
+        database.exec(`CREATE INDEX IF NOT EXISTS vector_catalog_work ON vector_catalog(agent,space,state,available,id);
+          CREATE INDEX IF NOT EXISTS vector_catalog_seen ON vector_catalog(agent,space,seen,id);`);
+        database.prepare('INSERT OR IGNORE INTO vector_catalog_meta VALUES(?,?,?,0,?,0)').run(agent, space, '', '');
+        // 同一候选事务内维护计数；启动只校准一次，逐文档status不再全表扫描。
+        for (const event of ['INSERT', 'UPDATE', 'DELETE']) {
+          const subtract = event === 'INSERT' ? '' : `UPDATE vector_catalog_counts SET total=total-1,
+            indexed_count=indexed_count-(OLD.state='indexed'),retrying=retrying-(OLD.state='pending' AND OLD.attempts>0),
+            blocked=blocked-(OLD.state='blocked') WHERE agent=OLD.agent AND space=OLD.space;`;
+          const add = event === 'DELETE' ? '' : `INSERT INTO vector_catalog_counts VALUES(NEW.agent,NEW.space,1,
+            NEW.state='indexed',NEW.state='pending' AND NEW.attempts>0,NEW.state='blocked')
+            ON CONFLICT(agent,space) DO UPDATE SET total=total+1,indexed_count=indexed_count+excluded.indexed_count,
+            retrying=retrying+excluded.retrying,blocked=blocked+excluded.blocked;`;
+          database.exec(`CREATE TRIGGER IF NOT EXISTS vector_catalog_count_${event.toLowerCase()} AFTER ${event} ON vector_catalog
+            BEGIN ${subtract} ${add} END`);
+        }
+        database.prepare(`INSERT OR REPLACE INTO vector_catalog_counts SELECT ?,?,count(*),
+          COALESCE(SUM(state='indexed'),0),COALESCE(SUM(state='pending' AND attempts>0),0),COALESCE(SUM(state='blocked'),0)
+          FROM vector_catalog WHERE agent=? AND space=?`).run(agent, space, agent, space);
         break;
       } catch (error) {
         try { database?.close(); } catch { /* 半打开连接 */ }
@@ -60,16 +100,20 @@ export async function adaptiveVectorWorker() {
       }
     }
     const db = database;
-    type Candidate = { key: string; title: string; text: string };
-    type Query = { id: number; query: string; deadline: number };
-    const vectors = new Map<string, number[][]>();
-    const desired = new Map<string, Candidate>(), remaining = new Map<string, Candidate>();
-    let queries: Query[] = [];
-    let pumping = false, reused = 0, computed = 0, snapshot = '', closing = false, disposed = false;
-    const retries = new Map<string, { attempts: number; at: number }>(), blocked = new Set<string>();
+    type Candidate = { id: string; key: string; title: string; text: string };
+    type Batch = { epoch: string; seq: number; begin?: boolean; complete?: boolean; upsert: Candidate[]; remove: { id: string; key?: string }[] };
+    type Query = { id: number; query: string; deadline: number; cancelled?: boolean };
+    let queries: Query[] = [], activeQuery: Query | undefined;
+    let pumping = false, applying = false, reused = 0, computed = 0, closing = false, disposed = false;
     let retryTimer: NodeJS.Timeout | undefined;
+    let retryAfter = 0;
+    const busy = (error: unknown) => [5, 6].includes(Number((error as { errcode?: number }).errcode) & 255);
+    const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+    const catalogMeta = () => db.prepare('SELECT epoch,seq,hash,complete FROM vector_catalog_meta WHERE agent=? AND space=?').get(agent, space)!;
+    const own = (id: string) => db.prepare('SELECT * FROM vector_catalog WHERE agent=? AND space=? AND id=?').get(agent, space, id);
+    const current = (c: Candidate) => own(c.id)?.key === c.key;
     async function shutdown() {
-      if (disposed) return;
+      if (disposed || pumping || applying) return;
       disposed = true; clearTimeout(retryTimer);
       try { db.close(); await extractor.dispose(); } finally { port.close(); }
     }
@@ -100,128 +144,242 @@ export async function adaptiveVectorWorker() {
       if (!valid(vector)) throw new Error('vector');
       return vector;
     }
-    const status = () => port.postMessage({ type: 'status', snapshot, indexed: vectors.size, pending: desired.size - vectors.size, reused, computed,
-      retrying: retries.size, blocked: blocked.size, cacheRecovered });
+    // 每次只解析一个文档，最多128块；拒绝异常缓存正文，避免单行无限分配。
+    const cached = (connection: InstanceType<typeof DatabaseSync>, key: string): number[][] | undefined => {
+      const row = connection.prepare('SELECT value,digest FROM vectors WHERE agent=? AND space=? AND key=? AND length(CAST(value AS BLOB))<=2097152').get(agent, space, key);
+      if (!row || digest(String(row.value)) !== row.digest) return;
+      try {
+        const value: unknown = JSON.parse(String(row.value));
+        if (Array.isArray(value) && value.length > 0 && value.length <= 128 && value.every(valid)) return value;
+      } catch { /* 损坏派生条目由后台重建。 */ }
+    };
+    const status = () => {
+      const m = catalogMeta();
+      const counts = db.prepare('SELECT total,indexed_count,retrying,blocked FROM vector_catalog_counts WHERE agent=? AND space=?').get(agent, space)!;
+      const indexed = Number(counts.indexed_count ?? 0);
+      port.postMessage({ type: 'status', snapshot: m.hash, epoch: m.epoch, seq: m.seq, scanComplete: !!m.complete,
+        indexed, pending: Number(counts.total) - indexed, reused, computed, retrying: Number(counts.retrying ?? 0),
+        blocked: Number(counts.blocked ?? 0), cacheRecovered });
+    };
     function scheduleRetries() {
       clearTimeout(retryTimer);
-      const next = Math.min(...[...retries.values()].map((r) => r.at));
-      if (closing || !Number.isFinite(next)) return;
-      retryTimer = setTimeout(() => {
-        for (const [key, retry] of retries) if (retry.at <= Date.now() && desired.has(key)) {
-          remaining.set(key, desired.get(key)!); retry.at = Infinity;
-        }
-        void pump();
-      }, Math.max(1, next - Date.now()));
+      if (closing) return;
+      try {
+        const row = db.prepare("SELECT MIN(available) at FROM vector_catalog WHERE agent=? AND space=? AND state='pending'").get(agent, space);
+        if (row?.at == null) return;
+        retryTimer = setTimeout(() => { void pump(); }, Math.max(1, Number(row.at) - Date.now(), retryAfter - Date.now()));
+      } catch (error) {
+        if (!busy(error)) { closing = true; port.postMessage({ type: 'failed', stage: 'cache' }); void shutdown(); return; }
+        retryTimer = setTimeout(() => { void pump(); }, 2000);
+      }
     }
     async function answer() {
       while (queries.length && !closing) {
-        const q = queries.shift()!;
-        if (Date.now() >= q.deadline) { port.postMessage({ type: 'answer', id: q.id, keys: [] }); continue; }
+        const q = queries.shift()!; activeQuery = q;
+        let reader: InstanceType<typeof DatabaseSync> | undefined;
+        const check = () => { if (closing || q.cancelled || Date.now() >= q.deadline) throw new Error('timeout'); };
         try {
-          const parts = chunks(q.query, 'query: '), scores = new Map<string, number>();
-          for (const part of parts) {
-            if (closing || Date.now() >= q.deadline) throw new Error('timeout');
-            const v = await embed(part);
-            for (const [key, list] of vectors) if (desired.has(key)) for (const d of list) {
-              const score = v.reduce((sum, n, i) => sum + n * d[i], 0);
-              scores.set(key, Math.max(scores.get(key) ?? -1, score));
+          check();
+          const queryVectors: number[][] = [];
+          for (const part of chunks(q.query, 'query: ')) { check(); queryVectors.push(await embed(part)); await tick(); }
+          check();
+          // 独立连接的短读事务固定本次已索引集合；不能跨异步页混合清单版本。
+          reader = new DatabaseSync(cache, { readOnly: true }); reader.exec('BEGIN');
+          reader.prepare('SELECT seq FROM vector_catalog_meta WHERE agent=? AND space=?').get(agent, space);
+          type Hit = { key: string; score: number; order: number };
+          const heap: Hit[] = [];
+          const worse = (a: Hit, b: Hit) => a.score < b.score || a.score === b.score && a.order > b.order;
+          const push = (hit: Hit) => {
+            if (heap.length < 1000) {
+              heap.push(hit); let i = heap.length - 1;
+              while (i) { const p = (i - 1) >>> 1; if (!worse(heap[i], heap[p])) break; [heap[i], heap[p]] = [heap[p], heap[i]]; i = p; }
+            } else if (worse(heap[0], hit)) {
+              heap[0] = hit; let i = 0;
+              for (;;) { let j = i * 2 + 1; if (j >= heap.length) break;
+                if (j + 1 < heap.length && worse(heap[j + 1], heap[j])) j++;
+                if (!worse(heap[j], heap[i])) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; }
             }
+          };
+          let after = '', order = 0;
+          for (;;) {
+            check();
+            const page = reader.prepare("SELECT id,key FROM vector_catalog WHERE agent=? AND space=? AND state='indexed' AND id>? ORDER BY id LIMIT 32").all(agent, space, after);
+            if (!page.length) break;
+            for (const candidate of page) {
+              check(); const list = cached(reader, String(candidate.key));
+              if (!list) {
+                // 清单持久化后，缓存仍可能独立损坏；仅失效仍匹配的版本，后台重建。
+                db.prepare("UPDATE vector_catalog SET state='pending',attempts=0,available=0 WHERE agent=? AND space=? AND id=? AND key=?")
+                  .run(agent, space, candidate.id, candidate.key);
+                port.postMessage({ type: 'index-error' }); status(); throw new Error('cache');
+              }
+              let score = -Infinity;
+              for (const d of list) {
+                check();
+                for (const v of queryVectors) score = Math.max(score, v.reduce((sum, n, i) => sum + n * d[i], 0));
+                await tick(); // 单文档也可能有128块，不等整页完成才响应取消。
+              }
+              push({ key: String(candidate.key), score, order: order++ });
+            }
+            after = String(page.at(-1)!.id); await tick();
           }
-          port.postMessage({ type: 'answer', id: q.id, keys: Date.now() < q.deadline ? [...scores].sort((a, b) => b[1] - a[1]).slice(0, 1000).map(([key]) => key) : [] });
+          check();
+          const keys = heap.sort((a, b) => b.score - a.score || a.order - b.order).map((h) => h.key);
+          check(); port.postMessage({ type: 'answer', id: q.id, keys });
         } catch { port.postMessage({ type: 'answer', id: q.id, keys: [] }); }
+        finally { try { reader?.close(); } finally { activeQuery = undefined; } }
       }
     }
     async function pump() {
-      if (pumping) return;
+      if (pumping || applying || closing) return;
       pumping = true;
       try {
         await answer();
-        while (remaining.size && !closing) {
-          const candidate = remaining.values().next().value!; remaining.delete(candidate.key);
-          if (desired.get(candidate.key) !== candidate) continue;
+        while (!closing && !applying && Date.now() >= retryAfter) {
+          const row = db.prepare("SELECT id,key,title,text,attempts FROM vector_catalog WHERE agent=? AND space=? AND state='pending' AND available<=? ORDER BY available,id LIMIT 1").get(agent, space, Date.now());
+          if (!row) break;
+          const candidate = row as unknown as Candidate;
           try {
-            const parts = chunks(`${candidate.title}\n${candidate.text}`, 'passage: '), list: number[][] = [];
-            for (const part of parts) {
-              list.push(await embed(part));
-              await new Promise<void>((resolve) => setImmediate(resolve));
-              await answer(); // 每块之间让查询先走，避免排在整批历史后面。
-              if (desired.get(candidate.key) !== candidate || closing) break;
+            const list: number[][] = [];
+            for (const part of chunks(`${candidate.title}\n${candidate.text}`, 'passage: ')) {
+              list.push(await embed(part)); await tick(); await answer();
+              if (!current(candidate) || closing) break;
             }
-            if (closing || desired.get(candidate.key) !== candidate) {
-              if (desired.get(candidate.key) === candidate && retries.has(candidate.key)) retries.get(candidate.key)!.at = Date.now() + 2000;
-              continue;
-            }
+            if (closing || !current(candidate)) continue;
             const value = JSON.stringify(list);
-            db.prepare('INSERT OR REPLACE INTO vectors VALUES (?,?,?,?,?)').run(agent, space, candidate.key, value, digest(value));
-            vectors.set(candidate.key, list); retries.delete(candidate.key); computed++; status();
+            db.exec('BEGIN');
+            try {
+              db.prepare('INSERT OR REPLACE INTO vectors VALUES (?,?,?,?,?)').run(agent, space, candidate.key, value, digest(value));
+              db.prepare("UPDATE vector_catalog SET state='indexed',attempts=0,available=0 WHERE agent=? AND space=? AND id=? AND key=?").run(agent, space, candidate.id, candidate.key);
+              db.exec('COMMIT');
+            } catch (error) { db.exec('ROLLBACK'); throw error; }
+            computed++; status();
           } catch (error) {
-            if (desired.get(candidate.key) === candidate && !closing) {
+            if (busy(error)) throw error;
+            if (current(candidate) && !closing) {
               if ([11, 26].includes(Number((error as { errcode?: number }).errcode) & 255)) {
                 closing = true; port.postMessage({ type: 'failed', stage: 'cache' }); continue;
               }
-              if (error instanceof Error && ['chunk_limit', 'truncated'].includes(error.message)) { blocked.add(candidate.key); retries.delete(candidate.key); }
-              else { const attempts = (retries.get(candidate.key)?.attempts ?? 0) + 1;
-                retries.set(candidate.key, { attempts, at: Date.now() + Math.min(60_000, 2000 * 2 ** Math.min(attempts - 1, 5)) }); }
+              const blocked = error instanceof Error && ['chunk_limit', 'truncated'].includes(error.message);
+              const attempts = Number(row.attempts) + 1;
+              db.prepare('UPDATE vector_catalog SET state=?,attempts=?,available=? WHERE agent=? AND space=? AND id=? AND key=?')
+                .run(blocked ? 'blocked' : 'pending', attempts, Date.now() + Math.min(60_000, 2000 * 2 ** Math.min(attempts - 1, 5)), agent, space, candidate.id, candidate.key);
               port.postMessage({ type: 'index-error' }); status();
             }
           }
         }
-      } finally { pumping = false; if (closing) await shutdown(); else scheduleRetries(); }
+      } catch (error) {
+        if (busy(error)) {
+          // 写锁期间不能再写重试状态；只保留一个有界退避时刻，原pending行不丢失。
+          retryAfter = Date.now() + 2000; port.postMessage({ type: 'index-error' });
+        } else { closing = true; port.postMessage({ type: 'failed', stage: 'cache' }); }
+      } finally { pumping = false; if (closing) await shutdown(); else if (!applying) scheduleRetries(); }
     }
-    port.on('message', (message) => {
-      try {
-        if (message.type === 'stop') {
-          closing = true; remaining.clear(); queries = [];
-          if (!pumping) void shutdown();
-        } else if (closing) return;
-        else if (message.type === 'update') {
-          const list: Candidate[] = message.upsert, remove: string[] = message.remove;
-          const keyValid = (key: unknown) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key);
-          if (message.base !== snapshot || !keyValid(message.snapshot) || !Array.isArray(list) || !Array.isArray(remove) ||
-              list.length > 1000 || remove.length > 1000 || Buffer.byteLength(JSON.stringify(list)) > 8 * 1024 * 1024 ||
-              list.some((c) => !c || !keyValid(c.key) || typeof c.title !== 'string' || typeof c.text !== 'string' || desired.has(c.key)) ||
-              remove.some((key) => !keyValid(key)) || new Set(list.map((c) => c.key)).size !== list.length ||
-              desired.size - new Set(remove.filter((key) => desired.has(key))).size + list.length > 1000) {
-            closing = true; port.postMessage({ type: 'failed', stage: 'worker' }); if (!pumping) void shutdown(); return;
-          }
-          // 只有启动时扫缓存key清理过期项；正常增量只点读新增摘要、删除撤回摘要。
+    const keyValid = (key: unknown) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key);
+    const idValid = (id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 512;
+    async function apply(batch: Batch) {
+      const { upsert, remove } = batch;
+      if (!idValid(batch.epoch) || !Number.isSafeInteger(batch.seq) || batch.seq < 1 ||
+          batch.begin !== undefined && typeof batch.begin !== 'boolean' || batch.complete !== undefined && typeof batch.complete !== 'boolean' ||
+          !Array.isArray(upsert) || !Array.isArray(remove) || upsert.length > 1000 || remove.length > 1000 ||
+          Buffer.byteLength(JSON.stringify(batch)) > 8 * 1024 * 1024 ||
+          upsert.some((c) => !c || !idValid(c.id) || !keyValid(c.key) || typeof c.title !== 'string' || typeof c.text !== 'string') ||
+          remove.some((r) => !r || !idValid(r.id) || r.key !== undefined && !keyValid(r.key)) ||
+          new Set(upsert.map((c) => c.id)).size !== upsert.length || new Set(upsert.map((c) => c.key)).size !== upsert.length ||
+          new Set(remove.map((r) => r.id)).size !== remove.length) throw new Error('batch');
+      const hash = digest(JSON.stringify(batch)); let m = catalogMeta();
+      if (m.epoch === batch.epoch && m.seq === batch.seq) {
+        if (m.hash !== hash) throw new Error('batch');
+        port.postMessage({ type: 'ack', epoch: m.epoch, seq: m.seq, scanComplete: !!m.complete }); return;
+      }
+      if (batch.begin && batch.seq === 1 && batch.epoch !== m.epoch) {
+        db.prepare('UPDATE vector_catalog_meta SET epoch=?,seq=0,hash=?,complete=0 WHERE agent=? AND space=?').run(batch.epoch, '', agent, space); m = catalogMeta();
+      }
+      if (m.epoch !== batch.epoch || batch.seq !== Number(m.seq) + 1 || batch.begin && batch.seq !== 1) throw new Error('batch');
+      // 每条事务可重放；只在整批（及完整扫描清扫）完成后记录序号并ACK。中断不丢最后未确认的变更。
+      for (const removal of remove) {
+        if (closing) return;
+        const old = own(removal.id);
+        if (old && (removal.key === undefined || removal.key === old.key)) {
           db.exec('BEGIN');
           try {
-            if (!snapshot) {
-              const wanted = new Set(list.map((c) => c.key));
-              for (const row of db.prepare('SELECT key FROM vectors WHERE agent=? AND space=?').iterate(agent, space)) {
-                if (!wanted.has(String(row.key))) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
-              }
-            }
-            for (const key of remove) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, key);
+            db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, removal.id);
+            db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key);
             db.exec('COMMIT');
           } catch (error) { db.exec('ROLLBACK'); throw error; }
-          for (const key of remove) { desired.delete(key); vectors.delete(key); remaining.delete(key); retries.delete(key); blocked.delete(key); }
-          for (const candidate of list) {
-            const key = candidate.key;
-            desired.set(key, candidate);
-            const row = db.prepare('SELECT value,digest FROM vectors WHERE agent=? AND space=? AND key=?').get(agent, space, key);
-            let stored: unknown;
-            if (row) { try { stored = JSON.parse(String(row.value)); } catch { /* 仅重建损坏的派生条目。 */ } }
-            if (row && digest(String(row.value)) === row.digest && Array.isArray(stored) && stored.length && stored.length <= 128 && stored.every(valid)) {
-              vectors.set(key, stored); reused++;
-            } else {
-              if (row) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, key);
-              remaining.set(key, candidate);
+        }
+        await tick();
+      }
+      for (const c of upsert) {
+        if (closing) return;
+        const old = own(c.id), sameKey = db.prepare('SELECT id,title,text FROM vector_catalog WHERE agent=? AND space=? AND key=?').get(agent, space, c.key);
+        if (sameKey && (sameKey.id !== c.id || sameKey.title !== c.title || sameKey.text !== c.text)) throw new Error('key');
+        const list = cached(db, c.key);
+        db.exec('BEGIN');
+        try {
+          if (old && old.key !== c.key) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key);
+          if (!list) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, c.key);
+          db.prepare(`INSERT INTO vector_catalog(agent,space,id,key,title,text,seen,state) VALUES(?,?,?,?,?,?,?,?)
+            ON CONFLICT(agent,space,id) DO UPDATE SET key=excluded.key,title=excluded.title,text=excluded.text,seen=excluded.seen,
+            state=excluded.state,attempts=CASE WHEN vector_catalog.key=excluded.key THEN vector_catalog.attempts ELSE 0 END,
+            available=CASE WHEN vector_catalog.key=excluded.key THEN vector_catalog.available ELSE 0 END`)
+            .run(agent, space, c.id, c.key, c.title, c.text, batch.epoch, list ? 'indexed' : old?.key === c.key && old.state === 'blocked' ? 'blocked' : 'pending');
+          db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
+        if (list) reused++;
+        await tick();
+      }
+      if (batch.complete) {
+        for (;;) {
+          if (closing) return;
+          const page = db.prepare('SELECT id,key FROM vector_catalog WHERE agent=? AND space=? AND seen<>? LIMIT 32').all(agent, space, batch.epoch);
+          if (!page.length) break;
+          db.exec('BEGIN');
+          try {
+            for (const row of page) {
+              db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, row.id);
+              db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
             }
-          }
-          snapshot = message.snapshot; status(); void pump();
-        } else if (message.type === 'query') {
-          if (typeof message.query !== 'string' || message.query.length > 8000 || !Number.isSafeInteger(message.id) || !Number.isFinite(message.deadline) || queries.length >= 16) throw new Error('query');
-          queries.push(message); void pump();
-        } else if (message.type === 'cancel') queries = queries.filter((q) => q.id !== message.id);
-      } catch (error) {
-        if (message.type === 'update' || Number.isInteger((error as { errcode?: number }).errcode)) {
-          closing = true; remaining.clear(); queries = []; port.postMessage({ type: 'failed', stage: Number.isInteger((error as { errcode?: number }).errcode) ? 'cache' : 'worker' }); if (!pumping) void shutdown();
-        } else port.postMessage({ type: 'index-error' });
+            db.exec('COMMIT');
+          } catch (error) { db.exec('ROLLBACK'); throw error; }
+          await tick();
+        }
+        // 首次迁移时无清单的旧缓存也只在全扫结束后清理，每次仅保留有界key页。
+        for (;;) {
+          if (closing) return;
+          const page = db.prepare(`SELECT key FROM vectors v WHERE agent=? AND space=? AND NOT EXISTS
+            (SELECT 1 FROM vector_catalog c WHERE c.agent=v.agent AND c.space=v.space AND c.key=v.key) LIMIT 32`).all(agent, space);
+          if (!page.length) break;
+          for (const row of page) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
+          await tick();
+        }
+      }
+      if (closing) return;
+      db.prepare('UPDATE vector_catalog_meta SET seq=?,hash=?,complete=? WHERE agent=? AND space=?').run(batch.seq, hash, batch.complete || m.complete ? 1 : 0, agent, space);
+      status(); port.postMessage({ type: 'ack', epoch: batch.epoch, seq: batch.seq, scanComplete: !!(batch.complete || m.complete) });
+    }
+    port.on('message', (message) => {
+      if (message.type === 'stop') {
+        closing = true; queries = []; if (activeQuery) activeQuery.cancelled = true; void shutdown(); return;
+      }
+      if (closing) return;
+      if (message.type === 'batch') {
+        if (applying) { closing = true; port.postMessage({ type: 'failed', stage: 'worker' }); void shutdown(); return; }
+        applying = true;
+        void apply(message.batch).catch((error) => {
+          closing = true; port.postMessage({ type: 'failed', stage: Number.isInteger((error as { errcode?: number }).errcode) ? 'cache' : 'worker' });
+        }).finally(() => { applying = false; if (closing) void shutdown(); else void pump(); });
+      } else if (message.type === 'query') {
+        if (typeof message.query !== 'string' || message.query.length > 8000 || !Number.isSafeInteger(message.id) || !Number.isFinite(message.deadline) || queries.length >= 16) {
+          port.postMessage({ type: 'index-error' }); return;
+        }
+        queries.push(message); void pump();
+      } else if (message.type === 'cancel') {
+        queries = queries.filter((q) => q.id !== message.id);
+        if (activeQuery && activeQuery.id === message.id) activeQuery.cancelled = true;
       }
     });
-    port.postMessage({ type: 'ready' });
+    status(); port.postMessage({ type: 'ready' }); void pump();
   } catch {
     try { database?.close(); await extractor?.dispose(); } catch { /* 失败信息不含私有输入 */ }
     port.postMessage({ type: 'failed', stage: failureStage }); port.close();

@@ -122,7 +122,7 @@ try {
   check('已准备组件随中心启动自动加载、索引、查询，并随停止释放 worker');
   const interruptedOptions = { ...options, cache: path.join(cfg.paths.data, 'interrupted.sqlite') };
   backend = new AdaptiveVectorRetriever(interruptedOptions);
-  const longCandidate = archive.candidates().filter((c) => c.item.id === long.id); assert.equal(longCandidate.length, 1);
+  const longCandidate = archive.candidatePage().entries.filter((e) => e.id === long.id).flatMap((e) => e.candidate ? [{ ...e.candidate, item: { id: e.id } }] : []); assert.equal(longCandidate.length, 1);
   backend.replace(longCandidate);
   const stopDeadline = Date.now() + 10_000;
   while (Date.now() < stopDeadline && !(backend.status().current && backend.status().pending === 1)) {

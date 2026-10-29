@@ -7,6 +7,7 @@ import http from "node:http";
 import type { Msg } from "../src/providers/types.ts";
 import crypto from "node:crypto";
 import type { ClaimRecord, SourceSpan } from "../src/memory/adaptive-evidence.ts";
+import type { VectorBatch } from '../src/memory/adaptive-vector.ts';
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "quetzal-semantic-query-host-"));
 process.env.QUETZAL_HOME = home;
@@ -69,7 +70,7 @@ function fixture(conv: string, long = false) {
       { baseGeneration: archive.generation(), records: [record] }), true);
   }
   accept(claim, source);
-  return { source, correction, correct: () => accept({ ...claim, revision: 2, text: '饭友是弟弟', reasons: [span(correction)],
+  return { id: claim.id, source, correction, correct: () => accept({ ...claim, revision: 2, text: '饭友是弟弟', reasons: [span(correction)],
     supports: [{ id: 'corrected', premises: [span(correction)], assumptions: [] }] }, correction) };
 }
 const historyMessages = (conv: string): Msg[] => [{ role: 'system', content: '当前系统政策' }, ...brain.history(conv, Number.MAX_SAFE_INTEGER), { role: 'user', content: '当前请求只读，不允许写入' }];
@@ -89,7 +90,7 @@ test('向量等待不占灵魂锁；等待中的纠正由最终快照拒绝旧�
   let keys: string[] = [];
   let action: () => Promise<void> = async () => {};
   const detach = adaptive.setAdaptiveRetriever(identity().id, {
-    replace: (candidates) => { keys = candidates.filter((c) => c.item.roots.some((r) => r.id === f.source)).map((c) => c.key); },
+    applyBatch: async (batch) => { keys = batch.upsert.filter((c) => c.id === f.id).map((c) => c.key); return { epoch: batch.epoch, seq: batch.seq, scanComplete: !!batch.complete }; },
     query: async (query) => { await action(); return { queryHash: semanticDigest(query), keys }; },
   });
   try {
@@ -110,7 +111,7 @@ test('上下文准备的词面与向量排名切换不使有效依据的正常�
   const f = fixture('vector-ranking-conversation');
   let keys: string[] = [], queries = 0;
   const detach = adaptive.setAdaptiveRetriever(identity().id, {
-    replace: (candidates) => { keys = candidates.filter((c) => c.item.roots.some((r) => r.id === f.source)).map((c) => c.key); },
+    applyBatch: async (batch) => { keys = batch.upsert.filter((c) => c.id === f.id).map((c) => c.key); return { epoch: batch.epoch, seq: batch.seq, scanComplete: !!batch.complete }; },
     query: async (query) => ++queries % 2 ? { queryHash: semanticDigest(query), keys } : undefined,
   });
   script = async () => ({ content: '候选排名变化不阻断有效资料' });
@@ -132,13 +133,81 @@ test('上下文准备的词面与向量排名切换不使有效依据的正常�
 
 test('向量服务不响应时100ms内放弃等待，保留当前词面读取与调用者取消', async () => {
   const f = fixture('vector-timeout');
-  const detach = adaptive.setAdaptiveRetriever(identity().id, { replace() {}, query: () => new Promise(() => {}) });
+  const detach = adaptive.setAdaptiveRetriever(identity().id, { applyBatch: async (batch) => ({ epoch: batch.epoch, seq: batch.seq, scanComplete: !!batch.complete }), query: () => new Promise(() => {}) });
   try {
     const begin = performance.now(), reading = await adaptive.queryAdaptiveSemantic('饭友');
     assert.equal(reading.status, 'ready'); assert(reading.items.some((x) => x.roots.some((r) => r.id === f.source)));
     assert(performance.now() - begin < 500);
     await assert.rejects(adaptive.queryAdaptiveSemantic('饭友', AbortSignal.abort()), /abort/i);
   } finally { detach(); store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction); }
+});
+
+test('索引ACK失败重发同批；等待不占锁，期间纠正保留新dirty并拒绝旧排名', async () => {
+  const f = fixture('vector-index-ack'); let first: VectorBatch | undefined, calls = 0, keys: string[] = [];
+  let unlock: () => void = () => {};
+  const waiting = new Promise<void>((resolve) => { unlock = resolve; });
+  const detach = adaptive.setAdaptiveRetriever(identity().id, {
+    applyBatch: async (batch) => {
+      calls++;
+      if (calls === 1) { first = structuredClone(batch); throw new Error('synthetic acknowledgement lost'); }
+      if (calls === 2) {
+        assert.deepEqual(batch, first, '未确认批次不可改payload或seq');
+        await exclusive(() => f.correct());
+        await waiting;
+      }
+      keys = batch.upsert.filter((c) => c.id === f.id).map((c) => c.key);
+      return { epoch: batch.epoch, seq: batch.seq, scanComplete: true };
+    },
+    query: async (query) => ({ queryHash: semanticDigest(query), keys }),
+  });
+  try {
+    await assert.rejects(adaptive.refreshAdaptiveRetrieval(), /acknowledgement lost/);
+    const retry = adaptive.refreshAdaptiveRetrieval();
+    assert.equal(adaptive.refreshAdaptiveRetrieval(), retry, '手动与tick共享同一在途批次');
+    unlock(); await retry;
+    assert.equal(calls, 2); assert.equal(archive.retrievalState().dirty, true);
+    assert(!(await adaptive.queryAdaptiveSemantic('涮肉同行者')).items.some((item) => item.id === f.id));
+    await adaptive.refreshAdaptiveRetrieval();
+    assert.equal(calls, 3);
+    const current = (await adaptive.queryAdaptiveSemantic('涮肉同行者')).items.find((item) => item.id === f.id);
+    assert.equal(current?.revision, 2); assert.equal(archive.retrievalState().dirty, false);
+  } finally { unlock(); detach(); store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction); }
+});
+
+test('候选页实际超时缩小页量不推进；ACK超时保留原批而不再次缩页', async (t) => {
+  const f = fixture('vector-index-budget'), before = archive.retrievalState();
+  const prepare = AdaptiveArchive.prototype.candidateBatch, acknowledge = AdaptiveArchive.prototype.acknowledgeCandidates;
+  let delay = true, rejectAck = true; const wires: VectorBatch[] = [];
+  const preparing = t.mock.method(AdaptiveArchive.prototype, 'candidateBatch', function (this: InstanceType<typeof AdaptiveArchive>, ...[read, restart, check, limit]: Parameters<typeof prepare>) {
+    return prepare.call(this, read, restart, () => {
+      if (delay) { delay = false; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 510); }
+      check?.();
+    }, limit);
+  });
+  const acknowledging = t.mock.method(AdaptiveArchive.prototype, 'acknowledgeCandidates', function (this: InstanceType<typeof AdaptiveArchive>, ...[batch]: Parameters<typeof acknowledge>) {
+    if (rejectAck) { rejectAck = false; throw new DOMException('synthetic ACK deadline', 'TimeoutError'); }
+    return acknowledge.call(this, batch);
+  });
+  const detach = adaptive.setAdaptiveRetriever(identity().id, {
+    applyBatch: async (batch) => { wires.push(structuredClone(batch)); return { epoch: batch.epoch, seq: batch.seq, scanComplete: !!batch.complete }; },
+    query: async () => undefined,
+  });
+  try {
+    await assert.rejects(adaptive.refreshAdaptiveRetrieval(), /超时|timeout/i);
+    assert.equal(wires.length, 0); assert.deepEqual(archive.retrievalState(), before);
+    assert.equal(adaptive.adaptiveStatus().retrieval.hostPageLimit, 8);
+    assert.equal(adaptive.adaptiveStatus().retrieval.hostError, 'candidate_timeout');
+    await assert.rejects(adaptive.refreshAdaptiveRetrieval(), /ACK deadline/);
+    assert.equal(adaptive.adaptiveStatus().retrieval.hostPageLimit, 8);
+    assert.equal(adaptive.adaptiveStatus().retrieval.hostError, 'ack_unavailable');
+    await adaptive.refreshAdaptiveRetrieval();
+    assert.equal(wires.length, 2); assert.deepEqual(wires[1], wires[0]);
+    assert.equal(adaptive.adaptiveStatus().retrieval.hostError, null);
+    assert.equal(adaptive.adaptiveStatus().retrieval.hostCurrent, true);
+  } finally {
+    preparing.mock.restore(); acknowledging.mock.restore(); detach();
+    store.db.prepare("UPDATE messages SET mode='ignored' WHERE id IN (?,?)").run(f.source, f.correction);
+  }
 });
 
 test('集中主机本机从权威图读取，当前主模型接收认识并在纠正后使用新版本', async () => {

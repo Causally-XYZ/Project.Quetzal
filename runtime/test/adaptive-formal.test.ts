@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { loadSuite, makePlan, verifyPlan, readEvidence, saveNew, trackConfiguration } from '../tool/adaptive-eval/plan.ts';
 import { collectReceipt, inputTrack } from '../tool/adaptive-eval/receipt.ts';
+import { retrievalSnapshotReady } from '../tool/adaptive-eval/retrieval-observer.ts';
 import { runTrack } from '../tool/adaptive-eval/run-track.ts';
 import { digest, type Case } from '../tool/adaptive-eval/spec.ts';
 import { scoreSuite } from '../tool/adaptive-eval/score.ts';
@@ -331,4 +332,24 @@ test('v2 输入例外链保留原角色与权限，只有可访问用户素材�
     }
     assert.ok(result.shutdown.every((s: any) => !s.forced && s.exitCode === 0));
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+
+test('分页检索取证核对真实清单，不能把最后批次确认当作全库就绪', () => {
+  const entries = [{ id: 'a', key: 'a'.repeat(64) }, { id: 'b', key: 'b'.repeat(64) }];
+  const state = { retrievalExpected: digest(entries), retrievalInventory: { schema: 'candidate-inventory-v1',
+    expected: entries, observed: structuredClone(entries), meta: { epoch: 'scan', seq: 4, hash: 'batch', complete: 1 } },
+    status: { retrieval: { state: 'ready', current: true, pending: 0, scanComplete: true, epoch: 'scan', seq: 4, snapshot: 'batch', indexed: 2 } } };
+  assert.equal(retrievalSnapshotReady(state), true);
+  for (const change of [
+    (s: any) => { s.retrievalInventory.observed.pop(); },
+    (s: any) => { s.retrievalInventory.observed[1].key = 'c'.repeat(64); },
+    (s: any) => { s.retrievalInventory.meta.epoch = 'old'; },
+    (s: any) => { s.retrievalInventory.meta.seq--; },
+    (s: any) => { s.retrievalInventory.meta.complete = 0; },
+    (s: any) => { s.status.retrieval.scanComplete = false; },
+    (s: any) => { s.status.retrieval.pending = 1; },
+  ]) { const changed = structuredClone(state); change(changed); assert.equal(retrievalSnapshotReady(changed), false); }
+  assert.equal(retrievalSnapshotReady({ retrievalExpected: 'historic', status: { retrieval: {
+    state: 'ready', current: true, pending: 0, snapshot: 'historic' } } }), true, '历史档案保持原有快照口径');
 });

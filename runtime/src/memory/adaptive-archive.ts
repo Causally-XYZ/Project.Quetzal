@@ -1,7 +1,7 @@
 // 权威存档入口：启动 / 受控同步后全检，热读取逐项核对，自动后台巡检全链。
 // 宿主须在已有灵魂 exclusive 内调用，避免与本机 Git 合并 / 发布交错。
 import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
-import { AdaptiveGraph } from './adaptive-graph.ts';
+import { AdaptiveGraph, type RetrievalCandidates } from './adaptive-graph.ts';
 import { ARTIFACT_ID, type ArtifactInput } from './adaptive-artifact.ts';
 import { type SemanticBatch, type SemanticRecord, type SourceReader } from './adaptive-evidence.ts';
 import type { AdaptiveLookup } from './adaptive-lookup.ts';
@@ -78,7 +78,10 @@ export class AdaptiveArchive {
   history(id: string) { return this.read(() => this.graph.history(id)); }
   assess(read?: SourceReader) { this.refresh(); return this.graph.assess(read); }
   supportedClaims(read?: SourceReader) { this.refresh(); return this.graph.supportedClaims(read); }
-  candidates(read?: SourceReader) { return this.read(() => this.graph.candidates(read)); }
+  retrievalState() { return this.read(() => this.graph.retrievalState()); }
+  candidatePage(after = '', limit = 32, read?: SourceReader) { return this.read(() => this.graph.candidatePage(after, limit, read)); }
+  candidateBatch(read?: SourceReader, restart = false, check?: () => void, limit = 16) { return this.read(() => this.graph.candidateBatch(read, restart, check, limit)); }
+  acknowledgeCandidates(batch: RetrievalCandidates) { return this.read(() => this.graph.acknowledgeCandidates(batch)); }
   query(query: string, read?: SourceReader, neighbors?: SemanticNeighbors) { return this.read(() => this.graph.query(query, read, neighbors)); }
   readSources(ids: number[], read?: SourceReader) { return this.read(() => this.graph.readSources(ids, read)); }
   accept(job: MemoryJob, inputs: ArtifactInput[], batch: SemanticBatch, now = Date.now()): boolean {

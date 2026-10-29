@@ -5,15 +5,21 @@ import { artifactDigest, artifactDocument, type ArtifactInput, type MemoryArtifa
 import { SEMANTIC_SCHEMA, LEGACY_SEMANTIC_SCHEMA, semanticSchema, realmBoundRefs, validateBatch, validateRecord, directSpans, recordRefs, spanCurrent, sameRealm,
   evaluateEvidence, type SemanticBatch, type SemanticRecord, type SourceReader, type ClaimRecord } from './adaptive-evidence.ts';
 import { sourceReading } from './adaptive-reading.ts';
-import { selectSemantic, semanticBasis, semanticCandidates, semanticDigest, type SemanticNeighbors } from './adaptive-query.ts';
+import { selectSemantic, semanticBasis, semanticCandidates, semanticDigest, type SemanticNeighbors, type SemanticCandidate } from './adaptive-query.ts';
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { AdaptiveLookup } from './adaptive-lookup.ts';
+import { AdaptiveLookup, type RetrievalPage } from './adaptive-lookup.ts';
 import { LocalClosure, WorksetOverflow } from './adaptive-workset.ts';
 import { tokens } from '../../../engine/src/retrieval.ts';
 
 // 只缓存一次完整重放的见证，不缓存来源可见性或依据状态。连接释放后自动回收。
 const verified = new WeakMap<DatabaseSync, { agent: string; artifacts: string; projection: string }>();
+
+export interface RetrievalCandidates {
+  page: RetrievalPage;
+  entries: { id: string; candidate: Pick<SemanticCandidate, 'key' | 'title' | 'text'> | null }[];
+}
+class RetrievalBatchOverflow extends Error {}
 
 export class AdaptiveGraph {
   readonly queue: AdaptiveStore;
@@ -241,27 +247,50 @@ export class AdaptiveGraph {
     return this.snapshot(() => evaluateEvidence(this.current(), read));
   }
 
-  candidates(read: SourceReader = (id) => this.queue.source(id)) {
+  retrievalState() { return this.lookup.retrievalState(); }
+
+  /** 只读开发观察，不移动生产索引游标或消费 dirty；不返回全量数组。 */
+  candidatePage(after = '', limit = 32, read: SourceReader = (id) => this.queue.source(id)) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 32) throw new Error('检索候选分页范围不合法');
     return this.snapshot(() => {
-      const result: ReturnType<typeof semanticCandidates> = [];
-      let after = '';
-      for (;;) {
-        const page = this.lookup.page(after, 32); if (!page.length) break;
-        for (const record of page) {
-          const graph = new LocalClosure(this.lookup, read);
-          try {
-            const records = graph.collect([record.id], false, false);
-            if (!records) continue;
-            const own = semanticCandidates(records, read, (id) => this.queue.source(id)).find((c) => c.item.id === record.id);
-            if (own) result.push(own);
-          } catch (error) { if (!(error instanceof WorksetOverflow)) throw error; }
-          if (result.length > 1000) throw new Error('向量候选超过工作上限');
-        }
-        after = page.at(-1)!.id;
-      }
-      this.lookup.remember(result);
-      return result;
+      const page = this.lookup.page(after, limit);
+      return { entries: this.candidateEntries(page.map((r) => r.id), read), next: page.at(-1)?.id ?? after, done: page.length < limit };
     });
+  }
+
+  candidateBatch(read: SourceReader = (id) => this.queue.source(id), restart = false, check = () => {}, limit = 16): RetrievalCandidates {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 16) throw new Error('检索索引分页范围不合法');
+    return this.snapshot(() => {
+      for (let size = limit; ; size = Math.max(1, Math.floor(size / 2))) {
+        const page = this.lookup.retrievalPage(restart, size);
+        try { return { page, entries: this.candidateEntries(page.targets.map((t) => t.id), read, check) }; }
+        catch (error) { if (!(error instanceof RetrievalBatchOverflow) || size === 1) throw error; }
+      }
+    });
+  }
+
+  private candidateEntries(ids: string[], read: SourceReader, check = () => {}): RetrievalCandidates['entries'] {
+    const entries: RetrievalCandidates['entries'] = []; let bytes = 2;
+    for (const id of ids) {
+      check();
+      let candidate: RetrievalCandidates['entries'][number]['candidate'] = null;
+      try {
+        const records = new LocalClosure(this.lookup, read).collect([id], false, false);
+        const own = records && semanticCandidates(records, read, (source) => this.queue.source(source)).find((c) => c.item.id === id);
+        if (own) candidate = { key: own.key, title: own.title, text: own.text };
+      } catch (error) { if (!(error instanceof WorksetOverflow)) throw error; }
+      // 单条闭包超限或已失效均移除旧候选；权威损坏和读取超时仍中止整批，不消费票据。
+      const entry = { id, candidate }; bytes += Buffer.byteLength(JSON.stringify(entry)) + 1;
+      if (bytes > 4 * 1024 * 1024) throw new RetrievalBatchOverflow('检索索引批次超过字节上限');
+      entries.push(entry);
+    }
+    check();
+    return entries;
+  }
+
+  acknowledgeCandidates(batch: RetrievalCandidates): boolean {
+    return this.snapshot(() => this.lookup.acknowledgeRetrieval(batch.page,
+      batch.entries.map((entry) => ({ id: entry.id, key: entry.candidate?.key ?? null }))));
   }
 
   query(query: string, read: SourceReader = (id) => this.queue.source(id), neighbors?: SemanticNeighbors) {

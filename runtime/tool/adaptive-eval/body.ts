@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { observeModel, type ObservedCall, type ObservedJob } from './model-observer.ts';
 import { ControlledGraph } from './controlled-graph.ts';
-import { observeRetrieval } from './retrieval-observer.ts';
+import { observeRetrieval, retrievalInventory } from './retrieval-observer.ts';
 import { semanticDigest } from '../../src/memory/adaptive-query.ts';
 import { sourceInputPath } from './spec.ts';
 
@@ -118,8 +118,10 @@ const commands: Record<string, (args: any) => unknown> = {
     ...(settings.baseline ? { learningPending: brain.pendingMemoryLearning(), structured: readStructuredRecords(),
       legacyDocuments: documents().map(({ source, text }) => ({ source, text })).sort((a, b) => a.source.localeCompare(b.source)),
       memoryConfig: { adaptive: cfg.config.adaptiveMemory, brain: cfg.config.brain } } : {}),
-    ...(vector ? { retrievalCalls: vector.calls,
-      retrievalExpected: semanticDigest(archive.candidates().map(({ key, title, text }) => ({ key, title, text }))) } : {}),
+    ...(vector ? (() => {
+      const inventory = retrievalInventory(archive, path.join(cfg.paths.data, 'adaptive-retrieval', `${semanticDigest(identity().id)}.sqlite`), identity().id);
+      return { retrievalCalls: vector.calls, retrievalInventory: inventory, retrievalExpected: semanticDigest(inventory.expected) };
+    })() : {}),
     ...(controlled ? { controlled: controlled.snapshot(), held } : {}),
     messages: store.db.prepare('SELECT id,ts,role,text,session,body,mode,answerBasis FROM messages ORDER BY id').all(),
     receipts: store.db.prepare('SELECT source,processor,revision,completed FROM adaptive_receipts').all(),

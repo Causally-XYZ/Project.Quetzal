@@ -13,6 +13,7 @@ import { publishPending, commitPending, publicationRoot } from './adaptive-publi
 import { exclusive, search, searchEntries, formatSearchEntries, type SearchOptions, type SearchEntry } from './memory.ts';
 import { touched, verifyRecordedFiles } from './soul-sync.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
+import type { RetrievalCandidates } from './adaptive-graph.ts';
 import { drainAdaptiveAudits } from './adaptive-audit.ts';
 import { integrityState } from './adaptive-integrity.ts';
 import { processSemanticNext, SEMANTIC_PROCESSOR } from './adaptive-worker.ts';
@@ -28,7 +29,7 @@ import { semanticBasis, semanticDigest, compatibleSemanticBasis, type SemanticBa
 import { decodeSemanticPacket, type SemanticQueryPacket } from './adaptive-query-packet.ts';
 import type { SourceReader } from './adaptive-evidence.ts';
 import { parseAnswerBasis, answerBasisStatus, ANSWER_CHANGED, ANSWER_UNBOUND, type AnswerBasis } from './answer-basis.ts';
-import { AdaptiveVectorRetriever, type AdaptiveRetriever } from './adaptive-vector.ts';
+import { AdaptiveVectorRetriever, type AdaptiveRetriever, type VectorBatch } from './adaptive-vector.ts';
 import { prepareAdaptiveComponent, type ComponentProgress } from './adaptive-component.ts';
 
 export interface MemoryPacket {
@@ -55,7 +56,11 @@ let semanticAbort: AbortController | undefined;
 let semanticJob: string | undefined;
 let nextSemanticAt = 0, busySince = 0;
 let semanticState = 'disabled';
-let retrieval: { agent: string; backend: AdaptiveRetriever } | undefined;
+interface RetrievalSession {
+  agent: string; backend: AdaptiveRetriever; epoch?: string; seq: number; nextSweepAt: number; pageLimit: number; error?: string;
+  pending?: { candidates: RetrievalCandidates; wire: VectorBatch }; flight?: Promise<void>;
+}
+let retrieval: RetrievalSession | undefined;
 let retrievalRefresh: Promise<void> | undefined;
 let nextRetrievalAt = 0;
 let ownedRetrieval: { agent: string; backend: AdaptiveVectorRetriever; detach: () => void } | undefined;
@@ -111,18 +116,62 @@ function reconcileAdaptiveRetriever() {
 /** 内部组件接线；不暴露外部近邻注入 RPC，身份 / 来源门禁仍由最终快照核查。 */
 export function setAdaptiveRetriever(agent: string, backend: AdaptiveRetriever) {
   if (agent !== identity().id) throw new Error('检索组件 agent 不一致');
-  const current = { agent, backend }; retrieval = current; nextRetrievalAt = 0;
+  const current: RetrievalSession = { agent, backend, seq: 0, nextSweepAt: 0, pageLimit: 16 }; retrieval = current; nextRetrievalAt = 0;
   return () => { if (retrieval === current) retrieval = undefined; };
 }
 
-export async function refreshAdaptiveRetrieval() {
+export function refreshAdaptiveRetrieval(): Promise<void> {
   const current = retrieval;
-  if (!current || !active || !isHost() || !config.adaptiveMemory.semantic || fs.existsSync(paths.stop) || current.agent !== identity().id) return;
-  const candidates = await withAdaptiveSnapshot((store, archive, visible) => {
-    if (current.agent !== store.agent) throw new Error('索引范围已变化');
-    return archive.candidates(visible);
-  });
-  if (retrieval === current && active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) && current.agent === identity().id) current.backend.replace(candidates);
+  if (!current) return Promise.resolve();
+  if (current.flight) return current.flight;
+  const enabled = () => retrieval === current && active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) && current.agent === identity().id;
+  if (!enabled()) return Promise.resolve();
+  let stage: string = 'prepare';
+  current.flight = (async () => {
+    const pending = await withAdaptiveSnapshot((store, archive, visible, check) => {
+      if (current.agent !== store.agent) throw new Error('索引范围已变化');
+      const state = archive.retrievalState();
+      // 丢失 ACK 时重发同一批；投影重建则启用新 epoch，不把旧扫描水位当作新图进度。
+      if (current.pending?.candidates.page.epoch === state.epoch) return current.pending;
+      current.pending = undefined;
+      stage = 'candidate';
+      const candidates = archive.candidateBatch(visible, !current.epoch || state.complete && Date.now() >= current.nextSweepAt, check, current.pageLimit);
+      const page = candidates.page;
+      current.pageLimit = page.limit;
+      if (!page.scanning && !candidates.entries.length) return;
+      const begin = current.epoch !== page.epoch;
+      const wire: VectorBatch = { epoch: page.epoch, seq: begin ? 1 : current.seq + 1,
+        ...(begin ? { begin: true } : {}), ...(page.scanning && page.complete ? { complete: true } : {}),
+        upsert: candidates.entries.flatMap(({ id, candidate }) => candidate ? [{ id, ...candidate }] : []),
+        remove: candidates.entries.filter(({ candidate }) => !candidate).map(({ id }) => ({ id })) };
+      return { candidates, wire };
+    });
+    if (!pending || !enabled()) { if (enabled()) current.error = undefined; return; }
+    current.pending = pending;
+    // 不在 SQLite 快照或灵魂锁内等待 worker；来源改动由独立 ticket CAS 保留。
+    stage = 'worker'; const ack = await current.backend.applyBatch(pending.wire);
+    if (ack.epoch !== pending.wire.epoch || ack.seq !== pending.wire.seq || pending.wire.complete && !ack.scanComplete)
+      throw new Error('检索索引确认不匹配');
+    if (!enabled()) return;
+    stage = 'ack';
+    const accepted = await withAdaptiveSnapshot((store, archive) => {
+      if (!enabled() || store.agent !== current.agent) return false;
+      return archive.acknowledgeCandidates(pending.candidates);
+    });
+    current.pending = undefined;
+    if (!accepted) { current.epoch = undefined; current.seq = 0; return; }
+    current.epoch = ack.epoch; current.seq = ack.seq; current.error = undefined;
+    if (pending.wire.complete) current.nextSweepAt = Date.now() + 60_000;
+  })().catch((error) => {
+    if (enabled()) {
+      const timedOut = stage === 'candidate' && !current.pending && error instanceof Error &&
+        (error.name === 'TimeoutError' || error.message === '原文修订读取超时');
+      current.error = timedOut ? 'candidate_timeout' : `${stage}_unavailable`;
+      if (timedOut) current.pageLimit = Math.max(1, Math.floor(current.pageLimit / 2));
+    }
+    throw error;
+  }).finally(() => { current.flight = undefined; });
+  return current.flight;
 }
 
 function localStore() {
@@ -236,19 +285,29 @@ export function startAdaptiveMemory() {
   processAdaptiveBatch();
 }
 export async function stopAdaptiveMemory() {
+  const indexing = retrieval?.flight;
   active = false; clearInterval(timer); timer = undefined; semanticAbort?.abort(); reconcileAdaptiveRetriever();
-  await Promise.all([semanticTask, retrievalRefresh, retrievalClosing, componentTask]);
+  await Promise.all([semanticTask, retrievalRefresh, indexing?.catch(() => {}), retrievalClosing, componentTask]);
   await drainAdaptiveAudits();
 }
 
 export function adaptiveStatus() {
+  let hostCurrent = false;
+  try {
+    const state = queue?.db.prepare(`SELECT epoch,complete,EXISTS(SELECT 1 FROM adaptive_lookup_retrieval_dirty WHERE queued=1) AS dirty
+      FROM adaptive_lookup_retrieval_scan WHERE singleton=1`).get();
+    hostCurrent = !!retrieval?.epoch && state?.epoch === retrieval.epoch && state.complete === 1 && state.dirty === 0 && !retrieval.flight && !retrieval.pending && !retrieval.error;
+  } catch { /* 尚未建立派生索引，不能称为已追平。 */ }
+  const vectorStatus = ownedRetrieval?.backend.status();
   const base = { enabled: config.adaptiveMemory.enabled, hostBody: config.adaptiveMemory.hostBody,
     integrity: queue ? { state: integrityState(queue.db, paths.soul, queue.agent).status, checkedAt: integrityState(queue.db, paths.soul, queue.agent).checkedAt || null } : { state: 'unchecked', checkedAt: null },
     running: active, local: isHost(), stopped: fs.existsSync(paths.stop), error: lastError,
     semantic: { enabled: config.adaptiveMemory.semantic, state: semanticState, research: { enabled: config.adaptiveMemory.research } },
-    retrieval: ownedRetrieval?.backend.status() ?? { state: retrieval ? 'attached' :
+    retrieval: vectorStatus ? { ...vectorStatus, current: vectorStatus.current && hostCurrent, hostCurrent,
+      hostError: retrieval?.error ?? null, hostPageLimit: retrieval?.pageLimit ?? null } : { state: retrieval ? 'attached' :
       active && isHost() && config.adaptiveMemory.semantic && !fs.existsSync(paths.stop) ? componentTask ? 'preparing' : 'unavailable' : 'inactive',
-      preparation: componentProgress, error: componentFailure, retryAt: nextRetrievalStartAt } };
+      preparation: componentProgress, error: componentFailure, retryAt: nextRetrievalStartAt,
+      hostCurrent, hostError: retrieval?.error ?? null, hostPageLimit: retrieval?.pageLimit ?? null } };
   if (!active || !isHost()) return { ...base, queue: null };
   try { return { ...base, queue: localStore().status(), semantic: { ...base.semantic, queue: localStore().status(SEMANTIC_PROCESSOR),
     lastModel: kv.get('adaptive.semantic.lastModel', null), reviewBudget: kv.get('adaptive.review.budget', null),

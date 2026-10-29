@@ -221,3 +221,5 @@ legacy 指同一代码版本中关闭新记忆、启用原有记忆路径，不�
 M5新增公开六步输入[m5-contrast-development.json](m5-contrast-development.json)，用于完整候选 / 关闭研究 / 关闭向量 / 原文FTS / 旧记忆五臂开发对照；参数和预登记观察点见[评测登记](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md#m5-五臂开发对照声音素材设备代指与排期2026-10-29登记)。直接复用runTrack，不新增评分平台、生产配置、依赖或构建入口；数据不含checks，也不进入生产bundle。未运行不能算通过。
 
 后续[m5-temporary-access-development.json](m5-temporary-access-development.json)使用书屋临时入口与两次活动，比较完整候选和原文FTS的实际使用；含两个无关话题，核对窗口内 / 外及再次复用。仍沿用runTrack与既有预算；输入只含发言和问题，不含预期或图种子。配置、观察点和时间局限见同一[评测登记](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md#m5-临时入口规则的完整使用对照2026-10-29登记)，不是新增正式门槛。
+
+分页向量索引的开发检查点不再把最后批次摘要当作全库摘要。身体用只读candidatePage枚举当时有效的id/key，并在独立SQLite只读事务取得worker的清单与epoch/seq；结果保存为retrievalInventory。等待与回执验证要求两侧逐项一致、扫描完成、宿主current及pending为零，未就绪不能计完成。旧无该字段的档案仍按原snapshot口径重算，不改旧成绩。此枚举仅用于有界开发取证，不进入生产全局索引维护或模型提示；原case计数/审核规则不变。

@@ -3,6 +3,12 @@ import type { DatabaseSync } from 'node:sqlite';
 import { tokens, rank } from '../../../engine/src/retrieval.ts';
 import { directSpans, recordRefs, validateRecord, type SemanticRecord } from './adaptive-evidence.ts';
 
+/** 派生索引的送达票据，不是认识权威；只有 worker 确认后才消费。 */
+export interface RetrievalPage {
+  epoch: string; cursor: string; scanning: boolean; nextCursor: string; complete: boolean; limit: number;
+  targets: { id: string; ticket: string | null }[];
+}
+
 export class AdaptiveLookup {
   private readonly db: DatabaseSync;
   private readonly check?: (record: SemanticRecord) => void;
@@ -23,12 +29,23 @@ export class AdaptiveLookup {
       CREATE TABLE IF NOT EXISTS adaptive_lookup_rank_keys(key TEXT PRIMARY KEY,id TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS adaptive_lookup_dirty(id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS adaptive_lookup_scan(singleton INTEGER PRIMARY KEY CHECK(singleton=1),cursor TEXT NOT NULL);
-      INSERT OR IGNORE INTO adaptive_lookup_scan VALUES(1,'');`);
+      INSERT OR IGNORE INTO adaptive_lookup_scan VALUES(1,'');
+      CREATE TABLE IF NOT EXISTS adaptive_lookup_retrieval_dirty(id TEXT PRIMARY KEY,ticket INTEGER NOT NULL,cursor TEXT NOT NULL,queued INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS adaptive_lookup_retrieval_work ON adaptive_lookup_retrieval_dirty(queued,id);
+      CREATE TABLE IF NOT EXISTS adaptive_lookup_retrieval_scan(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT NOT NULL,cursor TEXT NOT NULL,complete INTEGER NOT NULL,change INTEGER NOT NULL);
+      INSERT OR IGNORE INTO adaptive_lookup_retrieval_scan VALUES(1,lower(hex(randomblob(16))),'',0,0);
+      CREATE INDEX IF NOT EXISTS adaptive_lookup_rank_record ON adaptive_lookup_rank_keys(id);`);
     for (const event of ['INSERT', 'UPDATE', 'DELETE'] as const) {
       const row = event === 'DELETE' ? 'OLD' : 'NEW';
       const when = event === 'UPDATE' ? ` WHEN ${['ts','role','channel','text','session','body','via','mode','attachments'].map((f) => `OLD.${f} IS NOT NEW.${f}`).join(' OR ')}` : '';
       db.exec(`CREATE TRIGGER IF NOT EXISTS adaptive_lookup_message_${event.toLowerCase()} AFTER ${event} ON messages${when} BEGIN
         INSERT OR IGNORE INTO adaptive_lookup_dirty SELECT owner FROM adaptive_lookup_sources WHERE source=${row}.id;
+      END`);
+      db.exec(`CREATE TRIGGER IF NOT EXISTS adaptive_lookup_retrieval_message_${event.toLowerCase()} AFTER ${event} ON messages${when} BEGIN
+        UPDATE adaptive_lookup_retrieval_scan SET change=change+1 WHERE singleton=1;
+        INSERT OR REPLACE INTO adaptive_lookup_retrieval_dirty
+          SELECT owner,(SELECT change FROM adaptive_lookup_retrieval_scan WHERE singleton=1),'',1
+          FROM (SELECT DISTINCT owner FROM adaptive_lookup_sources WHERE source=${row}.id);
       END`);
     }
   }
@@ -37,6 +54,8 @@ export class AdaptiveLookup {
     this.db.exec(`DELETE FROM adaptive_lookup_heads; DELETE FROM adaptive_lookup_terms;
       DELETE FROM adaptive_lookup_sources; DELETE FROM adaptive_lookup_refs; DELETE FROM adaptive_lookup_rank_keys; DELETE FROM adaptive_lookup_dirty;
       UPDATE adaptive_lookup_scan SET cursor='' WHERE singleton=1;
+      DELETE FROM adaptive_lookup_retrieval_dirty;
+      UPDATE adaptive_lookup_retrieval_scan SET epoch=lower(hex(randomblob(16))),cursor='',complete=0,change=0 WHERE singleton=1;
       UPDATE adaptive_lookup_meta SET generation=-1 WHERE singleton=1`);
   }
 
@@ -57,6 +76,12 @@ export class AdaptiveLookup {
   /** 与版本记录在同一事务内更新；历史邻接保留，最新词项替换。 */
   put(record: SemanticRecord, generation: number) {
     this.db.prepare('INSERT OR IGNORE INTO adaptive_lookup_dirty SELECT owner FROM adaptive_lookup_refs WHERE target=? AND owner<>?').run(record.id, record.id);
+    this.db.exec('UPDATE adaptive_lookup_retrieval_scan SET change=change+1 WHERE singleton=1');
+    this.db.prepare(`INSERT OR REPLACE INTO adaptive_lookup_retrieval_dirty
+      SELECT owner,(SELECT change FROM adaptive_lookup_retrieval_scan WHERE singleton=1),'',1
+      FROM (SELECT DISTINCT owner FROM adaptive_lookup_refs WHERE target=?)`).run(record.id);
+    this.db.prepare(`INSERT OR REPLACE INTO adaptive_lookup_retrieval_dirty
+      VALUES(?,(SELECT change FROM adaptive_lookup_retrieval_scan WHERE singleton=1),'',1)`).run(record.id);
     const source = this.db.prepare('INSERT OR IGNORE INTO adaptive_lookup_sources VALUES(?,?,?)');
     for (const span of directSpans(record)) source.run(record.id, record.revision, span.source);
     const ref = this.db.prepare('INSERT OR IGNORE INTO adaptive_lookup_refs VALUES(?,?,?,?)');
@@ -127,6 +152,56 @@ export class AdaptiveLookup {
     return [...new Set([...dirty, ...page.map((r) => r.id)])];
   }
 
+  retrievalState() {
+    const row = this.db.prepare(`SELECT epoch,cursor,complete,
+      EXISTS(SELECT 1 FROM adaptive_lookup_retrieval_dirty WHERE queued=1) AS dirty FROM adaptive_lookup_retrieval_scan WHERE singleton=1`).get()!;
+    return { epoch: String(row.epoch), cursor: String(row.cursor), complete: row.complete === 1, dirty: row.dirty === 1 };
+  }
+
+  /** 每批固定留出全扫份额；旧记录不会被持续到来的 dirty 或近期记录挤走。 */
+  retrievalPage(restart = false, limit = 16): RetrievalPage {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 32) throw new Error('检索索引分页范围不合法');
+    if (restart) this.db.exec("UPDATE adaptive_lookup_retrieval_scan SET epoch=lower(hex(randomblob(16))),cursor='',complete=0 WHERE singleton=1");
+    const state = this.retrievalState();
+    const page = state.complete ? [] : this.db.prepare('SELECT id FROM adaptive_lookup_heads WHERE id>? ORDER BY id LIMIT ?').all(state.cursor, limit);
+    const dirty = this.db.prepare('SELECT id FROM adaptive_lookup_retrieval_dirty WHERE queued=1 ORDER BY id LIMIT ?').all(limit);
+    const ticket = this.db.prepare('SELECT ticket FROM adaptive_lookup_retrieval_dirty WHERE id=?');
+    return { epoch: state.epoch, cursor: state.cursor, scanning: !state.complete, limit,
+      nextCursor: page.length ? String(page.at(-1)!.id) : state.cursor,
+      complete: state.complete || page.length < limit,
+      targets: [...new Set([...dirty, ...page].map((r) => String(r.id)))].map((id) => {
+        const row = ticket.get(id); return { id, ticket: row ? String(row.ticket) : null };
+      }) };
+  }
+
+  /** 调用者须在事务中确认。新票据不被旧 ACK 删除；重建或另一次扫描使旧 ACK 整体失效。 */
+  acknowledgeRetrieval(page: RetrievalPage, entries: { id: string; key: string | null }[]): boolean {
+    const state = this.retrievalState();
+    if (state.epoch !== page.epoch || state.cursor !== page.cursor || state.complete !== !page.scanning) return false;
+    if (entries.length !== page.targets.length || entries.some((entry, i) => entry.id !== page.targets[i].id)) throw new Error('检索索引确认范围不一致');
+    const ticket = this.db.prepare('SELECT ticket,cursor,queued FROM adaptive_lookup_retrieval_dirty WHERE id=?');
+    const forget = this.db.prepare('DELETE FROM adaptive_lookup_rank_keys WHERE id=?');
+    const remember = this.db.prepare('INSERT OR REPLACE INTO adaptive_lookup_rank_keys VALUES(?,?)');
+    const dependents = this.db.prepare('SELECT DISTINCT owner FROM adaptive_lookup_refs WHERE target=? AND owner>? ORDER BY owner LIMIT 16');
+    const enqueue = this.db.prepare(`INSERT INTO adaptive_lookup_retrieval_dirty VALUES(?,?,'',1)
+      ON CONFLICT(id) DO UPDATE SET ticket=excluded.ticket,cursor='',queued=1 WHERE excluded.ticket>adaptive_lookup_retrieval_dirty.ticket`);
+    const advance = this.db.prepare('UPDATE adaptive_lookup_retrieval_dirty SET cursor=?,queued=? WHERE id=? AND ticket=?');
+    for (const [i, entry] of entries.entries()) {
+      const expected = page.targets[i].ticket;
+      const current = ticket.get(entry.id);
+      if ((current ? String(current.ticket) : null) !== expected) continue;
+      forget.run(entry.id); if (entry.key) remember.run(entry.key, entry.id);
+      if (current?.queued === 1) {
+        // 单调波次沿所有记录类型传播；保留已处理票据去环，不因无向量key的node/mention截断。
+        const next = dependents.all(entry.id, current.cursor);
+        for (const row of next) enqueue.run(row.owner, current.ticket);
+        advance.run(next.length ? next.at(-1)!.owner : current.cursor, next.length === 16 ? 1 : 0, entry.id, expected);
+      }
+    }
+    this.db.prepare('UPDATE adaptive_lookup_retrieval_scan SET cursor=?,complete=? WHERE singleton=1').run(page.nextCursor, Number(page.complete));
+    return true;
+  }
+
   /** 倒排表在 SQLite 内求交、排序；只有有界候选正文进入 JS 再排序。 */
   search(query: string, limit = 64): string[] {
     const ids = [...this.matches(query, limit)];
@@ -147,12 +222,6 @@ export class AdaptiveLookup {
   }
 
   // 近邻摘要键只作为检索建议；正文与依据仍重新点读核验，不纳入权威投影见证。
-  remember(candidates: { key: string; item: { id: string } }[]) {
-    this.db.exec('DELETE FROM adaptive_lookup_rank_keys');
-    const insert = this.db.prepare('INSERT OR REPLACE INTO adaptive_lookup_rank_keys VALUES(?,?)');
-    for (const c of candidates) insert.run(c.key, c.item.id);
-  }
-
   neighbors(keys: string[]): string[] {
     if (keys.length > 1000) throw new Error('近邻建议超过工作上限');
     return keys.flatMap((key) => { const r = this.db.prepare('SELECT id FROM adaptive_lookup_rank_keys WHERE key=?').get(key); return r ? [String(r.id)] : []; });
