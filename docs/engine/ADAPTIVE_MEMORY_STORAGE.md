@@ -1,6 +1,6 @@
 # 自适应记忆：结果发布与恢复协议
 
-状态：M1 工程协议已实现并验收；M2 语义整合 / 重评已接入默认关闭的后台，完整语义与读取门禁尚未放行。实际进展以阶段验证记录为准。目标和边界见[实施计划](ADAPTIVE_MEMORY_PLAN.md)、[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)与[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)。
+状态：M1发布协议、M2 / M3语义原型及M4本机备份恢复 / 运行验收已通过；新记忆及研究仍默认关闭，全量质量与规模留M5，真人反馈经确认后置。阶段推送以验证记录为准。实际进展以阶段验证记录为准。目标和边界见[实施计划](ADAPTIVE_MEMORY_PLAN.md)、[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)与[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)。
 
 ## 1. 权威边界
 
