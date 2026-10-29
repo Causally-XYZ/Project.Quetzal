@@ -154,7 +154,7 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 
 开发中：[自适应记忆 M0–M5 计划](docs/engine/ADAPTIVE_MEMORY_PLAN.md)记录跨会话关联、指代歧义、多步推理与持续修正的目标、行为契约和本机多身体验收；[阶段验证记录](docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)区分已验证工作与尚未实现能力。每个里程碑验收通过并成功推送工作分支后，才进入下一阶段；阶段内可只做本地提交。
 
-M1 与 M2 代表性原型已验收并推送；[版本化认识与证据依赖库](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)及[组件与模型接线](docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)已通过相应阶段检查。M3 的主动关联、多步推理与纵向修正原型已验收，后台研究默认关闭；阶段推送以验证记录为准。M4 已提供控制台「记忆 → 核心 → 对话记忆」入口，可查看来源、处理状态并提交补充纠正；本机恢复、半年代理试用、有界整合及真实纠正回归已通过M4工程验收，阶段推送结果见验证记录；真人反馈经确认后置。全量语义质量与规模验证保留至 M5。M5新增五臂开发对照的输入与观察点已在[评测登记](docs/engine/ADAPTIVE_MEMORY_EVAL.md)固定，结果与工程性能分别判定。
+M1 与 M2 代表性原型已验收并推送；[版本化认识与证据依赖库](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)及[组件与模型接线](docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)已通过相应阶段检查。M3 的主动关联、多步推理与纵向修正原型已验收，后台研究默认关闭；阶段推送以验证记录为准。M4 已提供控制台「记忆 → 核心 → 对话记忆」入口，可查看来源、处理状态并提交补充纠正；本机恢复、半年代理试用、有界整合及真实纠正回归已通过M4工程验收，阶段推送结果见验证记录；真人试用、反馈及人工测试在 M0–M5 完成并推送后另行开展，不是当前 GOAL 门槛。全量语义质量与规模验证保留至 M5。M5新增五臂开发对照的输入与观察点已在[评测登记](docs/engine/ADAPTIVE_MEMORY_EVAL.md)固定，结果与工程性能分别判定。
 
 M5已将常用记忆读取的全库核查移到自动后台巡检，正常查询仍核对当前来源与版本；向量worker已按摘要增量维护并保留在途文档进度；宿主候选遍历、向量查询规模和冷启动 / 同步后的恢复成本继续验证。机制见[认识协议](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#5-权威文件与重建)，实测与未完成边界以阶段记录为准。
 
