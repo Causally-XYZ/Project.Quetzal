@@ -4,47 +4,52 @@
 
 ## 当前结论
 
-Quetzal 使用自建的 TypeScript / Node.js 模型与工具循环。真实模型—工具循环已提取到根级 `engine/src/loop.ts`，通用协议在 `engine/src/types.ts`；`runtime/src/mind/brain.ts` 保留宿主编排，由 `runtime/src/main.ts` 装配。动态上下文、结构化记忆策略、PRIME 学习与演化，以及纯分词、评分、摘录和条目 / 片段预算选择已提取到 `engine/src/retrieval.ts` 与 `context.ts`；上下文装配、文件 / 数据库记忆、模型供应商、工具权限、自主调度和多身体协作仍由宿主提供。受限研究运行器独立调用同一循环，不接入生产状态。独立模块的使用与开发见 [engine 模块文档](../../engine/docs/README.md)。
+Quetzal 的独立 engine 负责模型—工具循环、通用协议、动态上下文和纯策略；runtime 负责身体、来源、存储、模型适配、权限、调度与多身体。MCP 客户端已支持 stdio、Streamable HTTP / SSE 和 OAuth；CLI 已有本机终端聊天。MCP 服务端、远程 TUI 与未完成研究方向不能因接口存在被视为已交付。
 
-当前上下文按实际模型窗口作统一保守预算、自动摘要与工具节选，长期记忆采用带来源／范围／验证／版本的结构化 Markdown，默认检索采用门禁后有界语义选择。PRIME 蒸馏和候选演化已接生产；个人事实需可信确认，经验启用需独立结果证据，演化缺真实基线时保留候选。旧 Markdown 与 FTS5 继续作为兼容入口。已实现 stdio MCP 工具来源与本机 TUI 第一切片；HTTP MCP、MCP 服务端、远程 TUI 与论文算法实验仍待推进。交互入口是 Flutter 控制台、飞书和经同一网关接入的 CLI 终端聊天。
+记忆需区分两条路径：原有结构化记忆 / PRIME，以及默认关闭的自适应记忆。开启新记忆后，对话事实由它统一整理，旧学习不再并行写入；动态上下文和原文回查继续共用。新系统的关系图、证据、任务与版本机制在 runtime，不能把 engine 的 PRIME 算法当作新认识图的实现。
 
-## 阅读顺序
+当前记忆交付为完整入口的可运行试用版，未完成质量 / 规模工作进入 backlog；原 M5 失败和评分标准保留。按以下现行文档开始阅读，再查历史，而不是从阶段追加记录倒推当前设计。
 
-| 文档 | 记录范围 |
+## 自适应记忆：现行说明
+
+| 文档 | 负责回答的问题 |
 |---|---|
-| [独立引擎设计](DESIGN.md) | 目标结构、实际切片、依赖方向与兼容契约 |
-| [开发路线图](ROADMAP.md) | 工作分解、依赖顺序、分工、验收与阶段状态 |
-| [MCP / TUI 适配计划](ADAPTERS_PLAN.md) | 工具来源和交互客户端的接口、协议与实施切片 |
-| [MCP 实现](MCP.md) | stdio 来源、权限、生命周期、配置和平台限制 |
-| [策略提取](CONTEXT_EXTRACTION.md) | 纯上下文 / 检索算法的实际迁移与兼容验证 |
-| [受限研究运行器](RESEARCH_RUNNER.md) | 独立环境、边界、轨迹、评分及合成示例 |
-| [后续切片验证](FOLLOWUP.md) | MCP、TUI、策略与研究运行器的整合证据 |
-| [首次提取验证](EXTRACTION.md) | 本次代码变更与验证证据 |
-| [模块地图](MODULE_MAP.md) | 内核在哪里、入口与调用链、外围模块边界、依赖与构建 |
-| [执行与调度](EXECUTION.md) | 对话、醒来、做梦、工具循环、并发、子 agent、时间墙与停止 |
-| [当前替代工程](MEMORY_REPLACEMENT.md) | 生产接线、配置、确认／反馈、验证与边界 |
-| [自适应记忆实施计划](ADAPTIVE_MEMORY_PLAN.md) | M0–M5 目标、集中计算、多身体本机模拟、开源借鉴和阶段门禁；M1 已验收并推送，M2 进行中 |
-| [自适应记忆行为契约](ADAPTIVE_MEMORY_CONTRACT.md) | 来源、指代歧义、多主题、时间、证据依赖、修正、权限和降级的目标行为 |
-| [自适应记忆验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md) | 跨月纠正案例、语义 / 工程断言、评测指标和本机多身体验收规则 |
-| [自适应记忆阶段验证](ADAPTIVE_MEMORY_PROGRESS.md) | 逐阶段执行证据、未验证项和放行状态 |
-| [自适应记忆语义评测](ADAPTIVE_MEMORY_EVAL.md) | 提案接口、开发集 / 留出集边界、冻结评分口径和真实模型复跑 |
-| [自适应记忆组件实验](ADAPTIVE_MEMORY_COMPONENTS.md) | 固定开源版本的行为探针、适配边界与三档 Gemini ADC 连通性；不代表语义门禁通过 |
-| [动态上下文](DYNAMIC_CONTEXT.md) | 引擎窗口预算、摘要、原文引用与取消 |
-| [结构化记忆](STRUCTURED_MEMORY.md) | 私有持久化、来源校验与生产学习 |
-| [PRIME 内核](PRIME_CORE.md) | 资格门禁、语义选择、版本和演化契约 |
-| [上下文管理](CONTEXT.md) | 提示词顺序、历史重建、预算、压缩、附件和实际限制 |
-| [记忆架构](MEMORY.md) | 分层、持久化、FTS5、记忆写入、整理、同步与一致性 |
-| [工具与交互接口](INTERFACES.md) | 模型工具、身体接口、网关、控制台、飞书、MCP / TUI 状态与权限 |
-| [基线与验证](BASELINE.md) | 检查版本、执行过的检查、文档差异、未实现能力与未验证范围 |
+| [目的与原则](../PRINCIPLES.md) | 为什么做、长期价值、容错和工程取舍 |
+| [设计与实现总览](ADAPTIVE_MEMORY.md) | 当前数据结构、数据流、开关、纠正及多身体边界 |
+| [交付与 backlog](ADAPTIVE_MEMORY_RELEASE.md) | 本次交付了什么、哪些证据成立、哪些尚未验证 |
+| [行为契约](ADAPTIVE_MEMORY_CONTRACT.md) | 目标行为；不是所有条目已经完整通过 |
+| [语义协议](ADAPTIVE_MEMORY_SEMANTICS.md) | 认识、引用、证据计算、局部读取与修订 |
+| [发布与恢复协议](ADAPTIVE_MEMORY_STORAGE.md) | SQLite / 文件 / Git 的职责、任务与恢复 |
+| [验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md) / [评测登记](ADAPTIVE_MEMORY_EVAL.md) | 合成轨迹、正式评分与证据要求 |
 
-这些文档相对于仓库根目录引用源码。基线提交与检查环境统一记录在 [BASELINE.md](BASELINE.md)，源码更新后应重新核对相关结论；[BASELINE.md](BASELINE.md) 保留初始快照，最新提取状态见 [EXTRACTION.md](EXTRACTION.md)。
+## 现有执行与旧记忆专题
+
+| 文档 | 范围 |
+|---|---|
+| [engine 模块](../../engine/docs/README.md) / [模块地图](MODULE_MAP.md) | 独立引擎边界与宿主调用链 |
+| [执行与调度](EXECUTION.md) | 对话、醒来、做梦、并发、子 agent、停止 |
+| [动态上下文](DYNAMIC_CONTEXT.md) / [上下文管理](CONTEXT.md) | 模型窗口、预算、摘要、工具节选、回查与来源核对 |
+| [记忆分层](MEMORY.md) | 身份、文件、原文与旧检索路径；新图另见上表 |
+| [结构化记忆](STRUCTURED_MEMORY.md) / [PRIME 内核](PRIME_CORE.md) | 原有记录、资格、确认、学习与演化；新记忆启用时的写入限制另述 |
+| [MCP](MCP.md) / [交互接口](INTERFACES.md) | 工具来源与客户端，权限和生命周期 |
+| [受限研究运行器](RESEARCH_RUNNER.md) | 独立环境、运行轨迹与评分；不是生产记忆研究器 |
+
+## 计划、决策与历史证据
+
+| 文档 | 如何使用 |
+|---|---|
+| [M0–M5 计划](ADAPTIVE_MEMORY_PLAN.md) | 已批准的目标及范围变更；当前交付以后置 backlog 覆盖旧 M5 前置条件 |
+| [阶段记录](ADAPTIVE_MEMORY_PROGRESS.md) | 按日期保留执行、失败、复跑和推送证据；旧段落中的“待完成”不是现行状态 |
+| [第一性原理复审](ADAPTIVE_MEMORY_FIRST_PRINCIPLES_REVIEW.md) | 多轮模型讨论、代码核对和未决方向；讨论不等于测试 |
+| [组件实验](ADAPTIVE_MEMORY_COMPONENTS.md) | 开源版本、探针、选择理由与局限 |
+| [引擎设计](DESIGN.md) / [路线图](ROADMAP.md) / [适配计划](ADAPTERS_PLAN.md) | 早期拆分和适配设计，按各文档日期解读；当前接口以源码 / API 为准 |
+| [初始基线](BASELINE.md) / [提取验证](EXTRACTION.md) / [策略提取](CONTEXT_EXTRACTION.md) / [后续验证](FOLLOWUP.md) | 历史验证快照，不能据旧缺项判定当前功能不存在 |
+| [上下文与 PRIME 交付](MEMORY_REPLACEMENT.md) | 新自适应记忆之前的接线与验证记录，保留历史，不是全项目最新状态 |
 
 ## 维护约定
 
-1. 行为结论同时给出源码路径与函数 / 常数；测试存在、测试本轮通过、真实部署验证是不同证据。
-2. 修改执行、上下文、记忆、工具或模型层时，同步更新对应主题文档与验证记录；全局架构保持概览，`runtime/docs/ARCHITECTURE.md` 保持文件地图。
-3. 后续方案另写带状态的设计文档；需要改变接口或数据契约时记录决策、迁移与回滚，不能把未实现方案混入现状。
-4. 灵魂目录格式与同步契约仍以 [灵魂仓库规范](../SOUL_REPO_SPEC.md) 为准；本目录不另定义一种格式。
-5. 只记录通用实现与合成示例，不收录真实人格、记忆、凭据、设备标识或运行数据。运行数据属于仓库外的 `QUETZAL_HOME`。
-
-相关总览：[全局架构](../ARCHITECTURE.md)、[API](../API.md)、[运行时模块地图](../../runtime/docs/ARCHITECTURE.md)、[灵魂同步](../SOUL_SYNC.md)、[分布式设计](../DISTRIBUTED.md)。
+1. 总览负责设计和导航，协议文档负责精确行为，阶段记录负责实验；同一条修复不重复追加到每份 README。
+2. 源码路径、配置默认值、接口形状应核对实际实现。来源 / 版本正确不等于自然语言正确，测试存在不等于本轮通过。
+3. 修改执行、上下文、记忆、工具或模型层时维护对应主题及全局接口；灵魂格式只由[仓库规范](../SOUL_REPO_SPEC.md)定义。
+4. 原失败、未执行和未审核保留；新方案、未来目标、当前实现和历史证据必须明确区分。
+5. 仅用架构描述和合成案例。私人材料、凭据与运行数据不进入公开仓库。

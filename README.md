@@ -39,11 +39,12 @@ Quetzal 是一个开源的 agent 运行基座（runtime）。它让一个 AI age
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/zh-soul.dark.svg"><img src="docs/assets/readme/type/zh-soul.light.svg" alt="ta 记得你。"></picture>
 
-你随口提过的事、在意的人，ta 都记下来，存在只属于你的私有仓库里。换手机、换模型，ta 还是 ta。
+Quetzal 帮助 ta 保留和回查你谈过的事、在意的人，让理解能随使用积累与修正。记忆可能有遗漏或误解；换设备、换模型时，身份与已保存的记忆仍由你自己的数据承载。
 
 - ta 的名字、人格、记忆、日记存在你自己的私有 git「灵魂仓库」。原有 Markdown 认识保留，新认识在 `notes/QuetzalMemory/` 按来源、状态和版本记录，也能直接读到。
-- 每一次改动都是一次 git 提交，自动推送、合并到每一具身体。记错了，在 App 的「记忆历史」里撤销那一次提交。
-- 对话和持续行动的每一步，ta 按当前目标、约束与适用条件选择记忆，并按候选模型的窗口重建上下文；较早内容可摘要，原对话和行动证据可回查。新认识先保留来源与候选状态，个人事实和明确偏好需确认；做梦与后台学习可提炼经验，缺独立结果的建议不会自动当作已验证策略。
+- 灵魂文件的改动自动形成 git 历史，并推送、合并到其他身体；对话原文和任务另由本机数据库与消息复制保存。记错了，在 App 的「记忆历史」里撤销那一次提交。
+- 对话和持续行动按当前任务与适用条件选择记忆，按模型窗口重建上下文；较早内容可摘要，原对话和行动证据可回查。
+- 当前分支的自适应记忆支持多主题、指代候选、带来源的认识与后续修订；它默认关闭，开启后统一接管对话事实整理。旧结构化记忆与 PRIME 在关闭新记忆时沿原规则工作。来源存在和版本有效不等于内容已经核实，详见[当前记忆设计](docs/engine/ADAPTIVE_MEMORY.md)。
 
 [灵魂同步](docs/SOUL_SYNC.md) · [灵魂仓库规范](docs/SOUL_REPO_SPEC.md) · [动态上下文](docs/engine/DYNAMIC_CONTEXT.md) · [结构化记忆](docs/engine/STRUCTURED_MEMORY.md)
 
@@ -154,15 +155,9 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 | [`website/`](website/docs/README.md) | 官网与文档站 |
 | [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) · [分布式](docs/DISTRIBUTED.md) · [一键上手](docs/ONBOARDING.md) · [论文研究工作区](docs/research/README.md) · [Personal Agent 综述笔记](docs/RESEARCH_PERSONAL_AGENT.md) · [更新日志](CHANGELOG.md) |
 
-开发中：[自适应记忆 M0–M5 计划](docs/engine/ADAPTIVE_MEMORY_PLAN.md)记录跨会话关联、指代歧义、多步推理与持续修正的目标、行为契约和本机多身体验收；[阶段验证记录](docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)区分已验证工作与尚未实现能力。每个里程碑验收通过并成功推送工作分支后，才进入下一阶段；阶段内可只做本地提交。
+开发者建议从[文档导航](docs/README.md)和[目的、原则与取舍](docs/PRINCIPLES.md)开始，再阅读各模块架构。自适应记忆的现行机制见[实现总览](docs/engine/ADAPTIVE_MEMORY.md)，状态与未完成项统一见[试用版交付与 backlog](docs/engine/ADAPTIVE_MEMORY_RELEASE.md)。M0–M4 的原型证据、原 M5 计划、正式评测失败和讨论过程均保留在[专题索引](docs/engine/README.md)，不把历史阶段描述作为当前状态。
 
-M1 与 M2 代表性原型已验收并推送；[版本化认识与证据依赖库](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)及[组件与模型接线](docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)已通过相应阶段检查。M3 的主动关联、多步推理与纵向修正原型已验收，后台研究默认关闭；阶段推送以验证记录为准。M4 已提供控制台「记忆 → 核心 → 对话记忆」入口，可查看来源、处理状态并提交补充纠正；本机恢复、半年代理试用、有界整合及真实纠正回归已通过M4工程验收，阶段推送结果见验证记录；真人试用、反馈及人工测试在 M0–M5 完成并推送后另行开展，不是当前 GOAL 门槛。全量语义质量与规模验证保留至 M5。M5新增五臂开发对照的输入与观察点已在[评测登记](docs/engine/ADAPTIVE_MEMORY_EVAL.md)固定，结果与工程性能分别判定。
-
-M5已将常用记忆读取的全库核查移到自动后台巡检，正常查询仍核对当前来源与版本；向量worker已按摘要增量维护并保留在途文档进度；宿主候选遍历、向量查询规模和冷启动 / 同步后的恢复成本继续验证。机制见[认识协议](docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#5-权威文件与重建)，实测与未完成边界以阶段记录为准。
-
-M5五臂开发对照已结束并完成全轨迹核读；存在旧排期复发、工具材料膨胀及最后答复失败，不能据单例选定架构。回查已移除重复宿主凭据，来源核查保留；六组隔离提案诊断未证明通用关系提示能解决适用范围遗漏，未部署该提示。当前代码、五轮Gemini 4开放讨论及后续证据见[第一性原理复审](docs/engine/ADAPTIVE_MEMORY_FIRST_PRINCIPLES_REVIEW.md)与[阶段记录](docs/engine/ADAPTIVE_MEMORY_PROGRESS.md)。需求方已确认固定150序列的新轨迹评分；v2已冻结并完成十族各一条完整序列的核读，9条合格、1条语义不合格，另1条磁盘中断、139条未执行。原失败留在分母，本批不能放行；这不是总体准确率估计。剩余质量、规模、模型对照及最终工程回归仍属M5。
-
-当前验收按需求方确认的容错方向，关注有用性、错误是否自我强化及后续修正，不要求每次语义理解零错误；95%是待验证的质量方向，非已有成绩。具体阶段判定见上述计划。
+当前交付为工作分支上的可运行试用版，完整语义质量、规模与真人体验尚未验收；不是已证明 95% 准确率的正式发布。官网安装与下载指向已发布版本，不一定包含本分支功能。
 
 <br/>
 

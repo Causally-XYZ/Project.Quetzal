@@ -2,9 +2,9 @@
 
 > 2026-10-29最新范围：需求方要求先交付完整可运行版本，未完成及轻微不达标项转backlog。本次收尾以[试用版交付范围](ADAPTIVE_MEMORY_RELEASE.md)为准，原M5正式质量 / 规模门槛保留为后续验收，不再阻塞本次交付；旧失败不改判。
 
-状态：M0 / M1 已完成，M1 验收提交已推送并核对远端，M2 原型验收通过并已推送核对 `17f8aa1`，M3 主动关联、多步推理与纵向修正原型验收通过，已推送并核对 `b911fcb`；M4 本机工程及代理试用验收通过，半年轨迹尾3失败任务已正常恢复，有界整合及纠正回归通过，已推送并核对验收提交`aa5a332`及回执`4f8232d`后放行；真人测试不属于本 GOAL，M5已开始规模诊断与组件对照设计，尚未验收。后台整合与研究仍默认关闭，全量语义评分移至 M5。建立日期：2026-10-27。实际完成情况只以[阶段验证记录](ADAPTIVE_MEMORY_PROGRESS.md)为准；M2 的[组件契约实验与模型连接](ADAPTIVE_MEMORY_COMPONENTS.md)单独记录。
+状态：M0 / M1 已完成，M1 验收提交已推送并核对远端，M2 原型验收通过并已推送核对 `17f8aa1`，M3 主动关联、多步推理与纵向修正原型验收通过，已推送并核对 `b911fcb`；M4 本机工程及代理试用验收通过，半年轨迹尾3失败任务已正常恢复，有界整合及纠正回归通过，已推送并核对验收提交`aa5a332`及回执`4f8232d`后放行；真人测试已后置；M5 原正式质量 / 规模验收未通过，2026-10-29 按最新范围完成可运行试用版交付，余项转 backlog。后台整合与研究仍默认关闭，全量语义评分移至 M5。建立日期：2026-10-27。实际完成情况只以[阶段验证记录](ADAPTIVE_MEMORY_PROGRESS.md)为准；M2 的[组件契约实验与模型连接](ADAPTIVE_MEMORY_COMPONENTS.md)单独记录。
 
-本计划扩展 Quetzal 的记忆能力，不替代现有执行引擎。现状见[结构化记忆](STRUCTURED_MEMORY.md)、[全局架构](../ARCHITECTURE.md)与[灵魂仓库规范](../SOUL_REPO_SPEC.md)。行为定义见[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)，逐步输入与判定见[验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md)。
+本计划扩展 Quetzal 的记忆能力，不替代现有执行引擎。现状见[自适应记忆总览](ADAPTIVE_MEMORY.md)与[旧结构化记忆](STRUCTURED_MEMORY.md)、[全局架构](../ARCHITECTURE.md)与[灵魂仓库规范](../SOUL_REPO_SPEC.md)。行为定义见[行为契约](ADAPTIVE_MEMORY_CONTRACT.md)，逐步输入与判定见[验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md)。
 
 ## 1. 目标与已确认的取舍
 

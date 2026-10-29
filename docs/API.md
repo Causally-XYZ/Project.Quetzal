@@ -246,9 +246,9 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 **记忆**
 
-跨会话自适应记忆按[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)与[M0–M5 计划](engine/ADAPTIVE_MEMORY_PLAN.md)推进。M1 已接入默认关闭的来源处理骨架，不能视为完整语义记忆功能；工程验收与后续边界见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。以下新 RPC 为认证管理者接口，不暴露为 agent 工具，不改变个人确认门禁。
+自适应记忆的[实现总览](engine/ADAPTIVE_MEMORY.md)说明开关与数据流，[行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md)定义目标，[交付说明](engine/ADAPTIVE_MEMORY_RELEASE.md)限定验证范围。以下管理 RPC 不自动成为 agent 工具；身体间查询另受 mesh 权限约束。
 
-M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接入受控后台。现有网络 query 协议不变：semantic=false 返回 M1 来源观察，semantic=true 仍返回 unavailable，不在 version 1 中混入图记录。queryAdaptiveSemantic 通过本机入口或新的 memory.adaptive.semantic.query 正式身体 RPC 读取当前 supported 陈述及 ambiguous 提及，带认识版本、语境、性质、时间与来源；最多6项，模型准备前后核查。接收身体核对本机认识版本与原文快照，冲突或来源未复制 / 已删除时返回空 unavailable。新方法不改变 M1 packet，也不新增配置或灵魂格式；传输工程测试通过不等于多身体完整语义验收。
+`memory.adaptive.query` 保持原文观察的 v1 协议，在 semantic=true 时不混入图记录。语义认识通过独立 `memory.adaptive.semantic.query` 读取。接收身体核对本机来源和已知认识版本，冲突、来源未复制或不可见时返回 unavailable；这不是所问事实为假。后台使用控制台配置的模型，ADC 仅属于显式开发评测接线。
 
 语义查询信封现发送 version 3；新版接收器仍接受 version 1 / 2。version 1 不带 references，version 1 / 2 不接受 conditional。version 3 可返回保留非空假设的 inferred / hypothesis 条件性认识，仅作读取材料，不进入共同支持闭包或成为下游事实依据。claim 可带 references，每项含 role、mention、引用对象的 realm 与 object（id / revision / name）；对象指向不是事实前提，仍核对全部依赖及来源版本。旧版本查询失败时空降级，不删字段冒充兼容。M1 原文 packet 仍为 version 1。内部存档保持 result-v2 / semantic-v2 并兼容旧记录，详见语义与发布协议；灵魂规范的 Markdown 路径不变。
 
@@ -260,21 +260,7 @@ M2 内部[认识版本与依据库](engine/ADAPTIVE_MEMORY_SEMANTICS.md)已接�
 
 已记录消息来源在模型返回后及正常对话最终落盘前再次核对。来源变化时，原模型答复不成为持久最终回答；沿用现有 text 事件说明正在重新核对；正常 converse 自动尝试一次只读恢复，成功后 done 为新答复，再失败则明确说明。恢复至多三轮主模型请求并共享30秒取消信号（路由故障转移 / 摘要另计，同步代码不被抢占），只允许 recall / note_read / memory_records / context_read，执行端同样强制限制；不新增 RPC、不自动重放写操作。无凭据旧路径不冒充已核查，未收到的远端修订和无消息出处材料仍不在保证范围。
 
-认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。中心自动准备并核验本机嵌入组件后，可在灵魂锁外等待至多100ms取得近邻，随后核对本次问题和当前候选摘要再融合；缺组件 / 超时保留同门禁词面路径。整次读取仍受500ms截止约束，不新增查询参数或语义信封字段。status.adaptiveMemory.retrieval 新增组件状态：inactive / unavailable / attached / preparing 或 loading / ready / failed / closed；准备阶段可带 preparation（phase / file / bytes / total）、固定错误码 error 与 retryAt；受管 worker 另含 failure（component / cache / worker 或 null）、current、snapshot、indexed、pending、reused、computed、errors、retrying、blocked、cacheRecovered。分页索引另含epoch / seq / scanComplete及宿主hostCurrent / hostPageLimit / hostError：snapshot为最后已确认批次的摘要，不再是全库正文摘要。current表示已完成扫描且宿主已确认已知变更与依赖传播，无待确认批次；pending=0才表示清单中的候选全部嵌入完成。hostError为索引页生成或确认的固定错误码，hostPageLimit表示当前有界页量；候选页生成超时可自动缩页重试，确认阶段超时重发原批，不推进失败页。上述水位均非语义质量、远端未到达数据或所有原始历史覆盖证明。安装与模型续传在中心后台执行；准备期间仍可词面读取。retrying 是暂时失败等待重试的候选数，blocked 是超过分块限额等不可自动重试的候选数，pending 包含二者；cacheRecovered 只表示派生库损坏后已重建，不是灵魂恢复证明。真实多身体向量与跨平台部署仍待验收。
-
-内部 archive 重建入口同样未开放 RPC；备份检查点、恢复状态和错误展示待宿主 / 控制台接线，不将库测试当作已可供用户操作的恢复功能。
-
-开发提案工具也不属于 RPC / agent 工具。真实模型输出只经过内部 normalizeProposal→Archive.accept，不能直接调用管理接口或自行获得 verified；模型语义质量与生产接线仍待验收。
-
-TypeScript ADC 开发传输回执补充成功 / 失败 / 取消终态与阶段计时，响应头前等待不能进一步判定网络或服务端原因；只保存固定分类与数值，不记录端点、认证值、响应头或原始错误。这是仓库外评测证据，不是产品 RPC；现有模型时限、路由、队列重试及控制台配置未变。
-
-公开双身体运行器可显式 `--thinking=low` 对照主力模型的思考强度；设置写入隔离身体的正常模型配置，经正式适配器出站；ADC 不改正文，只登记实际等级。计划、逐次调用和传输回执均保留差异，正式证据轨迹仍拒绝该开发选项。缺省行为不变，不能将实验结果混入默认配置成绩，详见[开发工具](../runtime/tool/adaptive-eval/README.md#公开多身体开发试跑)。
-
-正式评测的 plan / code / receipt 文件为仓库外工具协议，不增加产品 RPC。formal 入口核对干净提交、完整配置与代码字节；每条轨迹使用独立身体，实际请求与来源证据导出到未审核回执。五类材料齐全及工程完成不表示语义通过，reviews 默认空；独立审核另存摘要绑定的只增修订与显式选择清单，不改原回执。导包和评分从原轨迹重新核对证据；仅 --reviews 选中的版本参与评分，纯模型自评不计通过，审核者身份由受信操作方声明而非模型自报。只读评分拒绝配置不完整的草稿计划，详见[工具说明](../runtime/tool/adaptive-eval/README.md#严格计划与实际证据入口)。
-
-ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 urllib / curl 对照；不是服务配置或 RPC 参数，不改变生产 TypeScript 模型路由。实际传输、失败阶段及未知用量在独立评测报告中保存。
-
-内部 `reviewNext` 复用现有队列执行来源修订 / 依赖重评，由宿主注入模型、灵魂 exclusive 与启用 / 取消状态。提供同语境已有对象候选和定义，仍不按同名合并；旧引文须重新核对当前原文。semantic 开关显式开启后后台调用；无需修改的结果也核对完整输入快照后才记任务完成，不恢复失效依据。它不是模型可直接调用的工具。内部准入回调在领取前核对目标额度，生成回调附带目标 ID 以持久预扣；状态中的 reviewBudget 为 version 2，含 epoch / remaining / resumeAt / attempts。后台每五次调用冷却 60 秒后继续，同轮每目标五次、至多 1000 个目标；review-cooldown 是待到期续做，review-limit 是目标额度耗尽，都不表示认识已经修复。
+认识查询的 supported 还要求可见 / 全局共同支持链存在；各自用不同分支成立不能拼成共同证明。匹配使用当前正文、人物名和共同有效支持链的精确原文引文，不扩展整条消息或失效依据；返回仍是当前版本认识。额外索引遍历 / 字节数超限沿用 unavailable，不增加响应字段或模型调用。中心自动准备并核验本机嵌入组件后，可在灵魂锁外等待至多100ms取得近邻，随后核对本次问题和当前候选摘要再融合；缺组件 / 超时保留同门禁词面路径。整次读取仍受500ms截止约束，不新增查询参数或语义信封字段。status.adaptiveMemory.retrieval 新增组件状态：inactive / unavailable / attached / preparing 或 loading / ready / failed / closed；准备阶段可带 preparation（phase / file / bytes / total）、固定错误码 error 与 retryAt；受管 worker 另含 failure（component / cache / worker 或 null）、current、snapshot、indexed、pending、reused、computed、errors、retrying、blocked、cacheRecovered。分页索引另含epoch / seq / scanComplete及宿主hostCurrent / hostPageLimit / hostError：snapshot为最后已确认批次的摘要，不再是全库正文摘要。current表示已完成扫描且宿主已确认已知变更与依赖传播，无待确认批次；pending=0才表示清单中的候选全部嵌入完成。hostError为索引页生成或确认的固定错误码，hostPageLimit表示当前有界页量；候选页生成超时可自动缩页重试，确认阶段超时重发原批，不推进失败页。上述水位均非语义质量、远端未到达数据或所有原始历史覆盖证明。安装与模型续传在中心后台执行；准备期间仍可词面读取。retrying 是暂时失败等待重试的候选数，blocked 是超过分块限额等不可自动重试的候选数，pending 包含二者；cacheRecovered 只表示派生库损坏后已重建，不是灵魂恢复证明。已有本机多身体向量证据；完整跨平台冷安装和规模质量仍在交付 backlog。
 
 `context_read` / `recall` 的工具参数不变。有本机认识状态时，文本结果携带 generation、本机快照范围、源 hash 和相关认识的 revision / status / 片段位置；这不是新的 RPC packet 版本。`context_read` 的每页都带修订头，offset / limit 只计算原文字符；调用者不能把头部算入分页偏移。`recall` 同时覆盖前后邻句；不可访问来源不返回，已变动候选要求重新检索。仅关闭生成不清除这些工具对已知修订的核对；存档异常 / 等锁超时明确报错。没有来源的旧材料标记无法核对，完整 C07 和远端语义读取仍未验收。 默认模型历史也使用修订覆盖层；本机 `context.plan` 的派生摘要另保存可选 `adaptiveBasis`（来源 ID 与核查摘要值），无凭据或凭据变化时不继承。它不是同步协议或权威记忆格式。`session_compact` 在修订读取模式只存档手动摘要，后续按可用原文自动压缩。
 
@@ -291,7 +277,7 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 | 自适应记忆方法 | 参数与返回 | 当前边界 |
 |---|---|---|
 | `memory.adaptive.configure` | `{enabled: boolean, hostBody: string, semantic?: boolean, research?: boolean}` → 状态 | 固定主机为现有身体名；启用时不能为空。semantic / research 为默认关闭的后台整合 / 研究开关，省略则保留原值；配置经共享分区同步并审计，不自动迁移主机 |
-| `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic, integrity}` | integrity含`state: unchecked / ready / checking / changed / failed`与`checkedAt: number / null`（最近完整核查毫秒时间；ready不代表全网最新或语义正确）；semantic 含 enabled / state / research.enabled，中心另含语义队列、lastModel `{model,input,output,reasoning?,total?}` 、重评预算及 research `{enabled,queue,last}`；last 含私人研究问题、步骤与来源版本，仅按既有管理权限访问；reasoning 已包含于 output，total 为供应商报告，可选字段未报告则省略，lastModel 不是完整调用历史；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
+| `memory.adaptive.status` | — → `{enabled, hostBody, running, local, stopped, error, queue, semantic, integrity, retrieval}` | integrity含`state: unchecked / ready / checking / changed / failed`与`checkedAt: number / null`（最近完整核查毫秒时间；ready不代表全网最新或语义正确）；semantic 含 enabled / state / research.enabled，中心另含语义队列、lastModel `{model,input,output,reasoning?,total?}` 、重评预算及 research `{enabled,queue,last}`；last 含私人研究问题、步骤与来源版本，仅按既有管理权限访问；reasoning 已包含于 output，total 为供应商报告，可选字段未报告则省略，lastModel 不是完整调用历史；本机宿主生命周期与队列；卫星的 queue 为 null，不能据此推断中心健康；`status.adaptiveMemory` 也返回该视图 |
 | `memory.adaptive.query` | `{query: string}`（最多 8000 字符）→ `MemoryPacket` | 经正式身体的认证网状通道转给中心，网络读取 500ms 截止；故障降级为空材料，不触发学习或通知 |
 | `memory.adaptive.semantic.query` | 网关 `{query: string}` → `SemanticMemoryReading`；mesh 另带 agent、使用 v3 信封 | semantic 试验启用后读取指定主机；正式身体认证，只读灵魂桥不可调用。含认识与来源版本摘要，网络及本机核查共享500ms截止；不缓存上次 ready，来源冲突 / 缺失或协议不兼容则空降级 |
 | `memory.adaptive.source` | `{id: 正整数, hash: 64位十六进制来源摘要}` → `{status: ready / changed / unavailable, freshness?, source?, reading?}` | 仅管理网关回查本机已复制来源；原文与已知修订取同一快照，校验当前 agent 的来源摘要。changed / unavailable 不返回正文；忽略、非对话来源及急停不可读。ready 的 source 含 id / session / role / recordedAt / text / truncated，正文脱敏并最多16000字符；reading 包含当前已知修订，freshness 为 local-snapshot，不保证中心最新，也不重写历史原话 |
@@ -306,13 +292,13 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 语义 mesh 方法使用独立信封（当前version 3）：`{version:3, queryHash, generatedAt, agent, host, status, freshness, generation, items, matched, basis}`。queryHash 为本次查询的 JSON SHA-256；信封校验请求、指定身份、时间范围和全部字段，未知字段拒绝。basis.records 为实际输出及其依赖当前版本的 `{id,revision,hash}`，basis.sources 为这些记录直接来源的 `{id,hash|null}`；只含版本摘要，不传整图正文。两者各至多1000项，信封最多512 KiB。网关返回去掉 version / queryHash / generatedAt 的读取视图，不把传输时间纳入上下文缓存比较。
 
-语义查询内部增加一次有界同源候选扩展：来源共现只提名，所有候选仍核对当前正文 / 依据，可能返回无直接词面重合的相关记录。信封保持v3，条目形状、请求参数和来源权限不变；具体预算见架构文档。
+语义查询内部增加一次有界同源候选扩展：来源共现只提名，所有候选仍核对当前正文 / 依据，可能返回无直接词面重合的相关记录。信封保持v3，条目形状、请求参数和来源权限不变；具体预算见[语义协议](engine/ADAPTIVE_MEMORY_SEMANTICS.md)。
 
 matched 为本次有界检索检查到的有效候选数，不是全库穷举数量。接收身体先核对本机权威存档：本机整体代次较新、结果依赖版本落后或同版摘要冲突时拒绝整包；只点读返回basis中的记录，不比较无关正文。主机可读来源必须已在本机复制且 hash 一致；本机编辑、忽略或删除不会因远端 ready 恢复。主机较新版本可以读取，但只代表主机已知快照。协议依赖原有同 agent 正式身体互信，结构 / 摘要检查不是语义真值证明，也不是不信任主机情况下的完整性证明。旧身体没有新方法时正常降级。
 
 `queue.publications` 为 `{pending, written, published, failed}` 计数：依次表示待写文件、文件已落盘但未确认 Git、已确认本地 HEAD、交付失败。published 不代表远端同步或语义确认，任务 done 也不等于交付完成。具体[发布协议](engine/ADAPTIVE_MEMORY_STORAGE.md)与普通来源回执分别解释；当前没有发布重试管理 RPC。
 
-`MemoryPacket` v1 为 `{version: 1, agent, host, generatedAt, status: ready/disabled/unavailable/stopped, freshness: local-snapshot/unknown, observations}`。ready 只代表中心局部可用，不表示所有身体同步完毕。候选截断前只取当前来源版本已有处理回执的材料，避免增量积压挤掉旧材料。最多 6 条 observation：`{id, revision, hash, session, role, channel, text, ts, body, via}`；正文经秘密脱敏后最多 1200 字符，hash 对应完整来源快照，revision 是中心本机来源修订。记录只证明历史发言，不确认正文为事实。错误 agent、主机、版本或形状均降级，不透传额外字段；返回前剔除本机已知 ignored 或 hash 不同的来源，中心尚未同步时也不能绕过。消息 mode 的持久版本与来源 revision 分开，清空标记同样保留；参与身体需升级才能完整补齐旧来源状态。当前尚无 Mention、Claim、Support 或推理结果。同步 SQLite 查询不能被 JavaScript 计时器抢占，500ms 不作为磁盘阻塞时的进程实时性保证。
+`MemoryPacket` v1 为 `{version: 1, agent, host, generatedAt, status: ready/disabled/unavailable/stopped, freshness: local-snapshot/unknown, observations}`。ready 只代表中心局部可用，不表示所有身体同步完毕。候选截断前只取当前来源版本已有处理回执的材料，避免增量积压挤掉旧材料。最多 6 条 observation：`{id, revision, hash, session, role, channel, text, ts, body, via}`；正文经秘密脱敏后最多 1200 字符，hash 对应完整来源快照，revision 是中心本机来源修订。记录只证明历史发言，不确认正文为事实。错误 agent、主机、版本或形状均降级，不透传额外字段；返回前剔除本机已知 ignored 或 hash 不同的来源，中心尚未同步时也不能绕过。消息 mode 的持久版本与来源 revision 分开，清空标记同样保留；参与身体需升级才能完整补齐旧来源状态。此 v1 原文信封不承载 Mention、Claim、Support 或推理结果；语义认识使用独立查询信封。同步 SQLite 查询不能被 JavaScript 计时器抢占，500ms 不作为磁盘阻塞时的进程实时性保证。
 
 结构化版本键为 `id@version`。下列 dotted RPC 是认证管理者入口；个人确认和整体结果反馈不暴露为 agent 模型工具。模型侧 `memory_records` / `memory_evolve` 另按当前用户/会话/任务范围限制。
 
@@ -489,9 +475,9 @@ macOS 适配器提供：`sample()` 的电量 / 充电（`pmset -g batt`；「AC 
 | `heart.activity` / `baseRatePerHour` / `paused` | 1 / 4 / false | 活跃度、饱和醒来率、暂停 |
 | `budget.*` | 2,000,000 tokens / $5 / 15% / 45°C | 每日 token / 花费预算（多具身体时按全网合计）用尽后，自主醒来倍率乘以 0.05；不是模型调用的硬上限。最低电量与最高温度用于自主活动抑制和听觉状态判断 |
 | `channels.feishuHolder` | "" | 多具身体时持有飞书长连接的身体（全网共用）；空为这具身体自己连 |
-| `adaptiveMemory.enabled` / `adaptiveMemory.hostBody` | false / "" | M1 实验性来源处理开关和固定记忆身体，全网共用。启用后随 runtime 自动运行，无新增独立进程或环境变量；仍有未完成验收，控制台配置界面尚未提供 |
-| `adaptiveMemory.semantic` | false | 实验性后台整合 / 重评，仅固定主机执行，使用控制台供应商配置。开启后旧原文观察查询返回 unavailable；前台经独立语义查询取得当前认识，核查来源与版本后注入。普通历史与回查也附本机已知修订；覆盖限制见自适应记忆文档。控制台配置界面与完整验收尚未完成 |
-| `adaptiveMemory.research` | false | 实验性后台主动研究；需同时开启 semantic，仅固定中心在整合后空闲运行。复用持久任务，最多三次检索规划和一次提案、150秒单轮截止；关闭会取消在途研究，不新建通知或会话。状态在 `memory.adaptive.status.semantic.research`，控制台「对话记忆」已有开关，完整运行验收待 M4 |
+| `adaptiveMemory.enabled` / `adaptiveMemory.hostBody` | false / "" | 来源处理与事实写入归属开关、固定记忆身体，同 agent 共享。启用后随 runtime 自动运行，暂停旧模型 memory 写入及 PRIME 自动学习；控制台“对话记忆”页可配置，完整质量与规模边界见交付说明 |
+| `adaptiveMemory.semantic` | false | 实验性后台整合 / 重评，仅固定主机执行，使用控制台供应商配置。开启后旧原文观察查询返回 unavailable；前台经独立语义查询取得当前认识，核查来源与版本后注入。普通历史与回查也附本机已知修订；覆盖限制见自适应记忆文档。控制台“对话记忆”页可配置；完整质量和规模验收尚未完成 |
+| `adaptiveMemory.research` | false | 实验性后台主动研究；需同时开启 semantic，仅固定中心在整合后空闲运行。复用持久任务，最多三次检索规划和一次提案、150秒单轮截止；关闭会取消在途研究，不新建通知或会话。状态在 `memory.adaptive.status.semantic.research`，控制台「对话记忆」已有开关，本机 M4 运行证据已保留，完整质量 / 规模与真人体验见交付 backlog |
 | `sharedRev` | {} | 多具身体共用的设置分区最近一次被修改的时刻（基座维护，较新的修改在身体之间生效） |
 | `permissions.*` | `camera` / `microphone` / `location` / `hands` / `tool_write` 为 `review`，`mcp` / `mcp_start` 为 `ask`，其余 `allow` | 能力授权，四档：`allow` 允许、`review` 交给审核模型（ARCHITECTURE §8.0）、`ask` 每次询问（人工审批）、`deny` 禁止（类别含 `session`：会话与子 agent；`body`：跨身体操作；`tool_write`：造工具，写之后会被执行的代码；`deliverable`：生成文件，`deliverable_create` 只写进工作区或交付目录，覆盖已有文件另归 `destructive` 风险类别送审，ARCHITECTURE §5.8）。一个工具按它所属类别中最严的一个检查（`deny` > `ask` > `review` > `allow`）：自造工具 = 声明的类别 + `shell`，`tool_write` = `self_modify` + `tool_write`。**`shell`（执行命令）为 `allow` 时，其他类别的限制挡不住她**：命令能做设备工具、联网、改文件能做的一切（沙箱只藏起密钥目录等，见 ARCHITECTURE §8.1）。默认允许是产品上的取舍；`allow` 之下的风险类别（真实环境命令等）另由审核模型把关（`guard.sentinel.classes`）。`host_mode`（真实环境）属于 `shell`：`shell` 为 `deny` 时她连请求都发不出；不为 `deny` 时请求按 `guard.sentinel.hostMode` 交给审核模型或对方。旧配置里前五类为 `ask` 的，升级后第一次启动改为 `review`，审计里对方明确设为 `ask` 的保留 |
 | `guard.sentinel.enabled` | true | 安全审核开关。关掉时 `review` 档位退回人工审批，`allow` 之下的风险类别不再审核 |
@@ -509,7 +495,7 @@ macOS 适配器提供：`sample()` 的电量 / 充电（`pmset -g batt`；「AC 
 | `brain.memorySemantic` | true | 每步使用有界 quick 模型选择合格记忆；失败/超时/预算不足时退回词面门禁检索，关闭后直接词面选择 |
 | `brain.memorySelectionTokens` | 256 | 选择模型输出预算，范围128–2400；推理模型可能在低预算时无JSON正文并退回词面检索 |
 | `brain.memorySelectionTimeoutMs` | 5000 | 语义选择硬等待预算，范围100–60000毫秒；慢quick模型可调高，超时退回词面选择 |
-| `brain.memoryLearning` | true | 轮次收尾及做梦的后台 PRIME 学习/演化；关闭不删除已有记忆，也不把候选变为事实 |
+| `brain.memoryLearning` | true | 原有轮次收尾及做梦的 PRIME 学习 / 演化；adaptiveMemory.enabled 开启时暂停此旧学习路径，即使本项为 true。关闭不删除已有记忆，也不把候选变为事实 |
 | `brain.memoryLearningTokens` | 1200 | 后台学习请求输出上限，配置范围128–4096；学习器另有自己的预算与上限 |
 | `brain.memoryLearningTimeoutMs` | 15000 | 轮次后台学习有界等待，配置范围100–60000毫秒；默认不是前台对话绝对超时 |
 | `feishu.*` | — | 飞书（Secret 在 `secrets/`） |

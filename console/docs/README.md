@@ -1,5 +1,7 @@
 # console · 控制台（安卓 App、网页版与桌面版）
 
+> 全项目入口见[文档导航](../../docs/README.md)与[目的、原则](../../docs/PRINCIPLES.md)。控制台呈现宿主状态，不在客户端另建记忆真相源；保存原话、后台理解、发布与同步是不同状态，当前记忆范围见[实现总览](../../docs/engine/ADAPTIVE_MEMORY.md)。
+
 Flutter（Material 3，深色为主），一份代码四种形态：**安卓 App**（应用 ID `xyz.quetzal.console`，应用名「Quetzal」；只装这一个 App：运行基座与它的运行环境都在里面，App 也是身体与耳朵）、**网页版**（`flutter build web`，由运行基座的网关托管，在电脑浏览器里打开 `http://127.0.0.1:7788/`，随 npm 包 `@plutokeating/quetzal` 一起装到 Linux 机器上）、**Linux 桌面版**（`flutter build linux`，原生 GTK 窗口，应用 id 同为 `xyz.quetzal.console`，可执行文件 `quetzal-console`；发版时打成 `quetzal-<版本>-linux-{x64,arm64}-console.tar.gz`（x64 与 arm64 两个 CI job；LoongArch 上游 Flutter 不支持），一键安装脚本在有桌面的机器上下载到 `~/.quetzal/console/`，应用列表、任务栏、Alt-Tab 都是 Quetzal 自己的图标，不借浏览器）与 **Windows 桌面版**（`flutter build windows`，可执行文件 `quetzal-console.exe`，窗口标题 Quetzal；发版时打成 `quetzal-<版本>-windows-{x64,arm64}-console.zip`，安装器解到 `%LOCALAPPDATA%\Quetzal\console\<版本>\`，`console\current.txt` 指向当前版本，见 [Windows 拍板记录 4.1](../../docs/WINDOWS_DECISIONS.md)）。网页版只是管理前端；桌面版还是这台电脑的耳朵与播放器（Windows 上托盘进程另看护身体助手）。连本机网关都免配对码：桌面版直接读家目录里的网关令牌，网页版问 `POST /auth/local`。外壳按窗口宽度选：窄屏是手机外壳（底部 Tab + 逐页推入），宽屏（≥ 900）是为电脑横屏从头设计的桌面外壳（导航栏 · 列表栏 · 主区 · 她此刻），见 [ARCHITECTURE.md §2](ARCHITECTURE.md)。不绑定任何具体 agent：名字与主题色来自当前连接的 agent 的身份数据；可保存多个 agent 连接并一键切换。
 
 ## 定位
@@ -28,7 +30,7 @@ tool/build-windows.ps1        # Windows 桌面版 → build/quetzal-<版本>-win
 
 桌面版运行时用到、但不是构建依赖的系统组件：Mermaid 图在 Linux 上按需加载 WebKitGTK（`libwebkit2gtk-4.1`，没有就退回 4.0；都没有时请运行基座画），Windows 上用 WebView2 运行时（Windows 11 自带，Windows 10 多数随 Edge 装好）；耳朵在 Linux 上用 `parec`、`pw-record` 或 `arecord` 之一录音，`pw-play`、`paplay`、`ffplay` 或 `mpv` 之一播放（与运行基座的 Linux 适配器相同的候选），Windows 上用系统自带的 Media Foundation 与 winmm。
 
-网页版由 `../cli/tool/bundle-runtime.sh` 调用上面的脚本并复制进 npm 包的 `dist/runtime/web/`，安装器再放到 `~/.quetzal/current/web/`，网关托管。Flutter 不在 PATH 里时 `FLUTTER=<路径> tool/build-web.sh`。本机调试：`flutter run -d chrome` 连一个运行中的网关也能免配对码（网关对本机其他端口的页面也放行）。
+网页版由 `../cli/tool/bundle-runtime.sh` 调用上面的脚本并复制进 npm 包的 `dist/runtime/web/`，安装器再放到 `~/.quetzal/current/web/`，网关托管。Flutter 不在 PATH 里时 `FLUTTER=<路径> tool/build-web.sh`。本机调试：`flutter run -d chrome` 的页面若与网关不同源，须在网关启动环境的 `QUETZAL_DEV_ORIGINS` 中明确列出实际 Origin（逗号分隔），才能使用开发源的本机认证；不会自动放行本机任意端口。直接由网关托管的网页版沿原同源流程登录。
 
 **中文字体**：CanvasKit 用不了系统字体，缺字时会去 Google 下载 Noto，离线或在中国大陆会变成方块；所以网页版启动时从网关加载自带的子集 `web/fonts/NotoSansCJKsc-subset.otf`（约 3 MB，GB2312 全部汉字 + 常用符号，OFL，由 `tool/gen-cjk-font.py` 从系统的 Noto Sans CJK 生成），只在网页版加载，APK 不含。
 
@@ -68,6 +70,6 @@ GitHub Release（`.github/workflows/release.yml`，推送 `v<版本>` 标签触�
 
 「记忆 → 核心 → 对话记忆」供桌面与窄屏共用：选择已有处理身体，切换使用记忆、整理修正、空闲研究；查询已有认识并回看原话与本机已知修订，或用自然语言补充纠正。保存只确认原话已入库，后台理解与跨身体同步另行完成。陈述与推测分开标记，有来源不代表已经核实；卫星不会把本机空队列显示为中心已完成。
 
-页面调用现有配置 / 查询 / editMemory 接口及新增只读来源接口，不新增模型调用、包、环境变量或部署服务。切换连接、身份或断线会清除旧视图，迟到的查询不会覆盖新查询。来源正文是历史记录，纠正显示在其后，不在旧文档中另造事实副本。M4 尚未整体验收，具体范围见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#6-m4试用与运维)。
+页面调用现有配置 / 查询 / editMemory 接口及新增只读来源接口，不新增模型调用、包、环境变量或部署服务。切换连接、身份或断线会清除旧视图，迟到的查询不会覆盖新查询。来源正文是历史记录，纠正显示在其后，不在旧文档中另造事实副本。M4 本机桌面 / 窄屏与代理试用已有证据，最新交付及未验证范围见[试用版](../../docs/engine/ADAPTIVE_MEMORY_RELEASE.md)，历史细节见[阶段记录](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#6-m4试用与运维)。
 
 对话记忆页新增「记忆备份」：创建所连接身体的本机备份、查看文件夹和核查完整性；卫星提示连接记忆中心。明确本机已有数据范围、另存的重要性、配置 / 密钥不在备份内、恢复使用目标设备上的 `quetzal restore` 命令，图形导入入口尚未提供。列表只读清单不标成已校验。无新依赖、环境变量或构建入口。

@@ -1,5 +1,7 @@
 # cli · 安装、运维与终端对话
 
+> 全项目阅读路径见[文档导航](../../docs/README.md)。公开安装命令取得已发布包，不保证含工作分支的自适应记忆；当前构建试用见[交付说明](../../docs/engine/ADAPTIVE_MEMORY_RELEASE.md)。程序回滚、记忆备份和新身体恢复是不同操作，不应互相替代。
+
 把运行基座装到一台 Linux 机器（或 Mac，见下文「macOS」）上有两层：使用者看到的是一行 `curl -fsSL https://quetzal.plutokeating.beer/install | bash`（本目录的 `install.sh`，见下文），它补齐依赖、注册守护、写桌面快捷方式，内部调用的是 npm 包 `npx @plutokeating/quetzal`。与 Quetzal App 的安装器（Android）对应：App 把内置的运行基座装进 Termux 交给 runit，这个包把内置的运行基座装进 `~/.quetzal` 交给 systemd 用户服务。版本目录、配置、健康检查与回滚的约定完全相同，所以同一套文档与控制台都适用。包里还带着**网页控制台**（控制台的 Flutter Web 构建），随运行基座放进版本目录，由网关托管，装完在浏览器里打开。
 
 TypeScript / Node.js 22.13+（内置 `node:sqlite` 不再需要标志），零运行时依赖：包里只有打包好的 `dist/quetzal.mjs`（命令行）与 `dist/runtime/`（运行基座 `main.cjs`、Linux 身体适配器 `linux.mjs`、macOS 身体适配器 `macos.mjs` 与命令沙箱库 `srt.mjs`、`VERSION`、网页控制台 `web/`，约 25 MB）。`package.json` 声明 `os: ["linux", "darwin", "win32"]`：macOS 上与 Linux 同一套命令（见下文「macOS」）：Windows 上由安装包安装（见下文「Windows」），这个包的命令行在 Windows 上提供运维与终端对话。

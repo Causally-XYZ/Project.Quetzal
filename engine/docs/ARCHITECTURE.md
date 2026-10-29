@@ -20,7 +20,7 @@
 | cleanText / redactArgs / summarize | 宿主历史附注清理、参数脱敏与工具卡片摘要 |
 | recordTool / warning | 完整工具记录保存及非致命记录错误 |
 
-FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供 finishTool 时模型自行返回 finish，仍按旧循环识别并结束，不交给普通工具端口。finish 的 schema 由宿主定义；引擎只返回参数，不写日记或改变驱动力。MCP 是宿主工具来源之一，需要宿主管理连接/发现/权限，再以 ToolDef 与 execute 接入；界面和通道则调用宿主的对话入口。宿主已提供 stdio MCP 工具来源，CLI 已提供本机 TUI；二者不进入 engine 的协议实现或依赖树。
+FinishTool 名称固定为 `finish`，运行时也拒绝其他名字；未提供 finishTool 时模型自行返回 finish，仍按旧循环识别并结束，不交给普通工具端口。finish 的 schema 由宿主定义；引擎只返回参数，不写日记或改变驱动力。MCP 是宿主工具来源之一，需要宿主管理连接/发现/权限，再以 ToolDef 与 execute 接入；界面和通道则调用宿主的对话入口。宿主已提供 stdio、Streamable HTTP / SSE 与 OAuth MCP 客户端，CLI 已提供本机 TUI；二者不进入 engine 的协议实现或依赖树。
 
 ## 兼容行为
 

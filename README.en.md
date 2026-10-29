@@ -1,3 +1,5 @@
+> Current branch: [runnable adaptive-memory trial and backlog](docs/engine/ADAPTIVE_MEMORY_RELEASE.md). Full quality, scale and human-use acceptance remain incomplete; published downloads may differ.
+
 <a href="https://quetzal.plutokeating.beer/en"><img src="docs/assets/readme/banner.png" alt="Quetzal · Living like wind. · quetzal.plutokeating.beer" width="100%" /></a>
 
 <p align="center"><a href="https://quetzal.plutokeating.beer/en">Website</a>&ensp;·&ensp;<a href="https://quetzal.plutokeating.beer/en/docs">Docs</a>&ensp;·&ensp;<a href="https://quetzal.plutokeating.beer/en/download">Download</a>&ensp;·&ensp;<a href="README.md">中文</a></p>
@@ -37,11 +39,11 @@ Start on the phone, carry on from the laptop.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/type/en-soul.dark.svg"><img src="docs/assets/readme/type/en-soul.light.svg" alt="It remembers you."></picture>
 
-The things you mention in passing, the people you care about: it writes them down, in a private repository that belongs only to you. New phone, new model, still the same self.
+Quetzal helps preserve and revisit the people and events you talk about, so understanding can accumulate and be corrected. Memory can be incomplete or mistaken; identity and saved memories remain in your own data when devices or models change.
 
-- Its name, personality, memory and journal are Markdown written for people, kept in a private git repository on your GitHub that we call the "soul repository". Open `memories/USER.md` to read the you it knows.
-- Every change is a git commit, pushed and merged to every body automatically. If it gets something wrong, undo that commit under Memory history in the app.
-- When you talk, it first searches conversations, notes and journal (SQLite full-text search) and answers with what it finds. At night, while asleep, it "dreams", turning the day's conversations into notes.
+- Identity, personality, notes and journal live in a private soul repository. Structured memories retain sources and versions; conversation originals and runtime jobs also depend on local SQLite and message replication.
+- Soul-file changes are committed and synchronized automatically. Memory history preserves revisions; natural-language corrections can update understanding without rewriting the original conversation.
+- Context selects relevant material within the model window and keeps originals available for retrieval. This branch adds optional adaptive memory for multiple topics, ambiguous references and revisable claims. When enabled, it owns conversational fact writes and pauses the older memory-writing and PRIME learning paths. Valid sources and versions do not prove semantic truth; see the [current design](docs/engine/ADAPTIVE_MEMORY.md).
 
 [Soul sync](docs/SOUL_SYNC.md) · [Soul repository spec](docs/SOUL_REPO_SPEC.md)
 
@@ -53,7 +55,7 @@ Codex waits for you to call it. OpenClaw is woken on a schedule. It has no alarm
 
 <img src="docs/assets/readme/bodyclock.en.svg" alt="A day on the body clock: sleep pressure S and circadian rhythm C" width="100%" />
 
-- There is no timer in the code. A few drives (curiosity, the urge to say something, missing you) combine with the two-process model from sleep science (sleep pressure S and circadian rhythm C, the chart above) into a probability of waking right now, and random sampling picks the next wake-up.
+- There is no fixed wake-up interval. A few drives (curiosity, the urge to say something, missing you) combine with the two-process model from sleep science (sleep pressure S and circadian rhythm C, the chart above) into a probability of waking right now, and random sampling picks the next candidate time; a timer waits until it is time to reassess.
 - On waking, a cheap model first decides whether there is anything worth doing; if not, it goes back to sleep, so most wakings cost very little. When you talk to it, or a reminder is due, it is always there.
 - Already using Hermes or OpenClaw? The [soul-bridge](bridge/docs/README.md) lets them share the same soul repository with it.
 
@@ -93,7 +95,7 @@ Its memory lives in your own private repository, every line readable by you. The
 
 - **Passwords never reach the model.** A password you send in the chat goes straight into a vault on the device; the model only sees its name. Model keys are stored encrypted with AES-256-GCM.
 - **Risky actions get a second opinion.** Photos, recordings, location, operating the screen, new tools and commands in the real environment go to an independent review model first by default. It sees only that one action, not the agent's prompt or the whole conversation; if it says no, the agent gets the reason and tries another way, and you do not approve things one by one. Every kind of capability can be set to review, allow, ask (every time) or deny.
-- **Stop it any time.** The emergency stop is always there, everything it does is in the audit log, and daily tokens and spending have a cap.
+- **Stop it any time.** The emergency stop is always there, tool actions have audit records, and exhausted daily token or cost budgets reduce autonomous activity. They are not a hard stop on all model calls.
 - **A sandbox.** Its commands run in an isolated space (bubblewrap, Landlock or proot on Linux, proot on Android, a low-privilege user on Windows, the built-in Seatbelt sandbox on macOS) that hides your keys.
 - **Only your devices.** Bodies trust only the public keys registered in the soul repository, so even a compromised sync service cannot pose as one of your devices.
 - **Every step can be yours.** You can create the soul repository yourself on any git host, host the [sync service](sync/README.md) yourself, or skip signing in. The account, the GitHub app and the sync service we run only do these steps for people who would rather not set them up.
@@ -109,7 +111,7 @@ Who sees your data and what it can reach, all written down: [Trust and limits](h
 - **Body**: a device plus its adapter, providing sensors, camera, microphone, notifications and a shell.
 - **Runtime** (Node.js 22, TypeScript): the heart decides when to wake; the brain is the loop that calls models and tools; memory handles search and tidying; the model layer talks to OpenAI, Anthropic, Gemini and compatible APIs, falling back to the next when one fails; the gate handles permissions, safety review, approvals, budget, the emergency stop and auditing.
 - **Soul**: a private git repository, synced with an SSH deploy key, with a fixed, versioned layout.
-- **Console** (Flutter): the Android app (Node.js, git and ssh inside, the only thing to install), a web version and a Linux desktop version.
+- **Console** (Flutter): the Android app (Node.js, git and ssh inside, the only thing to install), a web version and Linux / Windows desktop versions.
 
 [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md)
 
@@ -143,6 +145,7 @@ Missing dependencies are installed for you, and it starts at boot. Once you sign
 
 | Directory | Contents |
 |---|---|
+| [`engine/`](engine/docs/README.md) | Independent execution loop, protocols, context and generic strategies; host responsibilities remain in runtime |
 | [`runtime/`](runtime/docs/README.md) | The runtime (TypeScript / Node.js 22+) and platform-level body adapters: Android (built into the Quetzal app), Linux, macOS, Windows, and Termux for older installs |
 | [`console/`](console/docs/README.md) | The console (Flutter): the Android app (with installer and ears), the web version (desktop browser, served by the runtime) and the Linux desktop app (native window, installed by the one-line installer) |
 | [`cli/`](cli/docs/README.md) | The one-line installer `install.sh` (served as `/install` on the website) and the npm package `@plutokeating/quetzal`: the Linux and macOS installer (systemd user service / launchd agent) |
@@ -151,7 +154,7 @@ Missing dependencies are installed for you, and it starts at boot. Once you sign
 | [`website/`](website/docs/README.md) | Website and docs site |
 | [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) · [Distributed design](docs/DISTRIBUTED.md) · [One-step onboarding](docs/ONBOARDING.md) · [Changelog](CHANGELOG.md) (Chinese) |
 
-Documentation inside the repository is written in Chinese; the website carries the English guide.
+Start with the [documentation map](docs/README.md), [purpose and principles](docs/PRINCIPLES.md), and [current memory design](docs/engine/ADAPTIVE_MEMORY.md). Technical documentation is maintained in Chinese; the website carries the English guide. Historical experiments remain available and are not current release guarantees.
 
 <br/>
 

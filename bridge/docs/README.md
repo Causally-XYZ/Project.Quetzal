@@ -1,5 +1,7 @@
 # bridge · soul-bridge
 
+> 全项目边界见[文档导航](../../docs/README.md)。本模块同步外部框架与灵魂文件，不自动赋予外部框架 Quetzal 的语义整理或纠正能力；只读 mesh 成员也不是正式记忆查询身体。新记忆的数据职责见[当前总览](../../docs/engine/ADAPTIVE_MEMORY.md)。
+
 把 Hermes Agent / OpenClaw 接入 agent 的灵魂仓库：独立、可随时插拔、全自动双向同步。设计与协议见 [../../docs/SOUL_SYNC.md](../../docs/SOUL_SYNC.md)。
 
 - 运行环境：Node.js 22.18+（直接运行 TypeScript 源码，无需构建、无第三方依赖）与 git。多具身体（可选）另需网状层组件 `node-datachannel` 与 `ws`，由 `mesh install` 按运行基座的锁定文件（`runtime/tool/mesh-modules.lock.json`，`extra.bridge`）下载并逐个核对 sha512，装进 `~/.agent-soul/mesh-modules/<版本>/`，程序目录的 `runtime/node_modules` 是指过去的相对链接。

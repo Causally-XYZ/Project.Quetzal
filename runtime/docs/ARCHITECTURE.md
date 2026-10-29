@@ -1,65 +1,8 @@
 # runtime 模块地图
 
-纯聊天召回在同一来源快照内生成共享修订头与正文。`read-receipt.ts` 的可选展示分段只在最终结果摘要与宿主生成文本一致时签发；`tool-reading.ts` 按正文长度决定首屏 / 回查，并在省略旧头时重新附完整当前修订；`context.ts` 的回查只分页已核查正文，页首状态保持完整。脱敏 / 包装变化、旧凭据和混合文档继续保守处理，来源或文档变化仍拒绝旧正文。复用现有JSON列、构建和测试入口，无新依赖或部署配置。
+本文按当前源码说明文件职责；整体原理见[全局架构](../../docs/ARCHITECTURE.md)，产品取舍见[项目原则](../../docs/PRINCIPLES.md)。主调用链是 `main.ts` → `mind/brain.ts` → 仓库根的 `engine/src/loop.ts`；宿主提供模型路由、上下文、权限、存储与身体，引擎不导入 runtime。
 
-M5完整性核查已拆分：常用archive读取按当前版本核对实际文件 / pending发件箱与必要依据，正常接受不再计算全投影摘要；首次使用、受控灵魂合并 / 撤回后全检，连接内见证受事务令牌与同步失效代次约束。独立只读worker约每60秒以一致快照复用正式重建校验，正常追加按历史前缀完成，发现异常使见证失效。查询源权限仍即时核对；绕过产品的未命中损坏允许延迟发现。冷核查仍可能阻塞主线程，M5规模与质量门禁未放行。实现及边界见[认识协议§5](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#5-权威文件与重建)。无新依赖或环境变量，worker编译嵌入main.cjs，不新增部署文件。
-
-全局向量索引与单次工作集分开：宿主按有界页维护候选，独立持久变更队列与公平扫描覆盖旧资料，worker确认后才推进进度；来源变化与依赖传播不只依赖图generation。候选清单、待办与向量保存在可重建SQLite中，完整扫描结束前不清退未遇到的旧缓存；查询在独立只读快照中逐页扫描已索引向量，只驻留当前文档、查询向量与TopK，不把全库放进Map。未扫完或超时返回降级结果，不冒充全局近邻。生产全局1000条上限已移除，单批、单次局部依据与返回仍有上限；100ms向量等待、500ms宿主截止及最终来源 / 版本核查不变。清单进度与pending嵌入分开，不据局部测试宣称任意规模或语义质量已通过。无新依赖、服务或灵魂格式，新增派生表自动建立，现有构建包含worker。
-
-同源候选扩展仅在初轮查询已有有效命中时执行：从最多6条命中的当前有效根来源中取至多64个源，并通过SQLite来源索引累计枚举至多64行，不递归扩展新候选。候选须重新通过当前版本与可见 / 全局共同依据检查；当前记录保留的可核查审计来源可定位修正后的正文，但不增加支持组，纯历史索引或失效引文不能复活旧关系。附加依赖最多256KiB，总选择记录仍受1000条限制；候选摘要与查询绑定后同词面 / 向量排名融合，最终仍最多6项。共同来源只提供候选关联，不是事实证明或相关性保证，可能引入同一原话中的其他主题；质量与规模仍需M5对照。无新增调用、参数、依赖、服务或持久格式，现有构建自动打包。
-
-M5复审保留当前来源、版本、支持 / 反证和权限门禁；用户纠正若不与其他有效约束冲突则接受，旧说法或重复摘要不自动成为独立反证，偏好变化不当作矛盾。真实重放未能证明“要求模型创建负循环、再用专用争议视图读取”有效，故撤回该试验接线，继续使用v3语义信封。下一步验证混合检索及有界同源候选扩展是否能补齐相关材料；保留正常原文检索，不预设向量一定解决遗漏。具体已测结果与未决问题见阶段记录§7.6 / §7.7。
-
-整体原理见仓库根目录的 [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)。本文列出每个文件的职责与约定。
-
-`memory/adaptive-reading.ts` 的 sourceReadingsHeader 为工具核查生成共用修订表，逐来源用表内下标保留完整映射；不同偏移 / 状态不合并。旧回答的失效依赖通过来源表追溯，不逐答复重复展开。`mind/tool-reading.ts` 用于前台与 context_read 的同一投影，校验集合和 atomic 保护不变。无新依赖、配置、存储格式或部署入口，既有 TypeScript / 测试 / 打包覆盖。
-
-后续 `read-receipt.ts` 为 v1 本机工具凭据的每条来源增加可选 stateHash，涵盖当时完整 SourceReading 项（含认识修订和旧答依据状态），不包含正文。`tool-reading.ts` 每次仍核对所有来源与文档，仅全相同时不重叠展开已有核查内容；同一工具捕获到相同原文但不同修订状态也标为不完整。旧凭据无该值仍走完整投影，旧程序忽略可选字段而保留原核查；不改灵魂格式、表结构、网状协议、依赖或部署入口。
-
-状态相同只允许整段结果复用；ToolReading.currentReading 仍保留完整修订，供 context_read 每页重复。分页结果已受正文页长限制，不再因包含必要修订头就替换成指向该页的回查引用；超出整体安全上限仍明确失败。这样不会让 offset 跳过解释旧正文所需的修订，也不制造递归回查。
-
-`mind/brain.ts` 的 `pendingMemoryLearning()` 只读返回旧 PRIME 学习的排队 / 执行数，包含延迟启动窗口，不改变对话调度。开发三基线运行器通过现有 snapshot 观测它，等待两身体学习和灵魂同步完成；不增加生产 RPC。三基线配置、正常素材摄入与原文臂隔离见[运行器说明](../tool/adaptive-eval/README.md#m3-三基线开发对照)。
-
-`memory/answer-basis.ts` 管回答消息来源凭据的严格形状、摘要、跨调用合并与失效判断。`mind/context.ts` 在实际准备成功后累计消息读取快照，`brain.ts` 注册当前输入 / 插话来源并随正常最终回答保存；模型返回后和最终发布前通过 adaptive.withCurrentAnswer 重核已记录来源。后者在读取 SAVEPOINT 释放与预算检查后、灵魂 exclusive 退出前执行同步提交，避免核对后的异步空隙；发布错误不回滚已释放的读取快照。AnswerSourcesChanged 中止该输出；正常对话通过 answer-recovery 重建原始输入与绑定的真实补充，撤去当轮模型叙述、工具正文 / 图片、派生摘要和工作状态。只保留最多64项操作索引，带来源的记忆读取可经 context_read 回查；重新收集凭据后才发布。只读工具白名单同时约束定义和实际执行，重复调用编号不能覆盖原记录；共享三轮主请求 / 30秒取消预算，恢复失败不再重开。恢复轮次暂不进入学习；`store.ts` 自动迁移 messages.answerBasis 及其非空部分索引，并在既有复制中校验、保存及补齐空凭据。`adaptive.ts` 在同一快照展开派生回答的消息来源，history / prompt 近况 / context_read / recall 使用统一状态，changed 时不沿用旧正文。仅保证这些已记录消息依赖，不能替代回答语义评测或其他派生材料的完整来源，详见[读取语义](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md#4-纠正事务和读取)。无新依赖、环境配置、服务、RPC 或灵魂格式；现有构建 / 测试 glob 纳入新模块。
-
-`mind/prompt.ts` 的公共政策区分资料缺失与有依据的否定，不依赖认识是否命中；故障转移的每个候选继续携带。`memory/adaptive-proposal.ts` 对后台提出同样约束，明确过去否定与后来状态变化可并存。没有增加语义判真模块或额外前台模型调用；工程材料测试与真实语义结果分开记录，见[证据边界试验](../../docs/engine/ADAPTIVE_MEMORY_PROGRESS.md#435-m2-未知与否定的证据边界2026-10-27)。
-
-同一公共“根据资料作判断”段只追加一次时间范围原则：过去时点的纠正不自动延伸为当前或连续状态，`occurred / valid` 缺少结束时间也不证明无限持续；明确的当前状态和带历史依据 / 暂定假设的低风险、可调整建议仍可使用，不要求每次重确认，建议默认值不能冒充已确认事实。开发重放曾在 system 末尾测试基础措辞；生产位置改为现有公共段，限定“只针对过去某个时点”并显式补充低风险建议边界，因此不把原重放当作这些最终字句的真实语义验收。复用既有 prompt / context 测试、类型检查和构建入口，无新依赖、配置、服务或存档格式，正式失败不重评分。
-
-公共政策补充否定范围的通用短例子：区分“未提供故障信息”和“明确说未故障”，回答开头也必须保持这种确定程度。现有 host HTTP 测试核对零命中、不可用、关闭和故障转移仍携带该规则；实际理解依赖真实语义评测，不能用提示存在代替质量证据。复用原构建 / 测试入口，不改依赖、配置、存档格式或部署。
-
-内核专项现状与维护入口见 [docs/engine/README.md](../../docs/engine/README.md)；按调用链阅读可从 [模块地图](../../docs/engine/MODULE_MAP.md) 开始。源码变动涉及执行、上下文、记忆或工具边界时，应同步核对对应主题与基线记录。
-
-开发中的自适应记忆见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)，M1–M3原型及M4本机工程 / 代理试用已验收，正式语义质量与规模留M5；推送回执以阶段验证记录为准。`memory/adaptive-store.ts` 管来源修订、持久任务、租约与处理回执；`memory/adaptive.ts` 管固定身体后台处理和有界读取；`mesh/adaptive-memory.ts` 复用正式成员认证；`mind/context.ts` 在模型准备阶段读取当前认识并核查来源，semantic关闭时使用原文观察。`main.ts` 在非安全模式初始化灵魂后启动宿主，退出时停止，默认配置关闭。发布协议见[存储与恢复](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)：结果接受与任务完成同事务，文件安装和本地 Git 确认分别可恢复；受管存档不进入普通笔记召回。SQLite 数据与任务均在 `QUETZAL_HOME/data/quetzal.db`，没有新增守护进程或依赖。多身体验收使用本机独立进程与网关，不能以两个浏览器标签替代两具身体；桌面 / 移动视口交互按阶段记录单独验收，不代表原生系统或真实远程设备验证。
-
-M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原文引用，计算带反证的依赖状态；`memory/adaptive-graph.ts` 将版本投影与任务 / 发件箱同事务安装。见[语义格式与边界](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。默认仍用 source-v1；显式开启 adaptiveMemory.semantic 后后台整合与重评会调用这些库。集中主机本机前台经 `adaptive-query.ts` 选择当前 supported 陈述与 ambiguous 提及，其他正式身体经独立语义查询协议接入，接收前检查本机更高版本 / 同版分叉和来源冲突。`adaptive-review.ts` 沿真实依赖优先上游；重评上下文从当前及历史版本发现依赖身份，给出其当前修订和来源，历史分支不作为恢复支持或调度顺序的依据；`adaptive-review-budget.ts` 实现五次调用后的自动冷却续做和跨重启目标计数，由 adaptive.ts 在模型调用前写本机 KV。无需新增服务或 npm 依赖，现有 TypeScript 构建自动包含该模块。
-│   ├── adaptive-research.ts 后台增量研究：复用来源任务、当前版本与发布链路，分步探索 / 桥接 / 反证，新增带依赖推测；默认关闭，无通知或主动会话
-
-`memory/adaptive-archive.ts` 包装投影访问：先核对权威文件与发件箱，再核对实际投影摘要；内容均未变时复用，变化时原子重建；后台访问已持灵魂 exclusive。投影 schema 2 支持无本机发件箱的文件恢复，并从 schema 1 原子迁移；读取失败不能退回旧缓存。
-
-`memory/adaptive-reading.ts` 从精确历史版本生成来源修订覆盖层；`adaptive.ts` 的 withAdaptiveSources 在灵魂锁 / SQLite 快照内执行原文读取，searchAdaptiveHistory 核对召回命中和邻句。实际 context_read / recall 接入；存在本机认识状态时，关闭生成也不丢弃修订。只承诺本机快照。默认历史由 `mind/context.ts` 在模型准备前重建；来源或认识版本变化会清摘要缓存，发送前复核，至多重建一次。无来源版本的持久摘要不继承；`adaptive-material.ts` 在发送前核对旧候选文件及消息来源，工具 memory_records / note_read 同样附当前读取状态；原审核不能充当新证据，不可访问来源的派生正文不输出。recall 文档命中与笔记读取共用准备 / 快照呈现逻辑，旧语义选择器在模型调用前、返回后和缓存命中时核查来源；`mind/prompt.ts` 的 systemMessage 通过对象来源绑定保留跨会话读取能力，context 在同一快照核对近况并纳入准备前后摘要值，quick 内省在每个候选上重新读取；未绑定来源的其他派生资料和远端语义读取仍待接入。
-
-`memory/read-receipt.ts` 用 AsyncLocalStorage 记录记忆工具实际读取的来源 hash / 文档摘要，拒绝混合或超限的可用凭据；`mind/tool-reading.ts` 核查作用域、原结果和当前来源，生成当前投影。store 启动自动为 tool_calls 补 reading 可空列；engine 仅原样把不透明凭据交给 recordTool。context 准备和 context_read 工具回查共用投影，atomic 标记防止修订被头尾节选裁掉。无新依赖 / 服务，既有构建自动包含；灵魂格式不变。
-
-`mind/process-reading.ts` 为历史过程生成执行索引；history 原始生成和 context 发送前都排除无独立凭据的展示副本。messageRef 回查同样投影 process，完整本机工具另经来源核查；缺失 / 其他身体旧副本不猜关联。摘要核查值包含读取政策版本，升级后旧摘要失效。新增路径复用原 context 缓存，无新表、依赖、配置或服务；既有 TypeScript / 测试 glob / 构建入口包含。专项用例见 adaptive-tool-reading 与 adaptive-history，原管理界面不改。
-
-`memory/adaptive-reading.ts` 为直接来源支持、无 counter 的 reported 陈述派生 identityGap，展示每个 participant / reference 的有效绑定或未解状态。只核查直接支持组，不另建间接证明引擎；身份精确版本、双方视图来源与审计理由不完整时不展示。sourceReadingHeader 解释为“身份关联未完整”，底层 status/current 不变；字段参加 answerSource 摘要。无新依赖、配置、数据库或构建入口，现有打包导入链与测试 glob 覆盖。
-
-`memory/adaptive-proposal.ts` 提供开发用提示 / responseSchema 和提案规范化；`memory/prompts/adaptive-graphiti.ts` 复用经过适配的上游规则，许可见 `runtime/third_party/graphiti/`。开发工具保留独立 ADC 评测；宿主通过 adaptive-model.ts 调用控制台供应商，不复制 ADC。tool/build-main.mjs 将完整 Graphiti 许可嵌入 main.cjs。
-
-`AdaptiveStore.retryFailed` 在事务内核对failed、所见attempts、当前可用来源修订及无已接受结果；保留累计次数，只重排一次。宿主仅允许source-v1 / semantic-v1 / research-v1，并核对本机中心、急停和当前处理器开关，ops审计原失败；取消与过期任务不可重开，依赖重评不绕过自己的持久额度。`jobs(..., true)` 先筛失败再限量，管理`memory.adaptive.jobs {retryable:true}`不依赖最近20项；retry仅管理端可用，既有打包导入链覆盖，无新表 / 依赖 / 配置。
-
-提案规则明确局部纠正应以原文和纠正联合支持未变内容；真正撤回该内容时不继续保留。时间字段说明禁止借 recordedAt 的 Z 填充事件时区或月末时分秒，有明确 UTC 依据的时间仍可输出。只改生成说明，不改存档 schema、规范化形状或宿主信任边界；既有提案 / 引用 / 结构化输出 / 归档审核测试覆盖工程路径，真实质量另经公开多轮材料核查。无新依赖、配置或部署项，原 tsconfig 与构建导入链覆盖。
-
-开发评测在 `tool/adaptive-vertex-*.py` 保留安全失败分类和可选 curl 传输，未报告用量为 null；取消会结束 HTTP 子进程。`tool/adaptive-checkpoint-probe/` 单独锁定开源探针的开发依赖，实际执行真实 MemorySaver 契约，不加入生产依赖 / 打包路径；范围和复现命令见[组件实验](../../docs/engine/ADAPTIVE_MEMORY_COMPONENTS.md)。
-
-`tool/adaptive-eval/` 是独立的 M2 留出资料与评分工具：spec 校验50案例的逐步输入 / 权限 / 轨迹，cases 为冻结构造器，holdout / manifest 保存正式数据及摘要，score 核查回执证据定位并按固定分母统计，cli 提供只读检查和评分。这些数据 / 评分模块不启动宿主、不生成语义审核、不改变生产提示；完整正式运行器尚未完成。测试夹具的 live 标记只测试算术，不能当真实成绩；运行计划和审阅身份仍需受信流程核对。见[工具说明](../tool/adaptive-eval/README.md)。
-
-同目录新增 development / run-track 只运行公开开发案例；body 独立启动实际宿主、网关、复制与灵魂同步，process-client 管有界 IPC / 认证 RPC / 退出，model-observer 在适配器边界保存证据并以既有 ADC 传输调用真实模型或明确替身。历史来源同步注入记录时钟，正常后台安装后等待对端当前版本；每步对端网关回答及其后台处理完成后才释放下一步。它支持 ignored 来源门禁与第三个独立 agent 存储进程 / RPC 范围对照，仍拒绝受控图操作，不生成正式评分或修改生产提示；完整正式运行器仍待完成。
-
-执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
-
-`contextReadChecked` 仍以完整工具记录准备来源与修订；`contextRead` 的 `observeReadDocument` 仍观察原工具和消息。只在最后序列化模型正文时排除宿主凭据：工具保留 call / session / ts / tool / args / result / status / ms，消息排除 answerBasis。页首 currentReading 独立保留，既有失效占位与原文脱敏继续生效；不修改数据库、管理 API、来源集合或 atomic 限制。工具 result 自带的历史头、多个当前修订仍可能重复，不保证单页修订或累计窗口变小。
+自适应记忆的数据流和旧路径切换见[实现总览](../../docs/engine/ADAPTIVE_MEMORY.md)。下方主体地图保留通用模块，新增记忆职责在末尾集中列出；阶段证据见[交付说明](../../docs/engine/ADAPTIVE_MEMORY_RELEASE.md)，不在文件地图重复实验日志。
 
 ```
 src/
@@ -225,57 +168,25 @@ adapters/
 - 纯数学与状态转换放在无副作用的函数里（如 `heart/model.ts`），便于测试。
 - TypeScript 只使用可擦除语法（`erasableSyntaxOnly`），测试直接用 Node 运行源码。
 
+## 自适应记忆与读取一致性的源码入口
 
-`memory/adaptive-query-packet.ts` 处理语义信封形状、请求绑定、版本及来源引用核查；`adaptive-query.ts` 生成当前图的版本摘要并判断与本机状态兼容性。`mesh/adaptive-memory.ts` 为 memory.adaptive.semantic.query 注册默认非 readable 方法（只读桥拒绝），`ops.ts` 同名网关入口调用宿主查询。旧 M1 方法保持原格式。无依赖、配置、数据库迁移或独立服务变更，现有构建入口覆盖；详细协议和保守冲突策略见全局 API 与语义文档。
+| 文件（相对 `src/`） | 当前职责 |
+|---|---|
+| `memory/adaptive.ts` / `adaptive-store.ts` | 中心生命周期、来源 / 持久任务、配置状态、补扫与恢复 |
+| `memory/adaptive-worker.ts` / `adaptive-model.ts` / `adaptive-proposal.ts` | 有界局部整合、模型适配与提案规范化；Google 原生 schema，其他协议提示约束并严格解析 |
+| `memory/adaptive-lookup.ts` / `adaptive-workset.ts` | 当前头、倒排、来源与引用索引；按需读候选并补齐必要依据，不全图送入模型 |
+| `memory/adaptive-evidence.ts` / `adaptive-graph.ts` | 版本图、身份与语境、支持 / 反证计算及可重建投影；不判断自然语言必然为真 |
+| `memory/adaptive-archive.ts` / `adaptive-authority.ts` / `adaptive-artifact.ts` / `adaptive-publication.ts` | 权威存档、接受与文件 / Git 发布；事务发件箱和幂等恢复 |
+| `memory/adaptive-integrity.ts` / `adaptive-audit.ts` / `adaptive-audit-worker.ts` | 受控失效、读时所用材料核查与后台完整性巡检；worker 嵌入主构建 |
+| `memory/adaptive-query.ts` / `adaptive-ranking.ts` / `adaptive-query-packet.ts` | 有界混合检索、RRF、请求与来源 / 版本信封核对 |
+| `memory/adaptive-component.ts` / `adaptive-vector.ts` / `adaptive-vector-worker.ts` | 自动准备 E5、持久分页候选与嵌入缓存、worker 查询；不是全局候选 Map |
+| `memory/adaptive-review.ts` / `adaptive-review-budget.ts` / `adaptive-research.ts` | 脏依赖重评、持久预算和有限探索；来源整合优先 |
+| `memory/adaptive-reading.ts` / `adaptive-material.ts` / `read-receipt.ts` / `answer-basis.ts` | 原文修订覆盖、旧材料历史化、工具与回答来源凭据；部分身份未知不抹去其他已知角色 |
+| `mind/context.ts` / `mind/process-reading.ts` / `mind/tool-reading.ts` | 上下文、历史与工具回查的当前来源投影；共享修订头，正文分页与核查元数据分开 |
+| `mind/brain.ts` / `mind/prompt.ts` | 模型返回与落盘前核对、正常对话只读恢复、证据与时间范围政策；不重放写操作 |
+| `mesh/adaptive-memory.ts` / `mesh/soul-sync.ts` | 固定中心查询与真实 mesh 灵魂同步；只读桥不能使用正式身体语义查询权限 |
+| `memory/backup.ts` / `backup-files.ts` / `restore.ts` | 一致本机备份与离线新身体恢复，保留历史、隔离旧动作状态 |
 
-`mind/context.ts` 在上下文准备的再次检索中只比较语义作用域、状态、新鲜度和完整图 basis；向量100ms降级导致的排名 / 候选数变化不等同于依据失效。完整 basis 的来源 hash / 认识修订与摘要、历史、工具的原严格复核保留；当前仍可能因无关全库更新重建，不声称实现了仅核所选依赖的协议。无需新信封、RPC、依赖或部署项。
+`providers/adapters.ts` 保留同模型工具续接所需的 thoughtSignature；`ToolCall.providerMetadata` 仅用于协议，不作为工具参数或记忆证据。可选思考强度来自正常供应商配置，ADC 开发传输不改生产请求正文。
 
-`mesh/soul-sync.ts` 的 installSoulSync 由 startMesh 和多身体夹具共用，监听真实 mesh event 与本机 soul.pushed / sense；停止时清理监听和去抖计时器。替代 main.ts 启动时的全局 wireMesh 绑定。Git 排队、锁、身份守卫与错误重试仍由 memory/soul-sync.ts / soul-repo.ts 管理，协议与灵魂格式不变。
-
-多身体开发运行器的显式向量模式复用中心默认准备器，不注入近邻。retrieval-observer 只预热摘要绑定的公开文件、观察真实 query；检查点核对 worker.snapshot 与 archive 当前候选摘要。卫星 mesh 停止 / 重连由测试 IPC 控制，离线来源与 unavailable 查询先落盘，再等待实际复制、处理和发布。生产 API、配置和灵魂格式均不改变；正式语义评分与浏览器验收仍单独进行。
-
-`adaptive-reading.ts` 对 supported claim 的修订 current 同时保留正文、性质、occurred / valid 和来源；只改时间时也能在旧原文各页看见纠正。模型提案对合法但无引用的语境声明不生成记录，仍检查声明出处与实际引用。开发案例 / 预期由 tool/adaptive-pilot-cases.ts 提供，不能作为生产本体或预设主题。
-
-`adaptive-graph.ts` 以连接 WeakMap 保存完整重放见证；重放中传递当前记录映射，避免逐批读取全部旧 JSON。source/evidence 状态不缓存，外层回滚由下次投影摘要核对发现。`tool/adaptive-read-benchmark.ts` / `adaptive-read-workload.ts` 提供仓库外合成负载；`test/adaptive-query-scale.test.ts` 测真实宿主100次读取与损坏降级，未使用模型或浏览器。
-
-`tool/adaptive-live-pilot.ts` 用公开合成消息驱动实际后台及 converse，记录每轮图状态、前台输入和回答；开发 ADC 传输包装器只替换保留域名的认证与端点，流和请求正文保持现有适配器格式。该入口加入 package.json / tsconfig，复用 Node 和 Python 标准库及已有 gcloud，无新增生产依赖、服务、配置、RPC 或存储格式。生产后台仍读取控制台供应商配置。
-
-`adaptive-query.ts` 对可见 / 全局共同有效的支持记录再调用既有 evaluateEvidence，取得一致的支持组与根来源。以这些组中的精确原文引文补充词面匹配，沿 claim / mention 当前版本有界遍历，不索引审计原因、反证或整条消息。无新依赖 / 持久索引 / 配置，现有构建自动纳入；工作量和支持链测试见 adaptive-query.test.ts，实际发送上下文与规模读取由 query-host / query-scale 测试验证。
-
-`tool/adaptive-eval/controlled-graph.ts` 仅用于 AM-07 受控输入：先暂停空闲中心，复制当前控制消息，用正式 archive.accept 完成 semantic-v1 任务及受控初始图 / 撤回版本，然后恢复正常发布与依赖重评。控制消息不再次抽取，查询 / 回答仍按正常历史处理；后台模型结果不由运行器改写。control 文件先于后台恢复保存，快照包含五条受控认识的当前状态与版本历史，另保存实际网关语义查询。只在声明受控模式的测试子进程开放内部 IPC，不新增产品 RPC、配置、依赖或灵魂格式；现有 tsconfig import 链和测试 glob 已包含。
-
-认识 v2 的 claim.references 区分跨语境对象指向与事实前提；recordRefs 包含指向依赖，realmBoundRefs 保留身份 / participants / 支持 / 反证的同语境约束。evaluateEvidence 要求引用提及当前可解歧，但不能靠引用单独支持结论；graph 安装拒绝 node 改 realm。query / packet 保留引用角色、语境与版本，reading 的修订提示带当前引用角色、语境与名称。提案 schema 新增 references，重评对象候选覆盖目标及其明确引用语境。新写 result-v2 / semantic-v2，archive / material 读取兼容旧 v1，旧语义不能携带新字段；查询发送 v2、接收兼容无新字段的 v1。没有新增表、配置、依赖或构建入口，现有 import 链与测试 glob 覆盖；灵魂规范 v14 的 Markdown 目录不变，完整混合版本部署仍待后续验收。
-
-`adaptive-model.ts` 按 router.prepareForModel 提供的 structuredOutput 能力准备提案：Google 的 schema 通过 generationConfig 发送，其他协议继续完整提示协议；两者均预算全部 schema，普通对话不设置 responseSchema。既有严格 JSON、截断 / 工具输出拒绝及宿主认识校验保留。ProviderError 新增可选固定原因码；开发 model-observer 保存实际 responseSchema 与白名单原因，不保存供应商错误正文。没有新增依赖、配置、迁移或构建入口，现有类型检查 / 测试 glob 覆盖。
-
-
-`tool/adaptive-retrieval-probe/prepare.py` 取得固定公开权重并核对文件摘要；`run.mjs` 调实际 engine 词面排序和隔离安装的 Transformers.js，`fuse.py` 核对固定 Graphiti 源码后执行原始 RRF 函数。package / lock / model 元数据已移至 components/adaptive-retrieval，由实验和生产适配共用。锁使用标准 node_modules 相对路径，安装须在目标目录内运行 npm ci；运行前核对根版本、来源 / 摘要和模型文件。真实本机模型和宿主读取已运行，结果与失败记录见进度 §4.39。
-
-
-`adaptive-query.ts` 的 semanticCandidates 为派生索引提供与当前查询相同门禁的输入及摘要；selectSemantic 的可选近邻只允许匹配当前候选 / 查询，失效摘要不能参与结果。`adaptive-ranking.ts` 移植固定 Graphiti RRF，由既有 main 构建自动纳入，许可已加入随包 NOTICE。adaptive-vector.ts 管理独立 worker、候选快照确认和有界请求；adaptive-vector-worker.ts 使用固定 E5，文档块128 token、查询块480 token，最多128块，按最大分块相似度推荐候选。派生 SQLite 缓存按 agent / 模型空间 / 候选摘要绑定，逐候选原子提交，更新移除旧 key；查询只收 key，仍在权威快照复核。中心既有 semantic 开关开启时，adaptive-component 自动在后台准备固定组件再加载；空闲快照刷新间隔至少2秒，单块间优先查询，停止时等待原生调用结束并 dispose。准备过程由持久完成标记、可续传文件和 npm 缓存恢复；故障退避、关闭取消 npm 进程树。依赖加载故障会废弃依赖完成标记并重装；SQLite 确定损坏隔离后重建，busy 不删库。候选暂时失败2至60秒重试，分块超限 blocked；错误码和进度经既有状态接口提供。未准备时仍用词面查询，无新配置或 RPC。开发探针另有显式 ADC 嵌入对照，复用既有认证 / 传输，不进入生产模型路由。
-
-
-`withAdaptiveSources` 在已有 SQLite / 灵魂读取边界内为可见来源附加 recordedAt（有效消息毫秒时间转换为 UTC，否则 null）。`historyReading` 将已核对 sources 送入 `adaptiveSemanticContext`，逐根比对 hash 后生成来源时间材料；不改 RPC v2 或认识正文。近况逐条标注记录时间，session.updated 只作为会话更新信息。`sourceRecordedAt` 不把缺失 / 损坏值补成当前时间；记录时间不填入事件时间。模型准备的既有复核覆盖该材料与时间变化。提案提示要求每个 reported 角色有来源，允许缺少未知参与角色，必要推断另建 inferred / hypothesis；提示约束仍须真实语义评测。
-
-
-开发专用 `adcFetch` 在 credentials / headers / body 阶段记录终态回执，取消监听只报告一次并清理；流异常保留已收到的白名单计量，认证值与错误正文继续隔离。成功状态仅描述传输结束，模型版本 / STOP 仍需上层核查。宿主既有失败任务最多五次尝试、持久退避不变；新增双身体恢复测试验证首次失败后无需控制端干预即可重试、发布和读取。公开语义试跑仍遇首次失败立即收尾；恢复测试是独立工程证据。
-
-
-`tool/adaptive-eval/plan.ts` 复用冻结清单校验，绑定干净提交和完整执行配置；formal.ts 只按指定案例 / 重复顺序执行独立 runTrack，不给模型预期断言。receipt.ts 从已核验的原始 input / execution / result / checkpoint 导出五类材料，绑定文件字节摘要，缺失完成证据拒绝计 complete，语义 reviews 保持空。body 的可选 fullEvidence 在既有 exclusive 中获取完整认识历史和当前支持评估，仅在评测开启；生产模块不变。评分 CLI 同样核对完整归档计划，不用字段存在代替执行 / 语义证明。
-
-
-`tool/adaptive-eval/review.ts` 从原始轨迹重建并核对空审核执行回执，生成带冻结断言的审核包；只增修订绑定 packet / receipt / plan / suite 摘要，完整验证前版链。review-cli 的审核者由调用方明确声明，草稿不能自报；每版完整覆盖断言，未评不继承旧通过。评分仅叠加显式清单选中的版本，不改原执行文件、不隐式选择最新、不把纯模型评语记为通过。归档审核采用归档 schema 摘要并核对实际请求；当前执行仍须匹配当前代码和格式。新增开发入口纳入 package / tsconfig，无新依赖、产品 RPC、部署服务或灵魂格式。
-
-`ProviderModel.thinkingLevel` 缺省 / LOW / MEDIUM / HIGH，经 registry 原子校验与既有配置同步；router 为每个候选及 testModel 生成相同 Target，Google adapter 映射到 thinkingConfig。跨协议故障转移不继承前一模型的设置。开发观察器只配置隔离身体、记录实际 Target；ADC 不修改正文，回执未知等级只记固定 other，避免日志带入任意内容。无新增依赖、构建项或部署环境变量，现有导入链和测试 glob 覆盖。
-
-Google adapter 将 functionCall 部件的 thoughtSignature 与模型名存入 ToolCall.providerMetadata.google，下一步仅向同名 Google 模型的原调用部件回传。引擎和当前上下文保留该元数据，工具参数及审计记录不包含它；其他供应商不发送。并行调用不复制签名到未签名部件，连续步骤各保留原值。仅覆盖工具续接，不实现非工具文字签名或跨模型签名转换；旧历史缺签名时不伪造补齐，沿用供应商错误 / 路由处理。使用现有工具协议、构建与测试入口，无依赖或部署配置变化。
-
-M4 的 `ops.memory.adaptive.source` 调用 `inspectAdaptiveSource`：输入为查询已返回的来源 id / hash，沿 `withAdaptiveSources` 保持正文和当前修订的一致快照。未启用且无认识历史时仅从同一条原始消息核对摘要；忽略、非对话角色、空正文与急停均拒绝。它是只读管理接口，不扩展 mesh 权限，不触发模型任务或复制；来源正文裁到16000字符并显式标记截断。卫星返回 research 开关配置而不伪造远端队列。无存储迁移、依赖和部署脚本变化；既有构建导入链包含新增函数。
-
-`memory/backup.ts` 经 `soul-sync.snapshotSoul` 同时排空 Git 队列与灵魂写入，再以不让出事件循环的回调执行 VACUUM INTO 和文件复制；ensureSoul 也进入 Git 队列。固定本机路径与 UUID、SHA-256 清单、SQLite 完整性及 agent 核查，不执行备份内脚本。创建采用临时目录、刷盘后改名，正常失败清理临时目录，进程中断留下的 partial 不列作成功；不支持多个 runtime 共用家目录或将外部并发写入视为受锁保护。复制过程可能暂停本机处理，尚无大备份时延保证。仅管理 ops 暴露 create / list / verify，不增加 agent 工具或 mesh 权限；离线恢复入口由 main 的 `--restore-memory` 分支调用 `memory/restore.ts`，在普通启动前执行。无新增依赖和构建 / 部署配置，既有导入链覆盖。
-
-恢复设计按2026-10-28确认的开发阶段范围，只面向当前支持的格式和新身体身份；实际旧数据按需离线迁移，不新增旧版混跑或跨格式降级分支。实现时须保留历史消息编号、来源 hash、修订与待发布记忆，同时隔离旧身体的提醒 / 行动 / 续跑状态，不能把完整备份数据库直接作为可自动执行的身体状态启动。当前实现已通过独立恢复与首次启动检查，尚未通过完整多身体重连纠正验收，见[实施计划](../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)。
-
-`memory/backup-files.ts` 复用备份清单、摘要与数据库核查，不依赖全局配置；`restore.ts` 只写新目标，失败清理、未完成标记阻止启动。kv 原样存档后只保留历史 / 编号白名单；记忆运行租约释放但取消状态不重置。`store.ts` 只在消息读取视图重定位附件路径，不更改来源 JSON。CLI 仍调用已打包 main，无新增依赖、构建入口或常驻服务。
-
-自适应记忆正常整合 / 查询 / 修订读取 / 研究 / 重评不再先物化全图正文。查询先取词项或向量摘要建议，点读候选和必要依赖并重新核查共同有效依据；最终版本凭据只覆盖实际输出及其依赖，matched表示本次有界检索检查到的有效候选数。来源编辑通过反向索引找受影响记录；重评脏目标优先、游标轮巡兜底。SQLite接收仍以代次及精确版本门禁安装局部patch，重建则用临时表与游标在原子savepoint内重放。权威文件与投影摘要仍完整流式核对，不能称全流程局部I/O；其优化与更大规模检索交M5验证。详见[语义协议](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)。
+开发工具集中在 `tool/adaptive-eval/`、`tool/adaptive-*-pilot.ts`、`tool/adaptive-retrieval-probe/` 等；它们不进入生产 `main.cjs`，用法见[运行入口](README.md)与[评测工具说明](../tool/adaptive-eval/README.md)。协议细节维护在[语义文档](../../docs/engine/ADAPTIVE_MEMORY_SEMANTICS.md)和[存储文档](../../docs/engine/ADAPTIVE_MEMORY_STORAGE.md)，不能从工具存在推断其对应验收已经通过。

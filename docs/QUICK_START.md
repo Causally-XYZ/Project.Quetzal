@@ -119,12 +119,16 @@ flutter build apk --release --target-platform android-arm64
 
 ## 5. 开发
 
-实验性自适应记忆仍按 M0–M5 门禁推进。指定集中身体并开启 `adaptiveMemory.enabled / semantic` 后，中心会在后台自动准备固定本机检索组件，无需使用者运行 npm 或模型下载脚本。组件、公共下载缓存及可重建向量库仅在 `QUETZAL_HOME/data/adaptive-retrieval/`，不写灵魂；其他身体不安装这份组件。中心使用现有 Node 安装配套的 npm，网络需能访问固定 npm registry 与 Hugging Face 模型文件。准备期间继续词面检索，失败自动退避；关闭、急停或停止会取消准备。完整状态由 `memory.adaptive.status` 返回。M2 / M3 代表性原型已验收；M4 本机工程及代理试用已验收、提交并推送，包含桌面 / 窄屏管理、离线纠正补做、当前格式的新身体恢复及本机生产构建的 launchd 崩溃重启。真人反馈仍后置，这些结果不等于跨平台运行或最终语义质量通过；M5 正在进行规模与组件对照。阶段证据见[验证记录](engine/ADAPTIVE_MEMORY_PROGRESS.md)。
+当前分支的自适应记忆配置与运行步骤见[试用版说明](engine/ADAPTIVE_MEMORY_RELEASE.md)，设计见[实现总览](engine/ADAPTIVE_MEMORY.md)。中心后台自动准备固定检索组件，不要求日常手动运行 npm 或模型下载脚本；开发构建依赖仍由开发者安装。公开安装包与本分支可能不同，不以安装 latest 代替构建工作分支。
 
-```bash
-cd runtime && npm run dev      # 以 ./.dev 为家目录直接运行 TypeScript
-cd console && flutter run      # 连接设备调试控制台
-cd cli && npm run build && node dist/quetzal.mjs status --home /tmp/w   # 构建 npm 包并用独立家目录试装
+在仓库根目录分别执行：
+
+```sh
+npm ci --prefix runtime
+npm run build --prefix runtime
+npm run dev --prefix runtime  # 固定 runtime/.dev，只用于合成开发数据
 ```
 
-记忆备份现可用 `quetzal restore --from <备份文件夹> --home <尚不存在的新家目录>` 恢复为新身体，再通过 `quetzal run --home <新家目录>` 和控制台完成配置。命令不覆盖运行中的身体，不接管已有系统服务；安装守护仍按平台流程。只支持当前格式；本机多身体重连、补齐备份后的纠正和接续待发布结果已在 M4 验收，最终版本仍需 M5 回归。步骤与范围见 [CLI 恢复说明](../cli/docs/README.md#从记忆备份恢复新身体)。
+控制台构建见[console 说明](../console/docs/README.md)。真实试用将 QUETZAL_HOME 指向仓库外独立目录，并按试用版步骤启动生产构建；多身体使用独立目录、身份与端口，不共享 SQLite。
+
+记忆备份可用 `quetzal restore --from <备份文件夹> --home <尚不存在的新家目录>` 恢复为新身体，再通过 `quetzal run --home <新家目录>` 和控制台完成模型配置、配对及记忆中心指定。恢复不覆盖运行中的身体，不接管已有系统服务，也不重放旧动作。当前格式本机恢复已有 M4 证据，跨平台及完整矩阵仍有未验证项；详见[CLI 恢复说明](../cli/docs/README.md#从记忆备份恢复新身体)与[交付 backlog](engine/ADAPTIVE_MEMORY_RELEASE.md)。

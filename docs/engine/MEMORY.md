@@ -1,7 +1,7 @@
 # Agent 记忆分层、检索与同步
 
 
-> 当前主路径已改为结构化记忆、逐步语义选择与 PRIME 学习，详见 [结构化持久化](STRUCTURED_MEMORY.md)、[PRIME 内核](PRIME_CORE.md) 与 [交付记录](MEMORY_REPLACEMENT.md)。下文的旧文件、FTS5 和显式 recall 作为兼容数据源保留；旧常驻注入不是当前默认路径。
+> 本文说明共用数据层和旧检索 / PRIME 路径。当前新旧模式及事实写入归属见[自适应记忆总览](ADAPTIVE_MEMORY.md)：enabled 开启时旧模型 memory 写入和 PRIME 自动学习暂停，旧材料保留历史用途；下文“默认路径”限于新记忆关闭时。自适应图、向量和修订不是下文旧词面算法的一部分。
 
 这里的“分层”是现有数据职责的归纳，源码没有统一的 Memory 层级接口或可替换后端。纯分词、评分和摘录现位于 [engine 检索策略](../../engine/src/retrieval.ts)，宿主兼容包装仍位于 `runtime/src/memory/retrieval.ts`；文件、SQLite 和同步留在 runtime。基线见 [BASELINE.md](BASELINE.md)；格式契约见 [灵魂仓库规范 v14](../SOUL_REPO_SPEC.md)。
 

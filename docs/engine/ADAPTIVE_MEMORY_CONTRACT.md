@@ -1,6 +1,6 @@
 # 自适应记忆行为契约
 
-状态：M0 冻结的目标契约；M1 工程部分已验收，语义部分仍在 M2–M5 实现。与[计划](ADAPTIVE_MEMORY_PLAN.md)、[案例](ADAPTIVE_MEMORY_ACCEPTANCE.md)、[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)一起维护；契约条目存在不代表整项已经通过。
+状态：持续维护的目标契约。M0–M4 原型与本机验收已有记录，当前交付按[可运行试用版](ADAPTIVE_MEMORY_RELEASE.md)收敛，完整质量、规模及真人体验进入 backlog。与[计划](ADAPTIVE_MEMORY_PLAN.md)、[案例](ADAPTIVE_MEMORY_ACCEPTANCE.md)、[验证记录](ADAPTIVE_MEMORY_PROGRESS.md)一起维护；契约条目存在不代表整项已经通过。
 
 ## 1. 逻辑数据结构
 

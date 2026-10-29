@@ -1,5 +1,7 @@
 # 自适应记忆阶段验证记录
 
+> 阅读提示：这是按日期保留的实验与决策历史，原失败、未评和当时的待办不改写。当前状态以[试用版交付与 backlog](ADAPTIVE_MEMORY_RELEASE.md)为准；机制先读[现行总览](ADAPTIVE_MEMORY.md)，目标先读[项目原则](../PRINCIPLES.md)。旧段落的“当前 / 下一步”不表示新一轮任务仍在执行。
+
 关联：[M0–M5 计划](ADAPTIVE_MEMORY_PLAN.md) · [行为契约](ADAPTIVE_MEMORY_CONTRACT.md) · [验收案例](ADAPTIVE_MEMORY_ACCEPTANCE.md)。最新范围按[可运行试用版与backlog](ADAPTIVE_MEMORY_RELEASE.md)收敛；原完整质量验收未通过的事实保留，本页仅按实际证据更新。
 
 ## 1. 阶段状态
