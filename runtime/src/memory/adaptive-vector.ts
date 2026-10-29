@@ -17,7 +17,11 @@ export class AdaptiveVectorRetriever implements AdaptiveRetriever {
   private readonly worker: Worker;
   private sequence = 0;
   private latest: Pick<SemanticCandidate, 'key' | 'title' | 'text'>[] = [];
-  private fingerprint = '';
+  private fingerprint = semanticDigest([]);
+  private sent = new Map<string, Pick<SemanticCandidate, 'key' | 'title' | 'text'>>();
+  private sentSnapshot = '';
+  private inFlight = false;
+  private hasSnapshot = false;
   private readonly requests = new Map<number, (keys?: string[]) => void>();
   private state: 'loading' | 'ready' | 'failed' | 'closed' = 'loading';
   private failure: 'component' | 'cache' | 'worker' | null = null;
@@ -28,10 +32,13 @@ export class AdaptiveVectorRetriever implements AdaptiveRetriever {
     this.worker = new Worker(`(${adaptiveVectorWorker.toString()})()`, { eval: true, workerData: { ...options, pin, lock, space: VECTOR_SPACE } });
     this.worker.on('message', (message) => {
       if (this.state === 'closed') return;
-      if (message.type === 'ready') { this.state = 'ready'; this.worker.postMessage({ type: 'replace', candidates: this.latest }); }
+      if (message.type === 'ready') { this.state = 'ready'; this.synchronize(); }
       else if (message.type === 'failed') this.fail(message.stage === 'component' || message.stage === 'cache' ? message.stage : 'worker');
-      else if (message.type === 'status') this.stats = { ...this.stats, snapshot: message.snapshot, indexed: message.indexed, pending: message.pending, reused: message.reused, computed: message.computed,
-        retrying: message.retrying, blocked: message.blocked, cacheRecovered: message.cacheRecovered };
+      else if (message.type === 'status') {
+        this.stats = { ...this.stats, snapshot: message.snapshot, indexed: message.indexed, pending: message.pending, reused: message.reused, computed: message.computed,
+          retrying: message.retrying, blocked: message.blocked, cacheRecovered: message.cacheRecovered };
+        if (message.snapshot === this.sentSnapshot) { this.inFlight = false; this.synchronize(); }
+      }
       else if (message.type === 'index-error') this.stats.errors++;
       else if (message.type === 'answer') this.requests.get(message.id)?.(message.keys);
     });
@@ -49,10 +56,24 @@ export class AdaptiveVectorRetriever implements AdaptiveRetriever {
     if (this.state === 'closed' || this.state === 'failed') return;
     const latest = candidates.map(({ key, title, text }) => ({ key, title, text }));
     if (latest.length > 1000 || Buffer.byteLength(JSON.stringify(latest)) > 8 * 1024 * 1024) throw new Error('向量候选超过工作上限');
+    const previous = new Map(this.latest.map((c) => [c.key, c]));
+    if (new Set(latest.map((c) => c.key)).size !== latest.length || latest.some((c) => {
+      const old = previous.get(c.key); return !/^[a-f0-9]{64}$/.test(c.key) || old && (old.title !== c.title || old.text !== c.text);
+    })) throw new Error('向量候选摘要不一致');
     const fingerprint = semanticDigest(latest);
-    if (fingerprint === this.fingerprint) return;
+    if (this.hasSnapshot && fingerprint === this.fingerprint) return;
+    this.hasSnapshot = true;
     this.fingerprint = fingerprint; this.latest = latest;
-    if (this.state === 'ready') this.worker.postMessage({ type: 'replace', candidates: latest });
+    if (this.state === 'ready') this.synchronize();
+  }
+  private synchronize() {
+    if (this.state !== 'ready' || !this.hasSnapshot || this.inFlight || this.sentSnapshot === this.fingerprint) return;
+    const next = new Map(this.latest.map((c) => [c.key, c]));
+    const remove = [...this.sent.keys()].filter((key) => !next.has(key));
+    const upsert = this.latest.filter((c) => !this.sent.has(c.key));
+    // 一批未确认时合并后续变化，避免繁忙的worker积压全量快照；摘要仍绑定最终候选。
+    this.worker.postMessage({ type: 'update', base: this.sentSnapshot, snapshot: this.fingerprint, upsert, remove });
+    this.sent = next; this.sentSnapshot = this.fingerprint; this.inFlight = true;
   }
   query(query: string, signal?: AbortSignal): Promise<SemanticNeighbors | undefined> {
     signal?.throwIfAborted();

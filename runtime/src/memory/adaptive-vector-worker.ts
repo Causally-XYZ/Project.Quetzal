@@ -63,8 +63,9 @@ export async function adaptiveVectorWorker() {
     type Candidate = { key: string; title: string; text: string };
     type Query = { id: number; query: string; deadline: number };
     const vectors = new Map<string, number[][]>();
-    let desired = new Map<string, Candidate>(), remaining: Candidate[] = [], queries: Query[] = [];
-    let pumping = false, epoch = 0, reused = 0, computed = 0, snapshot = '', closing = false, disposed = false;
+    const desired = new Map<string, Candidate>(), remaining = new Map<string, Candidate>();
+    let queries: Query[] = [];
+    let pumping = false, reused = 0, computed = 0, snapshot = '', closing = false, disposed = false;
     const retries = new Map<string, { attempts: number; at: number }>(), blocked = new Set<string>();
     let retryTimer: NodeJS.Timeout | undefined;
     async function shutdown() {
@@ -107,7 +108,7 @@ export async function adaptiveVectorWorker() {
       if (closing || !Number.isFinite(next)) return;
       retryTimer = setTimeout(() => {
         for (const [key, retry] of retries) if (retry.at <= Date.now() && desired.has(key)) {
-          remaining.push(desired.get(key)!); retry.at = Infinity;
+          remaining.set(key, desired.get(key)!); retry.at = Infinity;
         }
         void pump();
       }, Math.max(1, next - Date.now()));
@@ -135,25 +136,26 @@ export async function adaptiveVectorWorker() {
       pumping = true;
       try {
         await answer();
-        while (remaining.length && !closing) {
-          const candidate = remaining.shift()!, version = epoch;
+        while (remaining.size && !closing) {
+          const candidate = remaining.values().next().value!; remaining.delete(candidate.key);
+          if (desired.get(candidate.key) !== candidate) continue;
           try {
             const parts = chunks(`${candidate.title}\n${candidate.text}`, 'passage: '), list: number[][] = [];
             for (const part of parts) {
               list.push(await embed(part));
               await new Promise<void>((resolve) => setImmediate(resolve));
               await answer(); // 每块之间让查询先走，避免排在整批历史后面。
-              if (version !== epoch || closing) break;
+              if (desired.get(candidate.key) !== candidate || closing) break;
             }
-            if (closing || version !== epoch || !desired.has(candidate.key)) {
-              if (desired.has(candidate.key) && retries.has(candidate.key)) retries.get(candidate.key)!.at = Date.now() + 2000;
+            if (closing || desired.get(candidate.key) !== candidate) {
+              if (desired.get(candidate.key) === candidate && retries.has(candidate.key)) retries.get(candidate.key)!.at = Date.now() + 2000;
               continue;
             }
             const value = JSON.stringify(list);
             db.prepare('INSERT OR REPLACE INTO vectors VALUES (?,?,?,?,?)').run(agent, space, candidate.key, value, digest(value));
             vectors.set(candidate.key, list); retries.delete(candidate.key); computed++; status();
           } catch (error) {
-            if (desired.has(candidate.key) && !closing) {
+            if (desired.get(candidate.key) === candidate && !closing) {
               if ([11, 26].includes(Number((error as { errcode?: number }).errcode) & 255)) {
                 closing = true; port.postMessage({ type: 'failed', stage: 'cache' }); continue;
               }
@@ -169,33 +171,53 @@ export async function adaptiveVectorWorker() {
     port.on('message', (message) => {
       try {
         if (message.type === 'stop') {
-          closing = true; remaining = []; queries = [];
+          closing = true; remaining.clear(); queries = [];
           if (!pumping) void shutdown();
         } else if (closing) return;
-        else if (message.type === 'replace') {
-          const list: Candidate[] = message.candidates;
-          if (!Array.isArray(list) || list.length > 1000 || Buffer.byteLength(JSON.stringify(list)) > 8 * 1024 * 1024 ||
-              list.some((c) => !c || !/^[a-f0-9]{64}$/.test(c.key) || typeof c.title !== 'string' || typeof c.text !== 'string')) throw new Error('input');
-          epoch++; snapshot = digest(JSON.stringify(list)); desired = new Map(list.map((c) => [c.key, c]));
-          for (const key of retries.keys()) if (!desired.has(key)) retries.delete(key);
-          for (const key of blocked) if (!desired.has(key)) blocked.delete(key);
-          for (const key of vectors.keys()) if (!desired.has(key)) vectors.delete(key);
-          // 当前快照未包含的旧记录删除；加载时校验空间、向量形状与内容摘要。
-          for (const row of db.prepare('SELECT key,value,digest FROM vectors WHERE agent=? AND space=?').all(agent, space)) {
-            const key = String(row.key); let stored: unknown;
-            try { stored = JSON.parse(String(row.value)); } catch { /* 损坏缓存由当前输入重建 */ }
-            if (!desired.has(key) || digest(String(row.value)) !== row.digest || !Array.isArray(stored) || !stored.length || stored.length > 128 || !stored.every(valid)) {
-              db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, key); vectors.delete(key);
-            } else if (!vectors.has(key)) { vectors.set(key, stored); reused++; }
+        else if (message.type === 'update') {
+          const list: Candidate[] = message.upsert, remove: string[] = message.remove;
+          const keyValid = (key: unknown) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key);
+          if (message.base !== snapshot || !keyValid(message.snapshot) || !Array.isArray(list) || !Array.isArray(remove) ||
+              list.length > 1000 || remove.length > 1000 || Buffer.byteLength(JSON.stringify(list)) > 8 * 1024 * 1024 ||
+              list.some((c) => !c || !keyValid(c.key) || typeof c.title !== 'string' || typeof c.text !== 'string' || desired.has(c.key)) ||
+              remove.some((key) => !keyValid(key)) || new Set(list.map((c) => c.key)).size !== list.length ||
+              desired.size - new Set(remove.filter((key) => desired.has(key))).size + list.length > 1000) {
+            closing = true; port.postMessage({ type: 'failed', stage: 'worker' }); if (!pumping) void shutdown(); return;
           }
-          remaining = list.filter((c) => !vectors.has(c.key) && !retries.has(c.key) && !blocked.has(c.key)); status(); void pump();
+          // 只有启动时扫缓存key清理过期项；正常增量只点读新增摘要、删除撤回摘要。
+          db.exec('BEGIN');
+          try {
+            if (!snapshot) {
+              const wanted = new Set(list.map((c) => c.key));
+              for (const row of db.prepare('SELECT key FROM vectors WHERE agent=? AND space=?').iterate(agent, space)) {
+                if (!wanted.has(String(row.key))) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
+              }
+            }
+            for (const key of remove) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, key);
+            db.exec('COMMIT');
+          } catch (error) { db.exec('ROLLBACK'); throw error; }
+          for (const key of remove) { desired.delete(key); vectors.delete(key); remaining.delete(key); retries.delete(key); blocked.delete(key); }
+          for (const candidate of list) {
+            const key = candidate.key;
+            desired.set(key, candidate);
+            const row = db.prepare('SELECT value,digest FROM vectors WHERE agent=? AND space=? AND key=?').get(agent, space, key);
+            let stored: unknown;
+            if (row) { try { stored = JSON.parse(String(row.value)); } catch { /* 仅重建损坏的派生条目。 */ } }
+            if (row && digest(String(row.value)) === row.digest && Array.isArray(stored) && stored.length && stored.length <= 128 && stored.every(valid)) {
+              vectors.set(key, stored); reused++;
+            } else {
+              if (row) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, key);
+              remaining.set(key, candidate);
+            }
+          }
+          snapshot = message.snapshot; status(); void pump();
         } else if (message.type === 'query') {
           if (typeof message.query !== 'string' || message.query.length > 8000 || !Number.isSafeInteger(message.id) || !Number.isFinite(message.deadline) || queries.length >= 16) throw new Error('query');
           queries.push(message); void pump();
         } else if (message.type === 'cancel') queries = queries.filter((q) => q.id !== message.id);
       } catch (error) {
-        if (Number.isInteger((error as { errcode?: number }).errcode)) {
-          closing = true; remaining = []; queries = []; port.postMessage({ type: 'failed', stage: 'cache' }); if (!pumping) void shutdown();
+        if (message.type === 'update' || Number.isInteger((error as { errcode?: number }).errcode)) {
+          closing = true; remaining.clear(); queries = []; port.postMessage({ type: 'failed', stage: Number.isInteger((error as { errcode?: number }).errcode) ? 'cache' : 'worker' }); if (!pumping) void shutdown();
         } else port.postMessage({ type: 'index-error' });
       }
     });
