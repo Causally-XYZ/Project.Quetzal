@@ -281,7 +281,11 @@ export function contextRead(id: string, ref: string, offset = 0, limit = 8000, v
     const row = getToolCall(call, turn), checked = toolViews.get(toolReadingKey({ call, session: turn }));
     if (view && row && MEMORY_READ_TOOLS.has(row.tool) && row.status === 'ok' && !checked)
       throw new Error('工具回查引用在核查期间改变，请重新读取');
-    return checked ?? row;
+    const record = checked ?? row;
+    if (!record) return record;
+    // 凭据由宿主以原记录核查；当前修订已在每页头部展示，不再作为正文分页。
+    const { call: callId, session, ts, tool, args, result, status, ms } = record;
+    return { call: callId, session, ts, tool, args, result, status, ms };
   };
   try {
     const pointer = JSON.parse(source) as { toolRef?: { call: string; turn: string }; messageRef?: { id: number; conv: string } };
@@ -303,8 +307,9 @@ export function contextRead(id: string, ref: string, offset = 0, limit = 8000, v
       for (const r of toolRefs) observeReadDocument('tool', toolReadingKey({ session: r.turn, call: r.call }), getToolCall(r.call, r.turn));
       if (view && message.process?.length) processNotice = PROCESS_READING_NOTICE;
       const changed = view?.sources.find((s) => s.id === message.id)?.answer?.status === 'changed';
-      const messageView = view ? { ...message, process: processReading(message.process),
-        ...(changed ? { text: ANSWER_CHANGED, attachments: null } : {}) } : message;
+      const { answerBasis: _basis, ...messageContent } = message;
+      const messageView = view ? { ...messageContent, process: processReading(message.process),
+        ...(changed ? { text: ANSWER_CHANGED, attachments: null } : {}) } : messageContent;
       source = redactSecrets(JSON.stringify({ message: messageView, tools: toolRefs.map((r) => readTool(r.call, r.turn) ?? { call: r.call, missing: '完整本机工具记录已过期' }) }));
     }
   } catch (error) { if (error instanceof Error && !(error instanceof SyntaxError)) throw error; }

@@ -55,6 +55,8 @@ M2 的 `memory/adaptive-evidence.ts` 校验 node / mention / claim 版本和原�
 
 执行核心入口为 `main.ts` → `mind/brain.ts`（宿主适配）→ 根级 `engine/src/loop.ts`；上下文由 `mind/prompt.ts` 政策快照、`mind/context.ts` 每步工作状态/动态记忆、完整 history 与本轮工具消息组成；根级 context-manager 为实际候选窗口准备克隆视图。UTF-8字节保守估计（不是真tokenizer）、稳定摘要与原文回查、下一轮生效的手动会话压缩、共享工具的子 agent，以及预算 / 步数的实际约束见全局架构 §3.2、§5、§5.4。MCP 客户端（stdio 与远程）与插件经宿主工具链接入，本机 TUI 经现有网关接入；网关、身体间 RPC 与 Agent Skills 是各自独立的接口 / 文档机制。
 
+`contextReadChecked` 仍以完整工具记录准备来源与修订；`contextRead` 的 `observeReadDocument` 仍观察原工具和消息。只在最后序列化模型正文时排除宿主凭据：工具保留 call / session / ts / tool / args / result / status / ms，消息排除 answerBasis。页首 currentReading 独立保留，既有失效占位与原文脱敏继续生效；不修改数据库、管理 API、来源集合或 atomic 限制。工具 result 自带的历史头、多个当前修订仍可能重复，不保证单页修订或累计窗口变小。
+
 ```
 src/
 ├── main.ts               装配各模块（打开数据库后做一次权限缺省档位的迁移，见 guard/sentinel.ts）；主动消息（say）入库到它带的会话（带着她醒来时生成的文件作附件），没带的进「主动消息」会话，并发系统通知；熔断（安全模式）；没人接住的同步异常记下后以非零退出（由守护者拉起）

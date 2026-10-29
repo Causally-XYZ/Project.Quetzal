@@ -284,6 +284,8 @@ ADC 开发评测的 `QUETZAL_VERTEX_TRANSPORT` 仅选择 Python 提案探针的 
 
 本轮 `recall` / `note_read` / `memory_records` / `context_read` 的成功读取新增内部 reading 凭据，通过引擎记录端口写入本机 tool_calls.reading。旧库自动补可空列，旧记录没有凭据时不伪造出处。后续模型准备与工具原文回查核对来源，变化 / 不可访问时不输出旧派生正文，原执行记录保持不变。context_read 的工具回查每页也重复当前修订；分页是当前读取视图中的字符位置，不承诺来源变化前后的分页偏移稳定。凭据不是新的语义查询 packet，也不复制进灵魂或网状状态。 修订模式中，历史消息回查的 message.process 是执行索引投影，不含原参数摘要 / 结果摘录 / 中途文字；每页说明限制，完整本机工具结果在 tools 中另经核查。缺少本机映射不自动跨身体获取或猜来源。等锁期间引用变动且未核查时返回错误，调用者可重读。原始 messages.process 和 tool.detail 管理记录不改。
 
+`context_read` 给模型的 JSON 正文只展示工具的 call / session / ts / tool / args / result / status / ms，不展开宿主 reading 或重复的 currentReading；消息正文不展开 answerBasis。完整原记录仍参与宿主核查，管理 API 和数据库原始内容保留，逐页当前修订头仍存在。此投影不缩小凭据覆盖或放宽窗口限制；工具 result 中原有的历史头与多个工具的当前修订仍可能占较大空间。
+
 生产系统提示的跨会话近况在每个模型候选准备时核对来源，原文节选与完整修订提示整项保留或省略；快速内省的故障转移也重新读取。不改变外部 RPC。字符串 systemPrompt 仅作兼容预览，修订模式下不包含未经核查的跨会话正文；内部生产入口为 systemMessage，来源绑定由上下文宿主消费。此能力只保证本机已收到的状态，不保证中心最新或覆盖任意无出处派生资料。
 
 | 自适应记忆方法 | 参数与返回 | 当前边界 |

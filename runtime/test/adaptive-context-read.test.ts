@@ -22,6 +22,7 @@ const { exclusive } = await import('../src/memory/memory.ts');
 const context = await import('../src/mind/context.ts');
 const { Session } = await import('../src/mind/activity.ts');
 const { callTool } = await import('../src/mind/tools.ts');
+const { answerDigest, answerSource, ANSWER_CHANGED } = await import('../src/memory/answer-basis.ts');
 const queue = new AdaptiveStore(store.db, identity().id), archive = new AdaptiveArchive(queue, cfg.paths.soul);
 store.ensureSession('synthetic-history', '合成历史');
 const source = store.addMessage('user', '合成', '饭友是编辑。'.repeat(30), { session: 'synthetic-history' });
@@ -43,6 +44,65 @@ const session = new Session('chat', '合成', 'read-turn', 'synthetic-history');
 const turn = context.createTurnContext(session.id, session.conv, [{ role: 'user', content: '当时说了什么？' }]);
 store.saveContextSource('old-message', session.conv, JSON.stringify({ messageRef: { id: source, conv: session.conv } }));
 after(() => { turn.close(); session.close(); store.db.close(); fs.rmSync(home, { recursive: true, force: true }); });
+
+test('模型回查不展开宿主凭据副本，逐页修订、完整执行记录及旧回答失效仍保留', async (t) => {
+  const args = { ref: 'old-message', offset: 0, limit: 80 };
+  const original = await callTool('context_read', args, '合成', { session });
+  assert.equal(original.status, 'ok'); assert.ok(original.reading);
+  const call = 'projection-read';
+  store.saveToolCall({ call, session: session.id, ts: Date.now(), tool: 'context_read', args,
+    result: original.text, status: original.status, ms: 3, reading: original.reading });
+  const storedTool = store.getToolCall(call, session.id)!;
+  const text = '饭友是弟弟。';
+  const basis = await withAdaptiveSources([source], (view) => {
+    assert.ok(view);
+    return { version: 1 as const, agent: identity().id, answerHash: answerDigest(text), consistent: true,
+      sources: view.sources.map(answerSource) };
+  });
+  const message = store.addMessage('agent', '合成', text, { session: session.conv, answerBasis: basis,
+    process: [{ type: 'tool', call, name: 'context_read', status: 'ok', ms: 3, result: '未绑定的过程摘录' }],
+    attachments: [{ id: 'projection-file', name: '合成.txt', path: path.join(cfg.paths.data, 'uploads', 'projection.txt'),
+      rel: 'projection.txt', mime: 'text/plain', size: 0, kind: 'text' }] });
+  const storedMessage = store.getSessionMessage(message, session.conv)!;
+  const refs = [{ call, turn: session.id }];
+  store.saveContextSource('projection-tool', session.conv, JSON.stringify({ toolRef: refs[0] }));
+  store.saveContextSource('projection-message', session.conv, JSON.stringify({ messageRef: { id: message, conv: session.conv } }));
+  store.saveContextSource(`message-tools:${message}`, session.conv, JSON.stringify(refs));
+  async function read(ref: string) {
+    let full = '', bytes = 0, pages = 0;
+    for (let offset = 0; ; offset += 800) {
+      const out = await callTool('context_read', { ref, offset, limit: 800 }, '合成', { session });
+      assert.equal(out.status, 'ok'); assert.match(out.text, /饭友是弟弟/);
+      assert.ok(out.reading?.sources.some((s) => s.id === source));
+      assert.ok(out.reading?.documents.some((d) => d.kind === 'tool'));
+      bytes += Buffer.byteLength(out.text); pages++;
+      const chunk = out.text.split(/\n\[原文 [^\n]+\n/)[1]; assert.notEqual(chunk, undefined);
+      full += chunk; if (chunk.length < 800) break;
+    }
+    t.diagnostic(JSON.stringify({ ref, sourceBytes: Buffer.byteLength(full), pages, totalPageBytes: bytes }));
+    return JSON.parse(full);
+  }
+  const toolView = await read('projection-tool'), messageView = await read('projection-message');
+  assert.equal(toolView.reading, undefined); assert.equal(toolView.currentReading, undefined);
+  assert.equal(messageView.message.answerBasis, undefined);
+  assert.deepEqual(messageView.tools, [toolView]);
+  for (const key of ['call', 'session', 'ts', 'tool', 'args', 'status', 'ms'] as const)
+    assert.deepEqual(toolView[key], storedTool[key]);
+  assert.ok(toolView.result.endsWith(storedTool.result));
+  assert.equal(messageView.message.ts, storedMessage.ts);
+  assert.equal(messageView.message.text, text);
+  assert.deepEqual(messageView.message.attachments, storedMessage.attachments);
+  assert.deepEqual(messageView.message.process, [{ type: 'tool', call, name: 'context_read', status: 'ok', ms: 3 }]);
+  // 原文哈希变化后，宿主仍使用未投影的完整凭据拦住旧回答和工具正文。
+  store.db.prepare('UPDATE messages SET text=? WHERE id=?').run('已编辑的新原文', source);
+  try {
+    const changed = await context.contextReadChecked(session.id, 'projection-message');
+    assert.ok(changed.includes(ANSWER_CHANGED));
+    assert.ok(!changed.includes('饭友是编辑'));
+  } finally { store.db.prepare('UPDATE messages SET text=? WHERE id=?').run('饭友是编辑。'.repeat(30), source); }
+  assert.deepEqual(store.getToolCall(call, session.id), storedTool);
+  assert.deepEqual(store.getSessionMessage(message, session.conv), storedMessage);
+});
 
 test('实际原文工具在非中心身体逐页附带已知修订，原分页可重建，不能走同步旧入口绕过', async () => {
   let full = '';
