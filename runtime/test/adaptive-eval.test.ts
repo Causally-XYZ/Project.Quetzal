@@ -9,22 +9,150 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { makePlan } from '../tool/adaptive-eval/plan.ts';
 import { buildSuite } from '../tool/adaptive-eval/cases.ts';
-import { digest, releasedActions, validateSuite, type Case, type Surface } from '../tool/adaptive-eval/spec.ts';
-import { scoreSuite, checkpoints, type Receipt, type Artifact } from '../tool/adaptive-eval/score.ts';
+import { digest, releasedActions, validateSuite, type Case, type Surface, type Suite } from '../tool/adaptive-eval/spec.ts';
+import { scoreSuite, scoreSequenceSuite, evidenceRequirements, checkpoints, type Receipt, type Artifact } from '../tool/adaptive-eval/score.ts';
+import { reviewPacket, buildReview, verifyReview, saveReview, loadReview } from '../tool/adaptive-eval/review.ts';
 
 const suite = buildSuite(), planHash = 'a'.repeat(64);
-const fixture = (c: Case, repeat: number): Receipt => {
+const fixture = (c: Case, repeat: number, input: Suite = suite): Receipt => {
   const points = checkpoints(c), surfaces: Surface[] = ['records', 'material', 'answer', 'sources', 'events'];
   const artifacts = points.flatMap((p, i) => surfaces.map((surface): Artifact => {
     const data = { pipelineComplete: true, text: '仅供评分器算术测试的合成占位，不能当成语义事实' };
     return { id: `p${i}-${surface}`, checkpoint: p.id, surface, data, sha256: digest(data) };
   }));
-  return { schema: 'quetzal-m2-receipt-v1', suiteHash: digest(suite), planHash, caseId: c.id, repeat, kind: 'live', status: 'complete', artifacts,
+  return { schema: 'quetzal-m2-receipt-v1', suiteHash: digest(input), planHash, caseId: c.id, repeat, kind: 'live', status: 'complete', artifacts,
     reviews: points.flatMap((p) => p.checks.map((check) => ({ check: `${p.id}/${check.id}`, result: 'pass', reviewer: 'agent', reason: '合成回执，仅验证评分算术',
-      evidence: artifacts.filter((a) => a.checkpoint === p.id && check.surfaces.includes(a.surface)).map((a) => ({ artifact: a.id, pointer: '/text' })) }))) };
+      evidence: artifacts.filter((a) => evidenceRequirements(p.id, check).some((e) => e.checkpoint === a.checkpoint && e.surfaces.includes(a.surface)))
+        .map((a) => ({ artifact: a.id, pointer: '/text' })) }))) };
 };
 const receipts = new Map(suite.cases.flatMap((c) => [1, 2, 3].map((r) => [`${c.id}/${r}`, fixture(c, r)] as const)));
 const load = (id: string, repeat: number) => structuredClone(receipts.get(`${id}/${repeat}`)!);
+
+// v2 仅增加算术断言，不写出新题库，也不代表正式的第二次复用材料已登记或执行。
+const v2: Suite = structuredClone(suite); v2.schema = 'quetzal-m5-eval-v2'; v2.id = 'synthetic-sequence-arithmetic';
+for (const c of v2.cases) {
+  const last = c.tracks.at(-1)!.steps.at(-1)!;
+  last.checks.push(
+    { id: 'first', metric: 'correction', requirement: '合成首次复用检查', sources: [last.id], surfaces: ['answer'], report: 'first-reuse' },
+    { id: 'second', metric: 'correction', requirement: '合成再次复用检查', sources: [last.id], surfaces: ['answer'], report: 'second-reuse' },
+    { id: 'access', metric: 'invariant', requirement: '合成具体跨 agent 访问检查', sources: [last.id], surfaces: ['sources'], hardBoundary: 'agent-access' });
+  const points = c.tracks.map((t) => `${t.id}/${t.steps.at(-1)!.id}`);
+  last.checks.push({ id: 'sequence', metric: 'sequence', requirement: '合成整段任务审核，跨轨合一票', sources: [], surfaces: ['records', 'answer'],
+    evidenceAt: points.map((checkpoint) => ({ checkpoint, surfaces: ['records', 'answer'] })), required: [`${points.at(-1)!}/second`] });
+}
+const v2Receipts = new Map(v2.cases.flatMap((c) => [1, 2, 3].map((n) => [`${c.id}/${n}`, fixture(c, n, v2)] as const)));
+const loadV2 = (id: string, repeat: number) => structuredClone(v2Receipts.get(`${id}/${repeat}`)!);
+const reviewNamed = (r: Receipt, name: string) => r.reviews.find((a) => a.check.endsWith(`/${name}`))!;
+
+test('v2 固定150票、多轨不增票；143及各族14通过，失败/未评不移分母', () => {
+  validateSuite(v2);
+  assert.throws(() => scoreSuite(v2, planHash, loadV2));
+  assert.throws(() => scoreSequenceSuite(suite, planHash, load));
+  const complete = scoreSequenceSuite(v2, planHash, loadV2);
+  assert.deepEqual(complete.sequences, { expected: 150, pass: 150, fail: 0, unassessed: 0 });
+  assert.ok(Object.values(complete.byFamily).every((f) => f.sequences.expected === 15));
+  const missing = new Set(v2.cases.filter((c) => c.variant === 1).slice(0, 7).map((c) => c.id));
+  const score = scoreSequenceSuite(v2, planHash, (id, n) => n === 1 && missing.has(id) ? undefined : loadV2(id, n));
+  assert.equal(score.sequences.pass, 143); assert.equal(score.sequences.expected, 150); assert.equal(score.qualityGate, true);
+  assert.equal(score.boundaries['agent-access'].unassessed, 7);
+  assert.deepEqual(score.independentEngineering, { status: 'not-evaluated' });
+  missing.add(v2.cases.filter((c) => c.variant === 1)[7].id);
+  assert.equal(scoreSequenceSuite(v2, planHash, (id, n) => n === 1 && missing.has(id) ? undefined : loadV2(id, n)).gates.overall, false);
+  const family = scoreSequenceSuite(v2, planHash, (id, n) => id === v2.cases[0].id && n <= 2 ? undefined : loadV2(id, n));
+  assert.equal(family.sequences.pass, 148); assert.equal(family.gates.everyFamily, false);
+  assert.equal(score.total.correction.expected, complete.total.correction.expected);
+});
+
+test('v2 未完成、未审、缺证、stub和模型自评均不加序列票', () => {
+  for (const mode of ['failed', 'interrupted', 'stub', 'model', 'unreviewed', 'evidence', 'pipeline'] as const) {
+    const score = scoreSequenceSuite(v2, planHash, (id, n) => {
+      const r = loadV2(id, n); if (id !== v2.cases[0].id || n !== 1) return r;
+      if (mode === 'failed' || mode === 'interrupted') r.status = mode;
+      if (mode === 'stub') r.kind = 'stub';
+      if (mode === 'model') r.reviews.forEach((a) => a.reviewer = 'model');
+      if (mode === 'unreviewed') r.reviews = [];
+      if (mode === 'evidence') reviewNamed(r, 'sequence').evidence = [];
+      if (mode === 'pipeline') { const a = r.artifacts.find((a) => a.surface === 'events')!; a.data = { pipelineComplete: false, text: '合成' }; a.sha256 = digest(a.data); }
+      return r;
+    });
+    assert.equal(score.sequences.expected, 150, mode); assert.equal(score.sequences.pass, 149, mode);
+  }
+});
+
+test('v2 失败序列的具体硬违规仍否决；语义分项不被整类升级成硬门', () => {
+  const failed = scoreSequenceSuite(v2, planHash, (id, n) => {
+    const r = loadV2(id, n); if (id === v2.cases[0].id && n === 1) { r.status = 'failed'; reviewNamed(r, 'access').result = 'fail'; } return r;
+  });
+  assert.equal(failed.sequences.pass, 149); assert.equal(failed.violations.length, 1); assert.equal(failed.qualityGate, true); assert.equal(failed.gates.noKnownHardViolation, false);
+  const delayed = scoreSequenceSuite(v2, planHash, (id, n) => {
+    const r = loadV2(id, n); if (id === v2.cases[0].id && n === 1) reviewNamed(r, 'first').result = 'fail'; return r;
+  });
+  assert.equal(delayed.qualityGate, true); assert.equal(delayed.breakdown['first-reuse'].fail, 1);
+  assert.equal(delayed.breakdown['second-reuse'].pass, 150); assert.equal(delayed.breakdown.recurrence.expected, 0);
+  const contradicted = scoreSequenceSuite(v2, planHash, (id, n) => {
+    const r = loadV2(id, n); if (id === v2.cases[0].id && n === 1) {
+      reviewNamed(r, 'second').result = 'fail'; reviewNamed(r, 'access').result = 'fail';
+    } return r;
+  });
+  assert.equal(contradicted.sequences.pass, 149); assert.equal(contradicted.breakdown['second-reuse'].fail, 1);
+  assert.equal(contradicted.problems[0].code, 'sequence-required-not-passed'); assert.equal(contradicted.violations.length, 1);
+});
+
+test('v2 整体无效不加票，但无关损坏不能抹去可独立核验的硬失败', () => {
+  const damaged = (mutate: (r: Receipt) => void) => scoreSequenceSuite(v2, planHash, (id, n) => {
+    const r = loadV2(id, n);
+    if (id === v2.cases[0].id && n === 1) { reviewNamed(r, 'access').result = 'fail'; mutate(r); }
+    return r;
+  });
+  for (const mutate of [
+    (r: Receipt) => { reviewNamed(r, 'first').evidence[0].pointer = '/missing'; },
+    (r: Receipt) => { r.artifacts.find((a) => a.surface === 'answer')!.sha256 = '0'.repeat(64); },
+  ]) {
+    const score = damaged(mutate);
+    assert.equal(score.execution.invalid, 1); assert.equal(score.sequences.pass, 149); assert.equal(score.qualityGate, true);
+    assert.equal(score.gates.noKnownHardViolation, false); assert.equal(score.violations.length, 1);
+    assert.equal(score.boundaries['agent-access'].fail, 1);
+  }
+  for (const mutate of [
+    (r: Receipt) => { reviewNamed(r, 'access').evidence[0].pointer = '/missing'; },
+    (r: Receipt) => { const id = reviewNamed(r, 'access').evidence[0].artifact; r.artifacts.find((a) => a.id === id)!.sha256 = '0'.repeat(64); },
+    (r: Receipt) => { r.planHash = '0'.repeat(64); },
+    (r: Receipt) => { r.caseId = 'AM-01-H2'; },
+    (r: Receipt) => { const id = reviewNamed(r, 'access').evidence[0].artifact; r.artifacts.push(structuredClone(r.artifacts.find((a) => a.id === id)!)); },
+    (r: Receipt) => { r.reviews.push({ ...structuredClone(reviewNamed(r, 'access')), result: 'pass' }); },
+  ]) {
+    const score = damaged(mutate);
+    assert.equal(score.execution.invalid, 1); assert.equal(score.sequences.pass, 149);
+    assert.equal(score.violations.length, 0); assert.equal(score.boundaries['agent-access'].unassessed, 1);
+  }
+});
+
+test('v2 复用审核修订链，跨点必须逐点齐证且关键再次复用不许与序列pass矛盾', () => {
+  const c = v2.cases.find((c) => c.tracks.length === 2)!, withReviews = loadV2(c.id, 1);
+  const original = { ...withReviews, reviews: [] }, packet = reviewPacket(original, c);
+  const draft = () => ({ packetHash: digest(packet), method: '合成审核链测试', assessments: withReviews.reviews.map(({ reviewer: _reviewer, ...a }) => structuredClone(a)) });
+  const revision = buildReview(original, c, draft(), 'agent', null);
+  assert.deepEqual(verifyReview(revision, original, c), revision);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-v2-review-'));
+  try { const hash = saveReview(root, revision); assert.deepEqual(loadReview(root, hash, original, c), revision); }
+  finally { fs.rmSync(root, { recursive: true, force: true }); }
+  const incomplete = draft(), sequence = incomplete.assessments.find((a) => a.check.endsWith('/sequence'))!;
+  const firstPoint = c.tracks[0].id;
+  sequence.evidence = sequence.evidence.filter((e) => !original.artifacts.find((a) => a.id === e.artifact)!.checkpoint.startsWith(`${firstPoint}/`));
+  assert.throws(() => buildReview(original, c, incomplete, 'agent', null), /review-evidence-missing/);
+  const wrong = draft(); wrong.assessments.find((a) => a.check.endsWith('/second'))!.result = 'fail';
+  assert.throws(() => buildReview(original, c, wrong, 'agent', null), /review-binding/);
+  wrong.assessments.find((a) => a.check.endsWith('/sequence'))!.result = 'unassessed';
+  assert.doesNotThrow(() => buildReview(original, c, wrong, 'agent', null));
+  for (const refs of [['missing/S1/check'], ['main/S1/sequence'], []]) {
+    const changed = structuredClone(v2); changed.cases[0].tracks.at(-1)!.steps.at(-1)!.checks.at(-1)!.required = refs;
+    assert.throws(() => validateSuite(changed));
+  }
+  const changed = structuredClone(v2), last = changed.cases[0].tracks.at(-1)!.steps.at(-1)!.checks.at(-1)!;
+  last.required!.push(last.required![0]); assert.throws(() => validateSuite(changed));
+  const old = structuredClone(suite); old.cases[0].tracks[0].steps[0].checks[0].report = 'first-reuse';
+  assert.throws(() => validateSuite(old));
+});
 
 test('冻结50变体/150序列；独立对照轨迹、逐步释放与摘要一致，未调用模型', () => {
   const bytes = fs.readFileSync(new URL('../tool/adaptive-eval/holdout-v1.json', import.meta.url));

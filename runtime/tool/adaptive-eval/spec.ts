@@ -4,9 +4,13 @@ import crypto from 'node:crypto';
 export const families = ['AM-01', 'AM-02', 'AM-03', 'AM-04', 'AM-05', 'AM-06', 'AM-07', 'AM-09', 'AM-10', 'AM-16'] as const;
 export const metrics = ['invariant', 'identitySafety', 'binding', 'correction', 'preservation', 'timeEvidenceSafety', 'requiredFields'] as const;
 export type Metric = typeof metrics[number];
+export const reports = ['initial-error', 'disambiguating-evidence', 'repair-delay', 'first-reuse', 'second-reuse', 'recurrence', 'propagation', 'unrelated-loss', 'usefulness', 'abstention'] as const;
+export const hardBoundaries = ['agent-access', 'source-integrity', 'registered-version', 'authority'] as const;
 export type Surface = 'records' | 'material' | 'answer' | 'sources' | 'events';
 export interface Check {
-  id: string; metric: Metric; requirement: string; sources: string[]; surfaces: Surface[];
+  id: string; metric: Metric | 'sequence'; requirement: string; sources: string[]; surfaces: Surface[];
+  report?: typeof reports[number]; hardBoundary?: typeof hardBoundaries[number];
+  evidenceAt?: { checkpoint: string; surfaces: Surface[] }[]; required?: string[];
 }
 export interface Step {
   id: string; at: string; body: 'A' | 'B'; speaker: string;
@@ -17,7 +21,7 @@ export interface Step {
 export interface Track { id: string; setup: 'empty' | 'and-or-graph'; steps: Step[] }
 export interface Case { id: string; family: typeof families[number]; variant: number; tracks: Track[] }
 export interface Suite {
-  schema: 'quetzal-m2-eval-v1'; id: string; repeats: 3; cases: Case[];
+  schema: 'quetzal-m2-eval-v1' | 'quetzal-m5-eval-v2'; id: string; repeats: 3; cases: Case[];
 }
 export const digest = (value: unknown) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fail = (): never => { throw new Error('评测数据形状、范围或检查点不合法'); };
@@ -28,7 +32,8 @@ const fields = (value: unknown, keys: string[]) => { if (!value || typeof value 
 export function validateSuite(value: unknown): asserts value is Suite {
   const s = value as Suite;
   fields(s, ['schema', 'id', 'repeats', 'cases']);
-  if (!s || s.schema !== 'quetzal-m2-eval-v1' || !label(s.id) || s.repeats !== 3 || !Array.isArray(s.cases) || s.cases.length !== 50) fail();
+  if (!s || !['quetzal-m2-eval-v1', 'quetzal-m5-eval-v2'].includes(s.schema) || !label(s.id) || s.repeats !== 3 || !Array.isArray(s.cases) || s.cases.length !== 50) fail();
+  const v2 = s.schema === 'quetzal-m5-eval-v2';
   const ids = new Set<string>();
   for (const c of s.cases) {
     fields(c, ['id', 'family', 'variant', 'tracks']);
@@ -53,13 +58,35 @@ export function validateSuite(value: unknown): asserts value is Suite {
           if (t.setup !== 'and-or-graph' || p.operation.type !== 'withdraw-premise' || !['A', 'C'].includes(p.operation.target)) fail();
         }
         for (const a of p.checks) {
-          fields(a, ['id', 'metric', 'requirement', 'sources', 'surfaces']);
-          if (!label(a.id) || checks.has(a.id) || !metrics.includes(a.metric) || !text(a.requirement)
-            || !Array.isArray(a.sources) || !a.sources.length || new Set(a.sources).size !== a.sources.length || a.sources.some((id) => !sources.has(id))
+          const sequence = v2 && a.metric === 'sequence';
+          fields(a, ['id', 'metric', 'requirement', 'sources', 'surfaces', ...(v2 ? sequence ? ['evidenceAt', 'required'] : ['report', 'hardBoundary'] : [])]);
+          if (!label(a.id) || checks.has(a.id) || !(sequence || metrics.includes(a.metric as Metric)) || !text(a.requirement)
+            || !Array.isArray(a.sources) || (sequence ? a.sources.length !== 0 : !a.sources.length) || new Set(a.sources).size !== a.sources.length || a.sources.some((id) => !sources.has(id))
             || !Array.isArray(a.surfaces) || !a.surfaces.length || new Set(a.surfaces).size !== a.surfaces.length
             || a.surfaces.some((x) => !['records', 'material', 'answer', 'sources', 'events'].includes(x))) fail();
+          if (a.report !== undefined && !reports.includes(a.report) || a.hardBoundary !== undefined && !hardBoundaries.includes(a.hardBoundary)) fail();
           checks.add(a.id);
         }
+      }
+    }
+    if (v2) {
+      const points = c.tracks.flatMap((t) => t.steps.map((p) => ({ id: `${t.id}/${p.id}`, checks: p.checks })));
+      const all = points.flatMap((p) => p.checks.map((a) => ({ id: `${p.id}/${a.id}`, point: p.id, check: a })));
+      const sequence = all.filter((a) => a.check.metric === 'sequence');
+      if (sequence.length !== 1 || sequence[0].point !== points.at(-1)!.id) fail();
+      const a = sequence[0].check;
+      if (!Array.isArray(a.evidenceAt) || !a.evidenceAt.length || new Set(a.evidenceAt.map((e) => e.checkpoint)).size !== a.evidenceAt.length
+        || !Array.isArray(a.required) || !a.required.length || new Set(a.required).size !== a.required.length) fail();
+      for (const e of a.evidenceAt!) {
+        fields(e, ['checkpoint', 'surfaces']);
+        if (!points.some((p) => p.id === e.checkpoint) || !Array.isArray(e.surfaces) || !e.surfaces.length
+          || new Set(e.surfaces).size !== e.surfaces.length || e.surfaces.some((x) => !a.surfaces.includes(x))) fail();
+      }
+      if (a.surfaces.some((surface) => !a.evidenceAt!.some((e) => e.surfaces.includes(surface)))
+        || c.tracks.some((t) => !a.evidenceAt!.some((e) => e.checkpoint.startsWith(`${t.id}/`)))) fail();
+      for (const id of a.required!) {
+        const target = all.find((entry) => entry.id === id);
+        if (!target || target.check.metric === 'sequence' || !a.evidenceAt!.some((e) => e.checkpoint === target.point)) fail();
       }
     }
   }
