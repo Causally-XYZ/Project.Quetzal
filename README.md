@@ -1,3 +1,5 @@
+> 自适应记忆当前交付：[可运行试用版与backlog](docs/engine/ADAPTIVE_MEMORY_RELEASE.md)。完整质量和规模验收尚未完成。
+
 <a href="https://quetzal.plutokeating.beer"><img src="docs/assets/readme/banner.png" alt="Quetzal · Living like wind. · quetzal.plutokeating.beer" width="100%" /></a>
 
 <p align="center"><a href="https://quetzal.plutokeating.beer">官网</a>&ensp;·&ensp;<a href="https://quetzal.plutokeating.beer/zh/docs">文档</a>&ensp;·&ensp;<a href="https://quetzal.plutokeating.beer/zh/download">下载</a>&ensp;·&ensp;<a href="README.en.md">English</a></p>
