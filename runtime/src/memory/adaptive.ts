@@ -459,7 +459,11 @@ export async function queryAdaptiveSemantic(query: string, signal?: AbortSignal)
     const remote = decodeSemanticPacket(await bounded(transport.semantic(host, { agent, query: selectedQuery }, timed), timed), agent, host, selectedQuery);
     timed.throwIfAborted();
     if (remote.status === 'ready') await withAdaptiveSnapshot((store, archive, visible) => {
-      const local = semanticBasis(archive.current(), visible), known = new Map(local.sources.map((s) => [s.id, s.hash]));
+      const local = archive.readLocal((lookup, generation) => {
+        if (generation > remote.generation) throw new Error('中心尚未收到本机的新认识');
+        return semanticBasis(remote.basis.records.flatMap((r) => { const current = lookup.get(r.id); return current ? [current] : []; }), visible);
+      });
+      const known = new Map(local.sources.map((s) => [s.id, s.hash]));
       // 即使本机尚无该认识，也不能绕过已复制到本机的原文编辑或忽略。
       for (const s of remote.basis.sources) {
         const exists = store.db.prepare('SELECT id FROM messages WHERE id=?').get(s.id);

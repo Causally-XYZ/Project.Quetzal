@@ -59,18 +59,25 @@ export async function researchNext(options: {
     }
     if (!sources.has(job.source) || sources.get(job.source)!.revision !== job.revision) throw new Error('研究触发来源已失效');
     if (sources.size > 100) throw new Error('研究来源超过工作上限');
-    const all = archive.current();
-    if (all.length > 1000) throw new Error('研究认识超过工作上限');
-    // 引文与依赖均能在本轮材料中核查的记录才进入模型；缺失的身份不能靠同名补齐。
-    const records = new Map(all.filter((r) => r.state === 'present' && directSpans(r).every((s) => spanCurrent(s, (id) => sources.get(id))))
-      .map((r) => [r.id, r]));
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const r of records.values()) if (recordRefs(r).some((ref) => {
-        const target = records.get(ref.id); return !target || target.kind !== ref.kind || target.revision !== ref.revision;
-      })) { records.delete(r.id); changed = true; }
-    }
+    const records = archive.readLocal((lookup, currentGeneration) => {
+      if (currentGeneration !== generation) throw new Error('研究期间认识版本已变化');
+      const ids = new Set<string>();
+      for (const source of sources.keys()) for (const id of lookup.sourceOwners(source, 1001)) {
+        ids.add(id); if (ids.size > 1000) throw new Error('研究相关认识超过工作上限');
+      }
+      const selected = new Map([...ids].flatMap((id) => {
+        const r = lookup.get(id);
+        return r && r.state === 'present' && directSpans(r).every((s) => spanCurrent(s, (id) => sources.get(id))) ? [[id, r] as const] : [];
+      }));
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const r of selected.values()) if (recordRefs(r).some((ref) => {
+          const target = selected.get(ref.id); return !target || target.kind !== ref.kind || target.revision !== ref.revision;
+        })) { selected.delete(r.id); changed = true; }
+      }
+      return selected;
+    });
     const value = { generation, current: job.source, sources: [...sources.values()], records: [...records.values()] };
     if (Buffer.byteLength(JSON.stringify(value)) > 160 * 1024) throw new Error('研究上下文超过工作上限');
     return value;

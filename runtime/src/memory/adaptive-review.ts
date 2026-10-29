@@ -2,8 +2,9 @@
 import crypto from 'node:crypto';
 import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
-import { directSpans, recordRefs, spanCurrent, sameRealm, type SemanticRecord } from './adaptive-evidence.ts';
+import { directSpans, recordRefs, spanCurrent, type SemanticRecord } from './adaptive-evidence.ts';
 import { normalizeProposal, proposalPrompt, type ProposalContext } from './adaptive-proposal.ts';
+import { LocalClosure, WorksetOverflow } from './adaptive-workset.ts';
 
 export interface ReviewPlan {
   processor: string; target: string; context: ProposalContext; prompt: ReturnType<typeof proposalPrompt>;
@@ -11,15 +12,16 @@ export interface ReviewPlan {
 export type ReviewResult = { status: 'idle' | 'deferred' | 'cancelled' | 'failed' | 'stale' | 'revised' | 'unchanged'; target?: string };
 
 /** 当前 / 历史依赖的当前版本、对象候选与来源重建任务键；不以整图 generation 生成新任务。
- * 此原型至多扫描 1000 条当前记录、100 个闭包 / 候选记录与来源；单计划历史1000版、引用100000次，超限显式延后。
+ * 每轮优先脏目标并轮巡一页；单计划至多100个闭包 / 候选记录与来源，引用100000次，超限显式延后。
  */
 export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { plans: ReviewPlan[]; deferred: number } {
-  const generation = archive.generation(), records = archive.current();
-  if (records.length > 1000) return { plans: [], deferred: records.length };
-  const current = new Map(records.map((r) => [r.id, r])), plans: ReviewPlan[] = [];
-  const histories = new Map<string, SemanticRecord[]>();
+  return archive.readLocal((lookup, generation) => {
+  const local = new LocalClosure(lookup, (id) => queue.source(id)), current = { get: (id: string) => local.get(id) };
+  const plans: ReviewPlan[] = [];
   let deferred = 0;
-  for (const target of records) {
+  for (const id of lookup.reviewTargets()) {
+    try {
+    const target = current.get(id); if (!target) continue;
     if (target.state === 'withdrawn') continue;
     const stale = recordRefs(target).filter((ref) => {
       const r = current.get(ref.id);
@@ -32,30 +34,23 @@ export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { p
     const referenceRealms = target.kind === 'claim' ? (target.references ?? []).flatMap((p) => {
       const mention = current.get(p.mention.id); return mention?.kind === 'mention' ? [mention.realm] : [];
     }) : [];
-    const candidates = records.filter((r) => r.kind === 'node' && r.state === 'present' &&
-      [target.realm, ...referenceRealms].some((realm) => sameRealm(r.realm, realm)) &&
+    const candidates = lookup.objects([target.realm, ...referenceRealms]).filter((r) =>
       directSpans(r).every((p) => { const s = queue.source(p.source); return s && s.role !== 'agent'; }));
     const closure = new Map<string, SemanticRecord>(), pending = [target, ...candidates];
-    let missing = false, versions = 0, references = 0;
+    let missing = false, references = 0;
     for (let i = 0; i < pending.length; i++) {
       const r = pending[i]; if (closure.has(r.id)) continue;
       closure.set(r.id, r);
       if (closure.size > 100) { missing = true; break; }
       // 当前版本可能已删去失效分支；只沿当前引用会遗失该分支的纠正，模型便可能从旧原文重新建同义记录。
       // 历史只用来发现依赖身份，送入模型的始终是其当前版本；不恢复旧证明，不改变实际调度依赖。
-      if (!histories.has(r.id)) histories.set(r.id, archive.history(r.id));
-      const history = histories.get(r.id)!; versions += history.length;
-      if (!history.length || versions > 1000) { missing = true; break; }
-      for (const version of history) {
-        for (const ref of recordRefs(version)) {
-          if (++references > 100000) { missing = true; break; }
-          const dependency = current.get(ref.id);
-          if (!dependency || dependency.kind !== ref.kind) { missing = true; continue; }
-          if (!closure.has(dependency.id)) pending.push(dependency);
-        }
-        if (references > 100000) break;
+      const dependencies = lookup.references(r.id, 1001); references += dependencies.length;
+      if (dependencies.length > 1000 || references > 100000) { missing = true; break; }
+      for (const id of dependencies) {
+        const dependency = current.get(id);
+        if (!dependency) { missing = true; continue; }
+        if (!closure.has(id)) pending.push(dependency);
       }
-      if (references > 100000) break;
     }
     const selected = [...closure.values()].sort((a, b) => a.id.localeCompare(b.id));
     const sourceIds = [...new Set(selected.flatMap((r) => directSpans(r).map((s) => s.source)))].sort((a, b) => a - b);
@@ -88,6 +83,10 @@ The host lists newer dependency handles as review candidates, not equivalent ide
     const digest = crypto.createHash('sha256').update(JSON.stringify({ target: target.id, records: selected,
       sources: sources.map((s) => [s.id, s.revision, s.hash]), cause: cause.id })).digest('hex');
     plans.push({ processor: `review-${digest.slice(0, 56)}`, target: target.id, context, prompt });
+    } catch (error) {
+      if (error instanceof WorksetOverflow || error instanceof Error && error.message === '重评对象候选超过工作上限') deferred++;
+      else throw error;
+    }
   }
   // 候选对象是上下文，不是调度依赖。沿实际引用先处理上游；环内没有拓扑序，
   // 使用稳定 ID 次序打破遍历环，仍由版本门禁和调用预算约束，不据排序恢复证据。
@@ -96,12 +95,13 @@ The host lists newer dependency handles as review candidates, not equivalent ide
     if (visited.has(id)) return;
     visited.add(id);
     const record = current.get(id);
-    if (record) for (const ref of recordRefs(record).sort((a, b) => a.id.localeCompare(b.id))) visit(ref.id);
+    if (record) for (const ref of recordRefs(record).sort((a, b) => a.id.localeCompare(b.id))) if (byTarget.has(ref.id)) visit(ref.id);
     const plan = byTarget.get(id);
     if (plan) ordered.push(plan);
   };
   for (const id of [...byTarget.keys()].sort()) visit(id);
   return { plans: ordered, deferred };
+  });
 }
 
 /** 调用者在与灵魂同步互斥的锁内提供 exclusive；模型调用期间释放锁。

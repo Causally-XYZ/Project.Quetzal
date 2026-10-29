@@ -7,6 +7,7 @@ import { AdaptiveGraph } from './adaptive-graph.ts';
 import { ARTIFACT_ID, artifactDigest, parseArtifact, type ArtifactInput, type MemoryArtifact } from './adaptive-artifact.ts';
 import { publicationRoot, readPublication } from './adaptive-publication.ts';
 import { semanticSchema, type SemanticBatch, type SourceReader } from './adaptive-evidence.ts';
+import type { AdaptiveLookup } from './adaptive-lookup.ts';
 import type { SemanticNeighbors } from './adaptive-query.ts';
 
 export interface ArchiveCheckpoint { generation: number; artifact: string; digest: string }
@@ -30,66 +31,52 @@ export class AdaptiveArchive {
   }
 
   refresh(): void {
-    const artifacts = new Map<string, MemoryArtifact>();
-    let bytes = 0;
-    const put = (artifact: MemoryArtifact) => {
-      if (artifacts.has(artifact.id)) return;
-      bytes += Buffer.byteLength(JSON.stringify(artifact));
-      if (bytes > 64 * 1024 * 1024 || artifacts.size >= 10000) throw new Error('认识存档超过工作上限');
-      artifacts.set(artifact.id, artifact);
-    };
-    let exists = true;
-    for (const dir of [this.soul, path.join(this.soul, 'notes'), path.join(this.soul, 'notes', 'QuetzalMemory'), publicationRoot(this.soul)]) {
-      try {
-        const st = fs.lstatSync(dir);
-        if (!st.isDirectory() || st.isSymbolicLink()) throw new Error('认识存档目录不合法');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        exists = false; break;
+    const soul = this.soul, queue = this.queue;
+    // 枚举与核验仍覆盖完整权威链，但不保留全体结果正文或全图的 JS Map。
+    function* artifacts(): Generator<MemoryArtifact> {
+      let exists = true;
+      for (const dir of [soul, path.join(soul, 'notes'), path.join(soul, 'notes', 'QuetzalMemory'), publicationRoot(soul)]) {
+        try { const st = fs.lstatSync(dir); if (!st.isDirectory() || st.isSymbolicLink()) throw new Error('认识存档目录不合法'); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; exists = false; break; }
       }
-    }
-    if (exists) {
+      if (exists) {
+        let count = 0; const dir = fs.opendirSync(publicationRoot(soul));
+        try {
+          for (let entry = dir.readSync(); entry; entry = dir.readSync()) {
+            if (++count > 10000) throw new Error('认识存档枚举超过工作上限');
+            if (entry.name.endsWith('.tmp')) continue;
+            if (!entry.name.endsWith('.md')) throw new Error('认识存档包含未知文件');
+            const id = entry.name.slice(0, -3);
+            if (!ARTIFACT_ID.test(id)) throw new Error('认识存档包含未知文件');
+            const artifact = readPublication(soul, id, queue.agent);
+            if (semanticSchema(artifact.payload.schema)) yield artifact;
+          }
+        } finally { dir.closeSync(); }
+      }
       let count = 0;
-      // opendir 逐项枚举，避免一次读入任意大的目录；临时文件不属于权威结果。
-      const dir = fs.opendirSync(publicationRoot(this.soul));
-      try {
-        for (let entry = dir.readSync(); entry; entry = dir.readSync()) {
-          if (++count > 10000) throw new Error('认识存档枚举超过工作上限');
-          if (entry.name.endsWith('.tmp')) continue;
-          const id = entry.name.endsWith('.md') ? entry.name.slice(0, -3) : '';
-          if (!ARTIFACT_ID.test(id)) throw new Error('认识存档包含未知文件');
-          const artifact = readPublication(this.soul, id, this.queue.agent);
-          if (semanticSchema(artifact.payload.schema)) put(artifact);
+      for (const row of queue.db.prepare('SELECT id,document,digest,state,published,error FROM adaptive_publications').iterate()) {
+        if (++count > 10000) throw new Error('认识发件箱核对超过工作上限');
+        if (typeof row.document !== 'string' || typeof row.id !== 'string') throw new Error('认识发件箱格式不合法');
+        const artifact = parseArtifact(row.document, queue.agent);
+        if (!semanticSchema(artifact.payload.schema)) continue;
+        if (artifact.id !== row.id || artifactDigest(row.document) !== row.digest) throw new Error('认识发件箱完整性不符');
+        if (exists && fs.existsSync(path.join(publicationRoot(soul), `${row.id}.md`))) {
+          if (artifactDigest(JSON.stringify(readPublication(soul, row.id, queue.agent))) !== row.digest)
+            throw new Error('认识文件与已接受结果不同');
+        } else {
+          if (row.published !== null || row.state === 'published' || row.state === 'written' || row.error === 'conflict') throw new Error('已交付认识文件缺失');
+          yield artifact;
         }
-      } finally { dir.closeSync(); }
-    }
-    const local = this.queue.db.prepare('SELECT id,document,digest,state,published,error FROM adaptive_publications').iterate();
-    let localCount = 0;
-    for (const row of local) {
-      if (++localCount > 10000) throw new Error('认识发件箱核对超过工作上限');
-      if (typeof row.document !== 'string' || typeof row.id !== 'string') throw new Error('认识发件箱格式不合法');
-      const artifact = parseArtifact(row.document, this.queue.agent);
-      if (!semanticSchema(artifact.payload.schema)) continue;
-      if (artifact.id !== row.id || artifactDigest(row.document) !== row.digest) throw new Error('认识发件箱完整性不符');
-      const file = artifacts.get(row.id);
-      if (file && artifactDigest(JSON.stringify(file)) !== row.digest) throw new Error('认识文件与已接受结果不同');
-      if (!file) {
-        if (row.published !== null || row.state === 'published' || row.state === 'written' || row.error === 'conflict') throw new Error('已交付认识文件缺失');
-        // 尚未安装的结果仍由发件箱恢复。冲突失败不能借发件箱绕过现场文件。
-        if (exists && fs.existsSync(path.join(publicationRoot(this.soul), `${row.id}.md`))) throw new Error('认识文件类型与已接受结果不同');
-        put(artifact);
       }
     }
-    if (this.minimum) {
-      const head = artifacts.get(this.minimum.artifact);
-      if (!head || artifactDigest(JSON.stringify(head)) !== this.minimum.digest ||
-          (head.payload.data as SemanticBatch).baseGeneration + 1 !== this.minimum.generation) throw new Error('认识存档未达到备份检查点');
-    }
-    this.graph.rebuild([...artifacts.values()]);
+    this.graph.rebuild(artifacts(), this.minimum);
   }
 
   generation(): number { this.refresh(); return this.graph.generation(); }
   current() { this.refresh(); return this.graph.current(); }
+  readLocal<T>(read: (lookup: Pick<AdaptiveLookup, 'get' | 'page' | 'search' | 'recent' | 'sourceOwners' | 'references' | 'dependents' | 'matches' | 'neighbors' | 'objects' | 'reviewTargets'>, generation: number) => T): T {
+    this.refresh(); return this.graph.readLocal(read);
+  }
   history(id: string) { this.refresh(); return this.graph.history(id); }
   assess(read?: SourceReader) { this.refresh(); return this.graph.assess(read); }
   supportedClaims(read?: SourceReader) { this.refresh(); return this.graph.supportedClaims(read); }

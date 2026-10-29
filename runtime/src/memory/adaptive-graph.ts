@@ -5,15 +5,19 @@ import { artifactDigest, artifactDocument, type ArtifactInput, type MemoryArtifa
 import { SEMANTIC_SCHEMA, LEGACY_SEMANTIC_SCHEMA, semanticSchema, realmBoundRefs, validateBatch, validateRecord, directSpans, recordRefs, spanCurrent, sameRealm,
   evaluateEvidence, type SemanticBatch, type SemanticRecord, type SourceReader, type ClaimRecord } from './adaptive-evidence.ts';
 import { sourceReading } from './adaptive-reading.ts';
-import { selectSemantic, semanticBasis, semanticCandidates, type SemanticNeighbors } from './adaptive-query.ts';
+import { selectSemantic, semanticBasis, semanticCandidates, semanticDigest, type SemanticNeighbors } from './adaptive-query.ts';
 import crypto from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { AdaptiveLookup } from './adaptive-lookup.ts';
+import { LocalClosure, WorksetOverflow } from './adaptive-workset.ts';
+import { tokens } from '../../../engine/src/retrieval.ts';
 
 // 只缓存一次完整重放的见证，不缓存来源可见性或依据状态。连接释放后自动回收。
 const verified = new WeakMap<DatabaseSync, { agent: string; artifacts: string; projection: string }>();
 
 export class AdaptiveGraph {
   readonly queue: AdaptiveStore;
+  readonly lookup: AdaptiveLookup;
   constructor(queue: AdaptiveStore) {
     this.queue = queue;
     const db = queue.db;
@@ -45,6 +49,10 @@ export class AdaptiveGraph {
     } catch (error) {
       db.exec('ROLLBACK TO adaptive_graph_schema'); db.exec('RELEASE adaptive_graph_schema'); throw error;
     }
+    this.lookup = new AdaptiveLookup(db);
+    db.exec('SAVEPOINT adaptive_lookup_schema');
+    try { this.lookup.ensure(this.generation()); db.exec('RELEASE adaptive_lookup_schema'); }
+    catch (error) { db.exec('ROLLBACK TO adaptive_lookup_schema'); db.exec('RELEASE adaptive_lookup_schema'); throw error; }
   }
 
   generation(): number {
@@ -59,16 +67,34 @@ export class AdaptiveGraph {
   }
 
   history(id: string): SemanticRecord[] {
-    return (this.queue.db.prepare('SELECT document FROM adaptive_graph_records WHERE id=? ORDER BY revision').all(id) as { document: string }[])
-      .map((r) => { const value: unknown = JSON.parse(r.document); validateRecord(value); return value; });
+    const result: SemanticRecord[] = [];
+    for (const row of this.queue.db.prepare('SELECT document FROM adaptive_graph_records WHERE id=? ORDER BY revision').iterate(id)) {
+      if (result.length >= 1000) throw new Error('认识单目标历史超过工作上限');
+      const value: unknown = JSON.parse(String(row.document)); validateRecord(value); result.push(value);
+    }
+    return result;
   }
 
   readSources(ids: number[], read: SourceReader = (id) => this.queue.source(id)) {
     return this.snapshot(() => {
+      if (ids.length > 1000 || ids.some((id) => !Number.isSafeInteger(id) || id < 1)) throw new Error('原文修订读取超过范围');
+      const affected = new Set<string>(), pending = [...new Set(ids.flatMap((id) => this.lookup.sourceOwners(id, 1001)))];
+      for (let i = 0; i < pending.length; i++) {
+        const id = pending[i]; if (affected.has(id)) continue;
+        if (affected.size >= 1000) throw new Error('原文修订目标超过工作上限');
+        affected.add(id); pending.push(...this.lookup.dependents(id, 1001).filter((next) => !affected.has(next)));
+        if (pending.length > 10000) throw new Error('原文修订依赖超过工作上限');
+      }
+      // 先找到受影响的下游，再补其前提；不能从共同前提反向扩展到所有无关分支。
+      const selected = new Set(affected), dependencies = [...affected];
+      for (let i = 0; i < dependencies.length; i++) for (const next of this.lookup.references(dependencies[i], 1001)) {
+        if (selected.has(next)) continue;
+        if (selected.size >= 1000) throw new Error('原文修订依据超过工作上限');
+        selected.add(next); dependencies.push(next);
+      }
       const history: SemanticRecord[] = [];
-      for (const row of this.queue.db.prepare('SELECT document FROM adaptive_graph_records ORDER BY id,revision').iterate()) {
-        if (history.length >= 10000) throw new Error('认识历史读取超过工作上限');
-        const r: unknown = JSON.parse(String(row.document)); validateRecord(r); history.push(r);
+      for (const id of selected) for (const r of this.history(id)) {
+        if (history.length >= 10000) throw new Error('认识历史读取超过工作上限'); history.push(r);
       }
       return sourceReading(history, ids, this.generation(), read, (id) => this.queue.source(id));
     });
@@ -77,7 +103,17 @@ export class AdaptiveGraph {
   /** 宿主先把 LLM 提案规范化成带宿主 ID 的批次；不能把模型输出直接当批次使用。 */
   accept(job: MemoryJob, inputs: ArtifactInput[], batch: SemanticBatch, now = Date.now()): boolean {
     validateBatch(batch);
-    return this.queue.acceptResult(job, inputs, { schema: SEMANTIC_SCHEMA, data: batch }, now, (artifact) => this.install(artifact));
+    const witness = verified.get(this.queue.db);
+    const trusted = witness?.agent === this.queue.agent && witness.projection === this.projectionDigest();
+    const accepted = this.queue.acceptResult(job, inputs, { schema: SEMANTIC_SCHEMA, data: batch }, now, (artifact) => this.install(artifact));
+    // 经过已核验快照接受的局部增量不必全链重放。事务回滚后摘要会不匹配。
+    if (accepted && trusted) {
+      const hash = crypto.createHash('sha256');
+      for (const row of this.queue.db.prepare('SELECT digest FROM adaptive_graph_batches ORDER BY generation').iterate()) hash.update(String(row.digest));
+      const projection = this.projectionDigest();
+      if (projection) verified.set(this.queue.db, { agent: this.queue.agent, artifacts: hash.digest('hex'), projection });
+    }
+    return accepted;
   }
 
   /** 模型判断无需修改也必须锁定读取快照，不能把过期的“无需处理”记为完成。 */
@@ -87,15 +123,22 @@ export class AdaptiveGraph {
       inputs.every((i) => this.queue.source(i.id, i.revision)?.hash === i.hash));
   }
 
-  private install(artifact: MemoryArtifact, replay = false, replayState?: Map<string, SemanticRecord>): boolean {
+  private install(artifact: MemoryArtifact, replay = false): boolean {
     const batch = artifact.payload.data; validateBatch(batch);
     if (artifact.payload.schema === LEGACY_SEMANTIC_SCHEMA && batch.records.some((r) => Object.hasOwn(r, 'references'))) return false;
     if (!semanticSchema(artifact.payload.schema) || artifact.agent !== this.queue.agent || batch.baseGeneration !== this.generation()) return false;
-    const previous = replayState ?? new Map(this.current().map((r) => [r.id, r]));
+    const previous = new Map<string, SemanticRecord | undefined>();
+    const oldRecord = (id: string) => {
+      if (!previous.has(id)) {
+        if (previous.size >= 1000) throw new Error('认识补丁依赖超过工作上限');
+        previous.set(id, this.lookup.get(id));
+      }
+      return previous.get(id);
+    };
     const patch = new Map<string, SemanticRecord>();
-    const next = (id: string) => patch.get(id) ?? previous.get(id);
+    const next = (id: string) => patch.get(id) ?? oldRecord(id);
     for (const r of batch.records) {
-      const old = previous.get(r.id);
+      const old = oldRecord(r.id);
       if (r.revision !== (old?.revision ?? 0) + 1 || old && (old.kind !== r.kind || r.kind === 'node' && !sameRealm(old.realm, r.realm))) return false;
       patch.set(r.id, r);
     }
@@ -130,9 +173,12 @@ export class AdaptiveGraph {
     if (!batch.records.every(checkInputs)) return false;
     this.queue.db.prepare('INSERT INTO adaptive_graph_batches VALUES(?,?,?)').run(artifact.id, batch.baseGeneration + 1, artifactDigest(JSON.stringify(artifact)));
     const insert = this.queue.db.prepare('INSERT INTO adaptive_graph_records VALUES(?,?,?,?,?)');
-    for (const r of batch.records) insert.run(r.id, r.revision, r.kind, JSON.stringify(r), artifact.id);
+    for (const r of batch.records) {
+      insert.run(r.id, r.revision, r.kind, JSON.stringify(r), artifact.id);
+      this.lookup.put(r, batch.baseGeneration + 1);
+    }
     this.queue.db.prepare('UPDATE adaptive_graph_meta SET generation=generation+1 WHERE singleton=1').run();
-    if (replayState) for (const r of batch.records) replayState.set(r.id, r);
+    this.lookup.mark(batch.baseGeneration + 1);
     return true;
   }
 
@@ -141,7 +187,12 @@ export class AdaptiveGraph {
     const hash = crypto.createHash('sha256'); let rows = 0, bytes = 0;
     for (const sql of ['SELECT singleton,version,generation FROM adaptive_graph_meta ORDER BY singleton',
       'SELECT artifact,generation,digest FROM adaptive_graph_batches ORDER BY generation',
-      'SELECT id,revision,kind,document,artifact FROM adaptive_graph_records ORDER BY id,revision']) {
+      'SELECT id,revision,kind,document,artifact FROM adaptive_graph_records ORDER BY id,revision',
+      'SELECT singleton,generation FROM adaptive_lookup_meta ORDER BY singleton',
+      'SELECT id,revision,generation,kind,world,realm,state FROM adaptive_lookup_heads ORDER BY id',
+      'SELECT term,id,weight FROM adaptive_lookup_terms ORDER BY term,id',
+      'SELECT owner,revision,source FROM adaptive_lookup_sources ORDER BY owner,revision,source',
+      'SELECT owner,revision,target,kind FROM adaptive_lookup_refs ORDER BY owner,revision,target,kind']) {
       hash.update(sql);
       for (const row of this.queue.db.prepare(sql).iterate()) {
         const text = JSON.stringify(row); bytes += Buffer.byteLength(text);
@@ -156,45 +207,54 @@ export class AdaptiveGraph {
   /** 从完整权威结果链重建；来源可能已改动 / 尚未复制，由读取时的 hash 门禁决定可用性。
    * 已见结果的缺失或修改不得静默回退到旧认识。调用者失败时必须停止使用旧投影。
    */
-  rebuild(artifacts: MemoryArtifact[]): void {
-    const candidates = new Map<string, MemoryArtifact>();
-    let bytes = 0;
-    if (artifacts.length > 10000) throw new Error('认识重建超过工作上限');
-    for (const artifact of artifacts) {
-      const document = artifactDocument(artifact);
-      bytes += Buffer.byteLength(document);
-      if (bytes > 64 * 1024 * 1024) throw new Error('认识重建超过工作上限');
-      if (artifact.agent !== this.queue.agent || !semanticSchema(artifact.payload.schema) || candidates.has(artifact.id))
-        throw new Error('认识重建结果身份或格式不合法');
-      validateBatch(artifact.payload.data);
-      candidates.set(artifact.id, artifact);
-    }
-    const ordered = [...candidates.values()].sort((a, b) =>
-      (a.payload.data as SemanticBatch).baseGeneration - (b.payload.data as SemanticBatch).baseGeneration);
-    const digest = crypto.createHash('sha256');
-    for (const artifact of ordered) digest.update(artifactDigest(JSON.stringify(artifact)));
-    const artifactsDigest = digest.digest('hex');
-    this.queue.db.exec('SAVEPOINT adaptive_graph_rebuild');
+  rebuild(artifacts: Iterable<MemoryArtifact>, minimum?: { artifact: string; generation: number; digest: string }): void {
+    const db = this.queue.db;
+    // 外部工作区交给 SQLite 的 B-tree / 排序器；JS 每次只持有一份结果。
+    db.exec(`CREATE TEMP TABLE IF NOT EXISTS adaptive_replay_stage(id TEXT PRIMARY KEY,generation INTEGER NOT NULL,digest TEXT NOT NULL,document TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS temp.adaptive_replay_order ON adaptive_replay_stage(generation,id);
+      DELETE FROM adaptive_replay_stage`);
+    let count = 0, bytes = 0;
     try {
-      const cached = verified.get(this.queue.db);
-      if (cached?.agent === this.queue.agent && cached.artifacts === artifactsDigest && cached.projection === this.projectionDigest()) {
-        this.queue.db.exec('RELEASE adaptive_graph_rebuild'); return;
+      const insert = db.prepare('INSERT INTO adaptive_replay_stage VALUES(?,?,?,?)');
+      for (const artifact of artifacts) {
+        const document = artifactDocument(artifact); bytes += Buffer.byteLength(document);
+        if (++count > 10000 || bytes > 64 * 1024 * 1024) throw new Error('认识重建超过工作上限');
+        if (artifact.agent !== this.queue.agent || !semanticSchema(artifact.payload.schema) ||
+            db.prepare('SELECT 1 FROM adaptive_replay_stage WHERE id=?').get(artifact.id)) throw new Error('认识重建结果身份或格式不合法');
+        validateBatch(artifact.payload.data);
+        insert.run(artifact.id, artifact.payload.data.baseGeneration, artifactDigest(document), document);
       }
-      const known = this.queue.db.prepare('SELECT artifact,digest FROM adaptive_graph_batches').all() as { artifact: string; digest: string }[];
-      for (const row of known) {
-        const artifact = candidates.get(row.artifact);
-        if (!artifact || artifactDigest(JSON.stringify(artifact)) !== row.digest) throw new Error('已知认识结果缺失或改变');
+      if (minimum) {
+        const head = db.prepare('SELECT generation,digest FROM adaptive_replay_stage WHERE id=?').get(minimum.artifact);
+        if (!head || Number(head.generation) + 1 !== minimum.generation || head.digest !== minimum.digest)
+          throw new Error('认识存档未达到备份检查点');
       }
-      this.queue.db.exec('DELETE FROM adaptive_graph_records; DELETE FROM adaptive_graph_batches; UPDATE adaptive_graph_meta SET generation=0 WHERE singleton=1');
-      const state = new Map<string, SemanticRecord>();
-      for (const artifact of ordered) if (!this.install(artifact, true, state)) throw new Error('认识结果链不完整或版本冲突');
-      const projection = this.projectionDigest();
-      this.queue.db.exec('RELEASE adaptive_graph_rebuild');
-      if (projection) verified.set(this.queue.db, { agent: this.queue.agent, artifacts: artifactsDigest, projection });
-      else verified.delete(this.queue.db); // 缓存核对上限不能收紧原有存档格式的接受范围。
-    } catch (error) {
-      this.queue.db.exec('ROLLBACK TO adaptive_graph_rebuild'); this.queue.db.exec('RELEASE adaptive_graph_rebuild'); throw error;
-    }
+      const digest = crypto.createHash('sha256');
+      for (const row of db.prepare('SELECT digest FROM adaptive_replay_stage ORDER BY generation,id').iterate()) digest.update(String(row.digest));
+      const artifactsDigest = digest.digest('hex');
+      db.exec('SAVEPOINT adaptive_graph_rebuild');
+      try {
+        const cached = verified.get(db);
+        if (cached?.agent === this.queue.agent && cached.artifacts === artifactsDigest && cached.projection === this.projectionDigest()) {
+          db.exec('RELEASE adaptive_graph_rebuild'); return;
+        }
+        if (db.prepare(`SELECT 1 FROM adaptive_graph_batches b LEFT JOIN adaptive_replay_stage s ON s.id=b.artifact
+          WHERE s.id IS NULL OR s.digest<>b.digest LIMIT 1`).get()) throw new Error('已知认识结果缺失或改变');
+        db.exec('DELETE FROM adaptive_graph_records; DELETE FROM adaptive_graph_batches; UPDATE adaptive_graph_meta SET generation=0 WHERE singleton=1');
+        this.lookup.reset();
+        for (const row of db.prepare('SELECT document FROM adaptive_replay_stage ORDER BY generation,id').iterate()) {
+          const artifact = JSON.parse(String(row.document)) as MemoryArtifact;
+          if (!this.install(artifact, true)) throw new Error('认识结果链不完整或版本冲突');
+        }
+        this.lookup.mark(this.generation());
+        const projection = this.projectionDigest();
+        db.exec('RELEASE adaptive_graph_rebuild');
+        if (projection) verified.set(db, { agent: this.queue.agent, artifacts: artifactsDigest, projection });
+        else verified.delete(db);
+      } catch (error) {
+        db.exec('ROLLBACK TO adaptive_graph_rebuild'); db.exec('RELEASE adaptive_graph_rebuild'); throw error;
+      }
+    } finally { db.exec('DELETE FROM adaptive_replay_stage'); }
   }
 
   assess(read: SourceReader = (id) => this.queue.source(id)) {
@@ -202,11 +262,64 @@ export class AdaptiveGraph {
   }
 
   candidates(read: SourceReader = (id) => this.queue.source(id)) {
-    return this.snapshot(() => semanticCandidates(this.current(), read, (id) => this.queue.source(id)));
+    return this.snapshot(() => {
+      const result: ReturnType<typeof semanticCandidates> = [];
+      let after = '';
+      for (;;) {
+        const page = this.lookup.page(after, 32); if (!page.length) break;
+        for (const record of page) {
+          const graph = new LocalClosure(this.lookup, read);
+          try {
+            const records = graph.collect([record.id], false, false);
+            if (!records) continue;
+            const own = semanticCandidates(records, read, (id) => this.queue.source(id)).find((c) => c.item.id === record.id);
+            if (own) result.push(own);
+          } catch (error) { if (!(error instanceof WorksetOverflow)) throw error; }
+          if (result.length > 1000) throw new Error('向量候选超过工作上限');
+        }
+        after = page.at(-1)!.id;
+      }
+      this.lookup.remember(result);
+      return result;
+    });
   }
 
   query(query: string, read: SourceReader = (id) => this.queue.source(id), neighbors?: SemanticNeighbors) {
-    return this.snapshot(() => { const records = this.current(); return { ...selectSemantic(records, query, this.generation(), read, (id) => this.queue.source(id), neighbors), basis: semanticBasis(records, read) }; });
+    return this.snapshot(() => {
+      const dense = neighbors?.queryHash === semanticDigest(query) && neighbors.keys.length <= 1000 &&
+        neighbors.keys.every((key) => /^[a-f0-9]{64}$/.test(key)) ? this.lookup.neighbors(neighbors.keys) : [];
+      const queryTerms = new Set(tokens(query));
+      const pending = [...dense, ...this.lookup.matches(query)];
+      const seen = new Set<string>(), selected = new Map<string, SemanticRecord>(); let matched = 0, expanded = 0;
+      for (let i = 0; i < pending.length && seen.size < 1000; i++) {
+        const id = pending[i]; if (seen.has(id)) continue; seen.add(id);
+        const graph = new LocalClosure(this.lookup, read);
+        try {
+          const records = graph.collect([id], false, false);
+          if (!records) continue;
+          const own = semanticCandidates(records, read, (source) => this.queue.source(source)).find((c) => c.item.id === id);
+          const matches = own && (tokens(`${own.title}\n${own.text}`).some((term) => queryTerms.has(term)) ||
+            neighbors?.queryHash === semanticDigest(query) && neighbors.keys.includes(own.key));
+          if (own && matches) {
+            matched++;
+            // 有界候选进入最终重排；计数遍历不保留所有候选正文。
+            if (matched <= 64) for (const r of records) selected.set(r.id, r);
+          }
+          if (expanded < 1000) {
+            const next = this.lookup.dependents(id, Math.min(64, 1000 - expanded));
+            expanded += next.length; pending.push(...next);
+          }
+        } catch (error) { if (!(error instanceof WorksetOverflow)) throw error; }
+      }
+      const records = [...selected.values()];
+      const result = selectSemantic(records, query, this.generation(), read, (id) => this.queue.source(id), neighbors);
+      const used = new LocalClosure(this.lookup, read).collect(result.items.map((item) => item.id), false, false) ?? [];
+      return { ...result, matched: Math.max(result.matched, matched), basis: semanticBasis(used, read) };
+    });
+  }
+
+  readLocal<T>(read: (lookup: Pick<AdaptiveLookup, 'get' | 'page' | 'search' | 'recent' | 'sourceOwners' | 'references' | 'dependents' | 'matches' | 'neighbors' | 'objects' | 'reviewTargets'>, generation: number) => T): T {
+    return this.snapshot(() => read(this.lookup, this.generation()));
   }
 
   private snapshot<T>(read: () => T): T {

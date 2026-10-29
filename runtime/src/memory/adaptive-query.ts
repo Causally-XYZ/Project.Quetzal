@@ -11,6 +11,7 @@ export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported' | 'c
   references?: { role: string; mention: ClaimRecord['participants'][number]['mention']; realm: Realm; object: { id: string; revision: number; name: string } }[] }
   | { kind: 'mention'; status: 'ambiguous'; anchor: SourceSpan; unknown: boolean;
     candidates: { id: string; revision: number; name: string }[] });
+/** matched是本次有界检索检查的有效候选数，不承诺全库穷举；basis只锁定实际输出及其依赖。 */
 export interface SemanticSelection { generation: number; items: SemanticItem[]; matched: number }
 export interface SemanticBasis { records: { id: string; revision: number; hash: string }[]; sources: { id: number; hash: string | null }[] }
 export const semanticDigest = (value: unknown) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');

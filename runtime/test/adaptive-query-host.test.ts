@@ -117,7 +117,9 @@ test('上下文准备的词面与向量排名切换不使有效依据的正常�
   try {
     await adaptive.refreshAdaptiveRetrieval(); assert.equal(keys.length, 1);
     const dense = await adaptive.queryAdaptiveSemantic('涮肉同行者'), lexical = await adaptive.queryAdaptiveSemantic('涮肉同行者');
-    assert.notDeepEqual(dense.items, lexical.items); assert.deepEqual(dense.basis, lexical.basis); queries = 0;
+    assert.notDeepEqual(dense.items, lexical.items);
+    assert.ok(dense.items.length > 0 && dense.items.every((item) => dense.basis.records.some((r) => r.id === item.id && r.revision === item.revision)));
+    queries = 0;
     const reply = await brain.converse('合成用户', '涮肉同行者', '控制台', { conv: 'ranking-switch-chat', local: true }); markBusy(true);
     assert.equal(reply, '候选排名变化不阻断有效资料');
     assert.equal(seen.length, 1); assert.ok(queries >= 2);

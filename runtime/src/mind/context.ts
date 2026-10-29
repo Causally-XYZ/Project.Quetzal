@@ -41,7 +41,8 @@ const readingKey = (view: SourceReading, ids = view.sources.map((s) => s.id)) =>
 };
 // 排名可能因向量超时降级而变化；复核依据，不要求再次检索选中相同候选。
 // 暂保留完整图依据的保守核查，真实来源 / 认识变化仍会触发重建。
-const semanticBasisKey = ({ agent, host, status, freshness, basis }: SemanticMemoryReading) => JSON.stringify({ agent, host, status, freshness, basis });
+// 局部候选可随排名变化；图修订由generation核对，已选全部来源由historyReading重核。
+const semanticBasisKey = ({ agent, host, status, freshness, generation }: SemanticMemoryReading) => JSON.stringify({ agent, host, status, freshness, generation });
 function summaryBasis(value: unknown): SummaryBasis | undefined {
   const b = value as SummaryBasis | null;
   return b && Array.isArray(b.sources) && b.sources.length <= 1000 && b.sources.every((id) => Number.isSafeInteger(id) && id > 0) &&
@@ -195,7 +196,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[], fre
         // 摘要模型等待期间可能接受新的纠正；返回主模型前重核一次，最多重建一次。
         for (let attempt = 0; attempt < 2; attempt++) {
           const semantic = await queryAdaptiveSemantic(context.query, signal);
-          const semanticSources = [...new Set(semantic.items.flatMap((item) => item.roots.map((s) => s.id)))];
+          const semanticSources = [...new Set([...semantic.items.flatMap((item) => item.roots.map((s) => s.id)), ...semantic.basis.sources.map((s) => s.id)])];
           const reading = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources);
           const preparedKey = JSON.stringify([reading.key, semantic]);
           if (preparedKey !== lastReadingKey) manager.invalidateSummaries();
