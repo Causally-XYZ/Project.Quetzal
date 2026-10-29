@@ -9,9 +9,17 @@ export interface ReadDocument { kind: 'note' | 'record' | 'document' | 'message'
 export interface ReadReceipt {
   version: 1; agent: string; body: string; conv: string; tool: string; resultHash: string; checked: boolean;
   sources: { id: number; hash: string | null; stateHash?: string }[]; documents: ReadDocument[];
+  presentation?: { kind: 'chat-recall-v1'; headerEnd: number };
 }
-interface Capture { checked: boolean; invalid: boolean; sources: Map<number, { hash: string | null; stateHash: string }>; documents: Map<string, ReadDocument> }
+interface Capture { checked: boolean; invalid: boolean; sources: Map<number, { hash: string | null; stateHash: string }>; documents: Map<string, ReadDocument>;
+  presentation?: { resultHash: string; headerEnd: number } }
 const captures = new AsyncLocalStorage<Capture>();
+/** 仅记录宿主生成的展示分段；最终脱敏或包装改变字符串时不沿用位置。 */
+export function observeRecallPresentation(text: string, headerEnd: number): void {
+  const capture = captures.getStore(); if (!capture) return;
+  if (!Number.isSafeInteger(headerEnd) || headerEnd <= 0 || headerEnd >= text.length) throw new Error('召回展示分段不合法');
+  capture.presentation = { resultHash: readDigest(text), headerEnd };
+}
 export function observeReadSources(view: SourceReading): void {
   const capture = captures.getStore(); if (!capture) return;
   capture.checked = true;
@@ -37,7 +45,10 @@ export async function captureMemoryRead<T extends { text: string; status: string
   return captures.run(capture, async () => {
     const result = await run();
     if (result.status !== 'ok') return result;
-    return { ...result, reading: { version: 1, ...scope, resultHash: readDigest(result.text), checked: capture.checked && !capture.invalid,
+    const resultHash = readDigest(result.text);
+    return { ...result, reading: { version: 1, ...scope, resultHash, checked: capture.checked && !capture.invalid,
+      ...(scope.tool === 'recall' && capture.presentation?.resultHash === resultHash
+        ? { presentation: { kind: 'chat-recall-v1' as const, headerEnd: capture.presentation.headerEnd } } : {}),
       sources: [...capture.sources].map(([id, state]) => ({ id, ...state })), documents: [...capture.documents.values()] } };
   });
 }
@@ -51,5 +62,8 @@ export function parseReadReceipt(value: unknown): ReadReceipt {
     || (s.stateHash !== undefined && !hash(s.stateHash))) || new Set(r.sources.map((s) => s.id)).size !== r.sources.length) fail();
   if (r.documents.some((d) => !d || !['note', 'record', 'document', 'message', 'tool', 'context'].includes(d.kind) || typeof d.key !== 'string' || d.key.length > 2000 || !hash(d.hash))) fail();
   if (new Set(r.documents.map((d) => JSON.stringify([d.kind, d.key]))).size !== r.documents.length) fail();
+  if (r.presentation !== undefined && (!r.presentation || r.tool !== 'recall'
+    || Object.keys(r.presentation).sort().join(',') !== 'headerEnd,kind' || r.presentation.kind !== 'chat-recall-v1'
+    || !Number.isSafeInteger(r.presentation.headerEnd) || r.presentation.headerEnd <= 0)) fail();
   return r;
 }

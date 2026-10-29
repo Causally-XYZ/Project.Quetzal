@@ -285,7 +285,7 @@ export function contextRead(id: string, ref: string, offset = 0, limit = 8000, v
     if (!record) return record;
     // 凭据由宿主以原记录核查；当前修订已在每页头部展示，不再作为正文分页。
     const { call: callId, session, ts, tool, args, result, status, ms } = record;
-    return { call: callId, session, ts, tool, args, result, status, ms };
+    return { call: callId, session, ts, tool, args, result: checked?.readingBody ?? result, status, ms };
   };
   try {
     const pointer = JSON.parse(source) as { toolRef?: { call: string; turn: string }; messageRef?: { id: number; conv: string } };

@@ -1,0 +1,92 @@
+{
+  "kind": "independent-context-bottleneck-discussion",
+  "date": "2026-10-29",
+  "rounds": [
+    {
+      "round": 1,
+      "document": "round-01.md",
+      "sha256": "224f49805b12f6a62fbdb59085dd3db7b1bb17107defa3aab817e592086116db",
+      "requestedModel": "gemini-4-argon",
+      "thinkingLevel": "MEDIUM",
+      "truncated": false,
+      "usage": {
+        "input": 1448,
+        "output": 2952,
+        "total": 4400
+      },
+      "receipts": [
+        {
+          "model": "gemini-4-argon",
+          "versions": [
+            "gemini-4-argon"
+          ],
+          "finish": [
+            "STOP"
+          ],
+          "usage": [
+            {
+              "promptTokenCount": 1448,
+              "candidatesTokenCount": 2952,
+              "thoughtsTokenCount": null,
+              "totalTokenCount": 4400
+            }
+          ],
+          "elapsedMs": 63279,
+          "state": "complete",
+          "phase": "body",
+          "status": 200,
+          "credentialsMs": 1439,
+          "headersMs": 5905,
+          "firstByteMs": 5907,
+          "bytes": 40596,
+          "thinkingLevel": "MEDIUM"
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "document": "round-02.md",
+      "sha256": "c2ce8dcbe08a5a9533b36ac3934e0e90947787656bd894ca5e81427b6c49b452",
+      "requestedModel": "gemini-4-argon",
+      "thinkingLevel": "MEDIUM",
+      "truncated": false,
+      "usage": {
+        "input": 5276,
+        "output": 2533,
+        "total": 7809
+      },
+      "receipts": [
+        {
+          "model": "gemini-4-argon",
+          "versions": [
+            "gemini-4-argon"
+          ],
+          "finish": [
+            "STOP"
+          ],
+          "usage": [
+            {
+              "promptTokenCount": 5276,
+              "candidatesTokenCount": 2533,
+              "thoughtsTokenCount": null,
+              "totalTokenCount": 7809
+            }
+          ],
+          "elapsedMs": 58920,
+          "state": "complete",
+          "phase": "body",
+          "status": 200,
+          "credentialsMs": 7304,
+          "headersMs": 11333,
+          "firstByteMs": 11335,
+          "bytes": 34146,
+          "thinkingLevel": "MEDIUM"
+        }
+      ]
+    }
+  ],
+  "failures": 0,
+  "automaticRetries": 0,
+  "knownTotalTokens": 12209,
+  "scope": "两轮专项讨论，不属于先前五轮开放复审；观点不是产品成绩，原文中的错误不因保存而采纳"
+}

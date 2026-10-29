@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { captureMemoryRead, observeReadSources, observeReadDocument, parseReadReceipt, readDigest } from '../src/memory/read-receipt.ts';
+import { captureMemoryRead, observeReadSources, observeReadDocument, observeRecallPresentation, parseReadReceipt, readDigest } from '../src/memory/read-receipt.ts';
 const scope = { agent: 'synthetic-agent', body: 'reader', conv: 'conv', tool: 'recall' };
 const observe = (id: number) => observeReadSources({ generation: 1, freshness: 'local-snapshot', sources: [{ id, hash: 'a'.repeat(64), notices: [] }] });
 
@@ -46,4 +46,22 @@ test('原文未改但同一次读取的修订状态变化，也拒绝沿用混�
     return { text: 'mixed-reading-state', status: 'ok' };
   });
   assert.equal(result.reading!.checked, false);
+});
+
+test('召回展示位置只绑定最终原样结果，脱敏或包装改变布局即保守回退', async () => {
+  const original = '可信修订头\n原文';
+  for (const text of [original, '可信修订头\n已脱敏', '包装前缀' + original, original + '审核附注']) {
+    const out = await captureMemoryRead(scope, async () => {
+      observe(1); observeRecallPresentation(original, '可信修订头\n'.length);
+      return { text, status: 'ok' };
+    });
+    assert.equal(out.reading!.resultHash, readDigest(text));
+    assert.equal(out.reading!.sources.length, 1); assert.equal(out.reading!.checked, true);
+    assert.deepEqual(out.reading!.presentation, text === original ? { kind: 'chat-recall-v1', headerEnd: 6 } : undefined);
+    assert.doesNotThrow(() => parseReadReceipt(out.reading));
+    for (const presentation of [{ kind: 'unknown', headerEnd: 1 }, { kind: 'chat-recall-v1', headerEnd: -1 },
+      { kind: 'chat-recall-v1', headerEnd: 1.2 }, { kind: 'chat-recall-v1', headerEnd: 1, extra: true }])
+      assert.throws(() => parseReadReceipt({ ...out.reading, presentation }), /损坏/);
+    assert.throws(() => parseReadReceipt({ ...out.reading, tool: 'note_read', presentation: { kind: 'chat-recall-v1', headerEnd: 1 } }), /损坏/);
+  }
 });

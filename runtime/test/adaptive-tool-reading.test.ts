@@ -117,6 +117,128 @@ test('旧工具表自动补列，旧记录不伪造读取凭据', async () => {
   assert.match(views.get(toolReadingKey(old))!.result, /缺少完整来源凭据/);
 });
 
+test('纯聊天召回的短正文不被修订头挤成引用，回查分页只分页业务内容', async (t) => {
+  const conv = 'chat-recall-display', turn = 'chat-recall-display-turn'; store.ensureSession(conv, '合成');
+  const first = store.addMessage('user', '合成', 'VISIBLE_RECALL_BODY：饭友说周五去港口。', { session: conv });
+  const neighbor = store.addMessage('user', '合成', '没有同意代他报名。', { session: conv });
+  queue.schedule();
+  const span = (id: number): SourceSpan => { const s = queue.source(id)!;
+    return { kind: 'source', source: id, hash: s.hash, start: 0, end: s.text.length, quote: s.text }; };
+  const records: ClaimRecord[] = Array.from({ length: 45 }, (_, i) => ({ id: crypto.randomUUID(), revision: 1,
+    kind: 'claim', state: 'present', realm: { world: 'real', context: 'real' }, reasons: [span(first), span(neighbor)],
+    text: `合成待核实线索${i}`, nature: 'hypothesis', participants: [], occurred: { text: '周五', earliest: null, latest: null },
+    valid: { text: '', earliest: null, latest: null }, supports: [{ id: 'conditional', premises: [span(first), span(neighbor)], assumptions: ['尚待核实'] }], counters: [] }));
+  queue.scheduleSource('display-fixture', first);
+  assert.equal(archive.accept(queue.claim('display-fixture')!, [first, neighbor].map((id) => {
+    const s = queue.source(id)!; return { id, revision: s.revision, hash: s.hash };
+  }), { baseGeneration: archive.generation(), records }), true);
+  const { answerDigest, ANSWER_CHANGED, ANSWER_UNBOUND } = await import('../src/memory/answer-basis.ts');
+  store.addMessage('agent', '合成', 'VISIBLE_RECALL_BODY：未经核查的旧答。', { session: conv });
+  const stale = 'VISIBLE_RECALL_BODY：STALE_ANSWER_BODY';
+  store.addMessage('agent', '合成', stale, { session: conv, answerBasis: { version: 1, agent: identity().id,
+    answerHash: answerDigest(stale), consistent: false, sources: [{ id: first, hash: queue.source(first)!.hash, reading: '0'.repeat(64) }] } });
+  const args = { query: 'VISIBLE_RECALL_BODY', scope: 'chats' }, out = await execute('recall', args, turn, conv);
+  const row = store.getToolCall('read-call', turn)!, prepared = prepareToolReadings([row], conv);
+  const view = await withAdaptiveSources(prepared.sources, (current) => prepared.render(current, () => 'BARE_REFERENCE'));
+  const projected = view.get(toolReadingKey(row))!;
+  t.diagnostic(JSON.stringify({ storedCharacters: row.result.length, projectedCharacters: projected.result.length,
+    businessCharacters: projected.readingBody?.length }));
+  assert.ok(row.result.length > 12000, '真实夹具的修订元数据超过首屏预算');
+  assert.ok(!projected.result.includes('BARE_REFERENCE'));
+  assert.match(projected.result, /VISIBLE_RECALL_BODY/); assert.match(projected.result, /没有同意代他报名/);
+  assert.ok(out.reading!.presentation); assert.equal(out.text.split('【记忆修订核对：').length - 1, 1);
+  assert.ok(projected.readingBody!.length < 12000);
+  assert.ok(projected.readingBody!.includes(ANSWER_CHANGED)); assert.ok(projected.readingBody!.includes(ANSWER_UNBOUND));
+  assert.ok(!projected.readingBody!.includes('STALE_ANSWER_BODY'));
+  const json = JSON.parse(out.text.slice(out.text.indexOf('{"sources":'), out.reading!.presentation!.headerEnd - 2));
+  for (const id of [first, neighbor]) {
+    const source = json.sources.find((s: any) => s.id === id);
+    assert.ok(source); assert.ok(source.recordedAt);
+    assert.ok(source.notices.length >= 45);
+    assert.ok(source.notices.every((index: number) => json.notices[index].spans.every((s: any) => s.hash === queue.source(id)!.hash)));
+    assert.ok(projected.readingBody!.includes(`message:${id}`));
+  }
+  const legacy = { ...row, call: 'legacy-display', reading: { ...out.reading, presentation: undefined } };
+  store.saveToolCall(legacy);
+  const oldPrepared = prepareToolReadings([legacy], conv);
+  const oldViews = await withAdaptiveSources(oldPrepared.sources, (current) => oldPrepared.render(current, () => 'OLD_REFERENCE'));
+  assert.match(oldViews.get(toolReadingKey(legacy))!.result, /OLD_REFERENCE/);
+  const invalid = { ...row, call: 'invalid-display', reading: { ...out.reading, presentation: { kind: 'chat-recall-v1', headerEnd: row.result.length } } };
+  store.saveToolCall(invalid); assert.throws(() => prepareToolReadings([invalid], conv), /展示分段/);
+  const context = contextHost.createTurnContext(turn, conv, [{ role: 'user', content: '查原文' }]);
+  store.saveContextSource('display-ref', conv, JSON.stringify({ toolRef: { call: row.call, turn } }));
+  try {
+    let full = '';
+    for (let offset = 0; ; offset += 160) {
+      const page = await contextHost.contextReadChecked(turn, 'display-ref', offset, 160);
+      assert.match(page, /conditional/);
+      const chunk = page.split(/\n\[原文 [^\n]+\n/)[1]; assert.notEqual(chunk, undefined);
+      full += chunk; if (chunk.length < 160) break;
+    }
+    const record = JSON.parse(full);
+    assert.match(record.result, /VISIBLE_RECALL_BODY/); assert.match(record.result, /没有同意代他报名/);
+    assert.ok(!record.result.includes('记忆修订核对'));
+    for (const key of ['call', 'session', 'ts', 'tool', 'args', 'status', 'ms'] as const) assert.deepEqual(record[key], row[key]);
+    configure([{ id: 'large', context: 1048576 }]); seen.length = 0;
+    const messages = toolMessages('recall', args, out.text);
+    await router.chat(await context.prepare({ messages, maxTokens: 256 }));
+    const material = seen.at(-1).messages.find((m: any) => m.role === 'tool').content;
+    assert.match(material, /VISIBLE_RECALL_BODY/); assert.match(material, /没有同意代他报名/);
+    assert.ok(!material.includes('完整工具结果超过首屏预算'));
+    const { captureMemoryRead, observeRecallPresentation } = await import('../src/memory/read-receipt.ts');
+    const longText = out.text + 'LONG_BUSINESS_BODY'.repeat(900);
+    const long = await captureMemoryRead({ agent: identity().id, body: cfg.config.body, conv, tool: 'recall' }, () =>
+      withAdaptiveSources(prepared.sources, () => {
+        observeRecallPresentation(longText, out.reading!.presentation!.headerEnd);
+        return { text: longText, status: 'ok' };
+      }));
+    const longRow = { ...row, call: 'long-business', result: long.text, reading: long.reading };
+    store.saveToolCall(longRow);
+    const longPrepared = prepareToolReadings([longRow], conv);
+    const longViews = await withAdaptiveSources(longPrepared.sources, (current) => longPrepared.render(current, () => 'LONG_REFERENCE'));
+    assert.match(longViews.get(toolReadingKey(longRow))!.result, /LONG_REFERENCE/);
+    assert.ok(!longViews.get(toolReadingKey(longRow))!.result.includes('LONG_BUSINESS_BODY'));
+    store.saveContextSource('long-business-ref', conv, JSON.stringify({ toolRef: { call: longRow.call, turn } }));
+    const laterPage = await contextHost.contextReadChecked(turn, 'long-business-ref', 8000, 800);
+    assert.match(laterPage, /conditional/); assert.match(laterPage, /LONG_BUSINESS_BODY/);
+    // 原消息未改，只更新认识；新展示仍必须替换为完整当前修订。
+    const hash = queue.source(first)!.hash;
+    queue.scheduleSource('display-corrected', first);
+    assert.equal(archive.accept(queue.claim('display-corrected')!, [first, neighbor].map((id) => {
+      const s = queue.source(id)!; return { id, revision: s.revision, hash: s.hash };
+    }), { baseGeneration: archive.generation(), records: [{ ...records[0], revision: 2, text: '新的有效时间说明',
+      supports: [{ id: 'now-grounded', premises: [span(first), span(neighbor)], assumptions: [] }] }] }), true);
+    assert.equal(queue.source(first)!.hash, hash);
+    const revised = await withAdaptiveSources(prepared.sources, (current) => prepared.render(current));
+    assert.match(revised.get(toolReadingKey(row))!.result, /新的有效时间说明/);
+    assert.match(await contextHost.contextReadChecked(turn, 'display-ref', 400, 80), /新的有效时间说明/);
+    store.db.prepare("UPDATE messages SET mode='ignored' WHERE id=?").run(first);
+    try {
+      const hidden = await contextHost.contextReadChecked(turn, 'display-ref', 0, 8000);
+      const body = JSON.parse(hidden.split(/\n\[原文 [^\n]+\n/)[1]).result;
+      assert.ok(!body.includes('VISIBLE_RECALL_BODY')); assert.match(body, /不输出旧正文/);
+    } finally { store.db.prepare('UPDATE messages SET mode=NULL WHERE id=?').run(first); }
+    assert.deepEqual(store.getToolCall(row.call, turn), row);
+  } finally { context.close(); }
+});
+
+test('召回正文中央脱敏后不沿用分段；混合文档保留原读取路径', async () => {
+  const conv = 'recall-layout-fallback'; store.ensureSession(conv, '合成');
+  const secret = 'SYNTHETIC_RECALL_PRIVATE_123456';
+  const secrets = await import('../src/mind/secrets.ts');
+  secrets.saveSecret('recall-layout', secret);
+  store.addMessage('user', '合成', `REDACTION_LAYOUT_SAMPLE ${secret}`, { session: conv });
+  const redacted = await execute('recall', { query: 'REDACTION_LAYOUT_SAMPLE', scope: 'chats' }, 'redacted-layout', conv);
+  assert.equal(redacted.reading!.presentation, undefined);
+  assert.ok(!redacted.text.includes(secret)); assert.match(redacted.text, /secret:recall-layout/);
+  store.addMessage('user', '合成', 'MIXED_LAYOUT_SAMPLE 对话资料', { session: conv });
+  mem.editMemory('memory', 'add', 'MIXED_LAYOUT_SAMPLE 常驻文档');
+  const mixed = await execute('recall', { query: 'MIXED_LAYOUT_SAMPLE' }, 'mixed-layout', conv);
+  assert.match(mixed.text, /对话资料/); assert.match(mixed.text, /常驻文档/);
+  assert.equal(mixed.reading!.presentation, undefined);
+  assert.ok(mixed.reading!.documents.some((d) => d.kind === 'document'));
+});
+
 test('实际笔记工具凭据持久化，下一步模型看到新纠正而原执行记录不改', async () => {
   configure([{ id: 'large', context: 131072 }]); seen.length = 0;
   const conv = 'tool-correct', turn = 'tool-correct-turn', f = fixture(conv);

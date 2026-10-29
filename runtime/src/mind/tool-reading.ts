@@ -9,13 +9,14 @@ import { memoryKey } from '../../../engine/src/memory.ts';
 import { MEMORY_READ_TOOLS, parseReadReceipt, readDigest, observeReadDocument, type ReadDocument } from '../memory/read-receipt.ts';
 import { sourceReadingsHeader, type SourceReading } from '../memory/adaptive-reading.ts';
 
-export interface ToolReading extends ToolCallRow { currentReading: string }
+export interface ToolReading extends ToolCallRow { currentReading: string; readingBody?: string }
 export const toolReadingKey = (row: Pick<ToolCallRow, 'call' | 'session'>) => JSON.stringify([row.session, row.call]);
 export function prepareToolReadings(records: ToolCallRow[], conv: string) {
   const prepared = records.filter((r) => MEMORY_READ_TOOLS.has(r.tool) && r.status === 'ok').map((record) => {
     const receipt = record.reading === undefined ? undefined : parseReadReceipt(record.reading);
     if (receipt && (receipt.agent !== identity().id || receipt.body !== config.body || receipt.conv !== conv || receipt.tool !== record.tool || receipt.resultHash !== readDigest(record.result)))
       throw new Error('工具来源凭据与调用或当前会话不匹配');
+    if (receipt?.presentation && receipt.presentation.headerEnd >= record.result.length) throw new Error('工具展示分段超出原结果');
     return { record, receipt };
   });
   return {
@@ -46,7 +47,7 @@ export function prepareToolReadings(records: ToolCallRow[], conv: string) {
       };
       return new Map(prepared.map(({ record, receipt }) => {
         if (JSON.stringify(getToolCall(record.call, record.session)) !== JSON.stringify(record)) throw new Error('工具执行记录在读取期间已改变');
-        let result: string, currentReading: string;
+        let result: string, currentReading: string, readingBody: string | undefined;
         if (!receipt?.checked) currentReading = result = '【历史记忆工具结果缺少完整来源凭据；不沿用旧正文，请重新读取原资料。调用成功只表示当时执行成功。】';
         else {
           let changed = receipt.sources.some((s) => !s.hash || sources.get(s.id)?.hash !== s.hash);
@@ -60,14 +61,17 @@ export function prepareToolReadings(records: ToolCallRow[], conv: string) {
           // 旧凭据缺 stateHash，仍走完整修订投影，不把缺失当成未变化。
           const sameReading = !changed && receipt.sources.every((s) => s.stateHash && s.stateHash === readDigest(sources.get(s.id)));
           const headers = sourceReadingsHeader(view, receipt.sources.filter((s) => sources.get(s.id)?.hash).map((s) => s.id));
-          const body = changed ? '【原消息或文档已改变 / 不可访问；此结果没有逐句依赖映射，不输出旧正文，请重新读取相关资料。】'
-            : reference && record.tool !== 'context_read' && record.result.length > 12000 ? `【完整工具结果超过首屏预算；没有截断修订后保留片段。请回查：${reference(record)}】` : record.result;
+          const originalBody = receipt.presentation ? record.result.slice(receipt.presentation.headerEnd) : record.result;
+          const checkedBody = changed ? '【原消息或文档已改变 / 不可访问；此结果没有逐句依赖映射，不输出旧正文，请重新读取相关资料。】' : originalBody;
+          if (receipt.presentation) readingBody = checkedBody;
+          const body = !changed && reference && record.tool !== 'context_read' && originalBody.length > 12000
+            ? `【完整工具结果超过首屏预算；没有截断修订后保留片段。请回查：${reference(record)}】` : checkedBody;
           currentReading = `【历史工具 ${record.tool} 的当前来源核查；未重新执行工具，当时结果不是现行事实确认。】\n${headers}${changed ? '【原来源已改变或不可访问，不沿用旧正文。】\n' : ''}`;
           // context_read 的每页仍要完整修订头；仅整段复用或只返回引用时避免叠加。
-          result = (sameReading ? `【历史工具 ${record.tool} 的当前来源核查：来源、修订与文档状态均与原读取一致；以下若为原结果可沿用其核查信息，若仅为引用须先回查，不据引用推断事实。】\n` : currentReading) + body;
+          result = (sameReading && !receipt.presentation ? `【历史工具 ${record.tool} 的当前来源核查：来源、修订与文档状态均与原读取一致；以下若为原结果可沿用其核查信息，若仅为引用须先回查，不据引用推断事实。】\n` : currentReading) + body;
         }
         if (Buffer.byteLength(result) > 512 * 1024) throw new Error('工具修订视图超过工作上限');
-        return [toolReadingKey(record), { ...record, result, currentReading }];
+        return [toolReadingKey(record), { ...record, result, currentReading, ...(readingBody !== undefined ? { readingBody } : {}) }];
       }));
     },
   };

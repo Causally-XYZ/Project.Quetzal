@@ -1,7 +1,7 @@
 // 固定身体登记来源；默认保留 M1 观察路径，semantic 开关运行受控后台整合 / 重评。
 import fs from 'node:fs';
 import path from 'node:path';
-import { observeReadSources, observeReadDocument } from './read-receipt.ts';
+import { observeReadSources, observeReadDocument, observeRecallPresentation } from './read-receipt.ts';
 import { config, paths, saveConfig } from '../config.ts';
 import { db, messageMode, kv } from '../store.ts';
 import { log } from '../log.ts';
@@ -10,7 +10,7 @@ import { retrieve, documents } from './retrieval.ts';
 import { redactSecrets } from '../mind/secrets.ts';
 import { AdaptiveStore, SOURCE_PROCESSOR, sourceHash, type SourceSnapshot, type MemorySource } from './adaptive-store.ts';
 import { publishPending, commitPending, publicationRoot } from './adaptive-publication.ts';
-import { exclusive, search, searchEntries, formatSearchEntries, type SearchOptions } from './memory.ts';
+import { exclusive, search, searchEntries, formatSearchEntries, type SearchOptions, type SearchEntry } from './memory.ts';
 import { touched, verifyRecordedFiles } from './soul-sync.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
 import { drainAdaptiveAudits } from './adaptive-audit.ts';
@@ -22,7 +22,7 @@ import { reviewBudget, canReview, reserveReview } from './adaptive-review-budget
 import { generateAdaptiveProposal } from './adaptive-model.ts';
 import { routes } from '../providers/router.ts';
 import { isBusy } from '../heart/heart.ts';
-import { sourceReadingHeader, sourceRecordedAt, type SourceReading } from './adaptive-reading.ts';
+import { sourceReadingHeader, sourceReadingsHeader, sourceRecordedAt, type SourceReading } from './adaptive-reading.ts';
 import { prepareNoteReading, MaterialAccessDenied, type NoteReading } from './adaptive-material.ts';
 import { semanticBasis, semanticDigest, compatibleSemanticBasis, type SemanticBasis, type SemanticSelection, type SemanticNeighbors } from './adaptive-query.ts';
 import { decodeSemanticPacket, type SemanticQueryPacket } from './adaptive-query-packet.ts';
@@ -529,7 +529,7 @@ export async function searchAdaptiveHistory(query: string, options: SearchOption
     const allowed = new Set(view.sources.filter((s) => s.hash).map((s) => s.id));
     const kinds = [...new Set(entries.flatMap((e) => e.hit.kind !== 'chat' && e.hit.kind !== 'note' ? [e.hit.kind] : []))];
     const currentDocs = new Map(kinds.length ? documents(kinds).map((d) => [d.source, d]) : []);
-    const parts: string[] = [];
+    const parts: (string | SearchEntry)[] = [];
     for (const entry of entries) {
       const h = entry.hit;
       if (h.kind === 'chat') {
@@ -541,7 +541,7 @@ export async function searchAdaptiveHistory(query: string, options: SearchOption
           const answer = view.sources.find((s) => s.id === m.id)?.answer;
           return answer?.status === 'changed' ? { ...m, text: ANSWER_CHANGED } : answer?.status === 'unbound' ? { ...m, text: ANSWER_UNBOUND + m.text } : m;
         });
-        parts.push(formatSearchEntries([{ hit: h, context }], (id) => sourceReadingHeader(view, id)));
+        parts.push({ hit: h, context });
       } else if (h.kind === 'note') {
         const body = notes.get(h.source)!.render(view, { excerpt: h.excerpt, omitUnavailable: true });
         if (body === undefined) continue;
@@ -554,8 +554,14 @@ export async function searchAdaptiveHistory(query: string, options: SearchOption
       }
       if (parts.length >= limit) break;
     }
-    const result = parts.length ? parts.join('\n\n') : '没有找到相关记忆';
+    const pureChat = parts.length > 0 && parts.every((part) => typeof part !== 'string');
+    const sources = new Map(view.sources.map((s) => [s.id, s]));
+    const body = parts.map((part) => typeof part === 'string' ? part : formatSearchEntries([part], (id) => pureChat
+      ? `【来源 message:${id}；记录时间(UTC)：${sources.get(id!)?.recordedAt ?? '未知'}】\n` : sourceReadingHeader(view, id))).join('\n\n');
+    const header = pureChat ? sourceReadingsHeader(view, view.sources.filter((s) => s.hash).map((s) => s.id)) : '';
+    const result = parts.length ? header + body : '没有找到相关记忆';
     if (Buffer.byteLength(result) > 512 * 1024) throw new Error('召回修订结果超过工作上限');
+    if (pureChat) observeRecallPresentation(result, header.length);
     return result;
   }, signal);
 }
