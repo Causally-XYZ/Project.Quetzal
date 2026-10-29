@@ -154,6 +154,19 @@ test('v2 复用审核修订链，跨点必须逐点齐证且关键再次复用�
   assert.throws(() => validateSuite(old));
 });
 
+test('v2 只问动作不伪造来源；问题本身不能列作本步新增事实证据，v1不接受新动作', () => {
+  const observed = structuredClone(v2), track = observed.cases[0].tracks[0], first = track.steps[0];
+  track.steps.splice(1, 0, { id: 'R1', at: first.at, body: 'A', role: 'user', speaker: 'owner', scope: 'accessible', action: 'query-only',
+    query: '请据此前材料给一条简短说明。', checks: [{ id: 'use', metric: 'correction', requirement: '仅验证数据形状', sources: [first.id], surfaces: ['answer'] }] });
+  validateSuite(observed);
+  assert.deepEqual(releasedActions(observed, observed.cases[0].id, track.id, 'R1'), releasedActions(observed, observed.cases[0].id, track.id, first.id));
+  for (const mutate of [
+    (s: any) => { s.text = ''; }, (s: any) => { s.operation = { type: 'withdraw-premise', target: 'A' }; },
+    (s: any) => { s.checks[0].sources = ['R1']; }, (s: any) => { s.scope = 'denied'; },
+  ]) { const copy = structuredClone(observed); mutate(copy.cases[0].tracks[0].steps[1]); assert.throws(() => validateSuite(copy)); }
+  const old = structuredClone(suite); old.cases[0].tracks[0].steps[0].action = 'query-only'; assert.throws(() => validateSuite(old));
+});
+
 test('冻结50变体/150序列；独立对照轨迹、逐步释放与摘要一致，未调用模型', () => {
   const bytes = fs.readFileSync(new URL('../tool/adaptive-eval/holdout-v1.json', import.meta.url));
   const frozen = JSON.parse(bytes.toString('utf8')), manifest = JSON.parse(fs.readFileSync(new URL('../tool/adaptive-eval/manifest-v1.json', import.meta.url), 'utf8'));
@@ -161,7 +174,7 @@ test('冻结50变体/150序列；独立对照轨迹、逐步释放与摘要一�
   assert.equal(manifest.suiteHash, digest(suite)); assert.equal(manifest.fileSha256, crypto.createHash('sha256').update(bytes).digest('hex'));
   assert.deepEqual(manifest.caseHashes, suite.cases.map((c) => ({ id: c.id, sha256: digest(c) })));
   const visible = releasedActions(suite, 'AM-01-H1', 'main', 'S3');
-  assert.equal(visible.length, 3); assert.ok(!JSON.stringify(visible).includes(suite.cases[0].tracks[0].steps[3].text));
+  assert.equal(visible.length, 3); assert.ok(!JSON.stringify(visible).includes(suite.cases[0].tracks[0].steps[3].text!));
   assert.ok(visible.every((s) => !('checks' in s) && !('query' in s)));
   visible[0].text = '独立副本'; assert.notEqual(suite.cases[0].tracks[0].steps[0].text, visible[0].text);
   assert.equal(suite.cases.filter((c) => ['AM-03', 'AM-10'].includes(c.family)).every((c) => c.tracks.length === 2), true);

@@ -7,14 +7,16 @@ import { adcFetch, loadAdc, vertexPlaceholder, vertexModels, type VertexReceipt 
 import type { ChatRequest, ChatResult } from '../../src/providers/types.ts';
 import type { GoogleThinkingLevel } from '../../src/providers/types.ts';
 
+export interface ObservedJob { id: string; source: number; revision: number; processor: string; attempts: number }
 export interface ObservedCall {
+  backgroundJob?: ObservedJob | null;
   thinkingLevel?: GoogleThinkingLevel;
   id: number; phase: string; purpose: 'proposal' | 'conversation' | 'memory-selection' | 'memory-learning'; model: string; start: number;
   request: { messages: ChatRequest['messages']; tools: ChatRequest['tools']; maxTokens: number | undefined; responseSchema?: ChatRequest['responseSchema'] };
   state: 'running' | 'returned' | 'failed'; elapsedMs?: number; firstTextMs?: number; firstChunkMs?: number;
   result?: ChatResult; failure?: { category: string; status: number | null; reason?: string; usage: null }; transport: VertexReceipt[];
 }
-export async function observeModel(options: { directory: string; model: string; kind: 'live' | 'stub'; maxCalls: number; stubFailAt?: number; stubReviewDelayMs?: number; thinkingLevel?: 'LOW' }) {
+export async function observeModel(options: { directory: string; model: string; kind: 'live' | 'stub'; maxCalls: number; stubFailAt?: number; stubReviewDelayMs?: number; thinkingLevel?: 'LOW'; backgroundJob?: () => ObservedJob | null }) {
   if (options.thinkingLevel !== undefined && (options.thinkingLevel !== 'LOW' || options.kind !== 'live' || options.model !== 'gemini-3.8-flash'))
     throw new Error('开发思考设置不合法');
   if (!vertexModels.includes(options.model) || !Number.isSafeInteger(options.maxCalls) || options.maxCalls < 1 || options.maxCalls > 100)
@@ -43,6 +45,7 @@ export async function observeModel(options: { directory: string; model: string; 
       : /^(你为 agent 蒸馏结构化记忆|评审蒸馏经验|基于已验证经验提出一种演化)/u.test(system) ? 'memory-learning'
       : system.includes('Return exactly one JSON object conforming to this response schema.') ? 'proposal' : 'conversation';
     const call: ObservedCall = { id: calls.length + 1, phase, purpose,
+      ...(purpose === 'proposal' && options.backgroundJob ? { backgroundJob: options.backgroundJob() } : {}),
       model: target.model, start: Date.now(), ...(target.thinkingLevel ? { thinkingLevel: target.thinkingLevel } : {}), request: { messages: structuredClone(request.messages), tools: structuredClone(request.tools), maxTokens: request.maxTokens,
         ...(request.responseSchema ? { responseSchema: structuredClone(request.responseSchema) } : {}) }, state: 'running', transport: [] };
     calls.push(call); save(call.id, 'start', call);
@@ -62,7 +65,9 @@ export async function observeModel(options: { directory: string; model: string; 
             if (input.review && options.stubReviewDelayMs) await setTimeout(options.stubReviewDelayMs, undefined, { signal });
             const quote = { kind: 'source', source: source.key, text: source.text, occurrence: 0 };
             const time = { text: '', earliest: null, latest: null };
-            text = JSON.stringify({ contexts: [], records: input.review ? [] : [{ key: 'p1', replace: null, kind: 'claim', state: 'present', realm: 'real', reasons: [quote],
+            // 研究替身只验证空结果正常完成，绝不冒充发现关联或自然构图。
+            text = input.research?.purpose ? JSON.stringify({ question: '', query: '' })
+              : JSON.stringify({ contexts: [], records: input.review || input.research ? [] : [{ key: 'p1', replace: null, kind: 'claim', state: 'present', realm: 'real', reasons: [quote],
               text: source.text, nature: 'reported', participants: [], occurred: time, valid: time, supports: [{ id: 'direct', premises: [quote], assumptions: [] }], counters: [] }] });
           }
           request.onChunk?.(); request.onText?.(text);
@@ -70,7 +75,8 @@ export async function observeModel(options: { directory: string; model: string; 
         } else result = await adapter(target, { ...request, signal,
           onChunk: () => { call.firstChunkMs ??= Date.now() - call.start; request.onChunk?.(); },
           onText: (text) => { call.firstTextMs ??= Date.now() - call.start; request.onText?.(text); } });
-        call.state = 'returned'; call.result = result; return result;
+        // router随后会给result.model加供应商显示名前缀；证据保留适配器返回时的值，不能共享可变对象。
+        call.state = 'returned'; call.result = structuredClone(result); return result;
       } catch (error) {
         call.state = 'failed'; call.failure = { category: controller.signal.aborted || request.signal?.aborted ? 'cancelled'
           : call.id > options.maxCalls ? 'call-budget' : options.kind === 'stub' ? 'stub-failure' : 'provider-failed',

@@ -11,8 +11,11 @@ const [mode, target, ...args] = process.argv.slice(2);
 if (!target || !['--packet', '--record', '--select'].includes(mode)) throw new Error('用法：--packet root case repeat；--record root case repeat agent|human|model draft [previousHash]；--select root name reviewHash...');
 const root = fs.realpathSync(target), repo = fs.realpathSync(fileURLToPath(new URL('../../..', import.meta.url)));
 if (root === repo || root.startsWith(repo + path.sep)) throw new Error('审核资料必须在仓库外');
-const suite = loadSuite(), code = readEvidence(root, 'code.json', 1024 * 1024).data as ReturnType<typeof codeSnapshot>;
-const plan = verifyPlan(readEvidence(root, 'plan.json', 64 * 1024).data, suite, code, false);
+const archived = readEvidence(root, 'plan.json', 64 * 1024).data;
+if (!['quetzal-m2-plan-v1', 'quetzal-m5-plan-v2'].includes(archived.schema)) throw new Error('执行计划版本不支持');
+const suite = loadSuite(archived.schema === 'quetzal-m5-plan-v2' ? 'v2' : 'v1');
+const code = readEvidence(root, 'code.json', 1024 * 1024).data as ReturnType<typeof codeSnapshot>;
+const plan = verifyPlan(archived, suite, code, false);
 const directory = (name: string) => {
   const full = path.join(root, name); fs.mkdirSync(full, { recursive: true });
   if (fs.realpathSync(full) !== full) throw new Error('审核目录不能使用符号链接'); return full;

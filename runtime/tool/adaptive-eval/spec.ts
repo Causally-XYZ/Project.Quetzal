@@ -15,10 +15,21 @@ export interface Check {
 export interface Step {
   id: string; at: string; body: 'A' | 'B'; speaker: string;
   role: 'user' | 'assistant-summary'; scope: 'accessible' | 'denied' | 'other-agent';
-  text: string; query: string; checks: Check[];
+  text?: string; query: string; checks: Check[];
+  action?: 'query-only';
   operation?: { type: 'withdraw-premise'; target: 'A' | 'C' };
 }
 export interface Track { id: string; setup: 'empty' | 'and-or-graph'; steps: Step[] }
+/** 执行与回执共用的输入策略；工程隔离来源不会先经过对话模型。 */
+export function sourceInputPath(step: Pick<Step, 'action' | 'role' | 'scope'>, setup: Track['setup'],
+  inputMode?: 'normal-converse-eligible', converseBaseline = false) {
+  if (step.action === 'query-only') return 'query-only';
+  if (step.scope === 'denied') return 'ignored-at-insert';
+  if (step.scope === 'other-agent') return 'foreign-storage-only';
+  if (step.role === 'assistant-summary') return 'agent-role-fixture';
+  if (setup === 'and-or-graph') return 'controlled-track-store';
+  return inputMode || converseBaseline ? 'normal-converse-with-synchronous-record-clock' : 'store-with-synchronous-record-clock';
+}
 export interface Case { id: string; family: typeof families[number]; variant: number; tracks: Track[] }
 export interface Suite {
   schema: 'quetzal-m2-eval-v1' | 'quetzal-m5-eval-v2'; id: string; repeats: 3; cases: Case[];
@@ -43,16 +54,19 @@ export function validateSuite(value: unknown): asserts value is Suite {
     for (const t of c.tracks) {
       fields(t, ['id', 'setup', 'steps']);
       if (!label(t.id) || tracks.has(t.id) || !['empty', 'and-or-graph'].includes(t.setup) || !Array.isArray(t.steps) || !t.steps.length || t.steps.length > 8) fail();
-      tracks.add(t.id); const sources = new Set<string>();
+      tracks.add(t.id); const sources = new Set<string>(), points = new Set<string>();
       for (const p of t.steps) {
-        fields(p, ['id', 'at', 'body', 'speaker', 'role', 'scope', 'text', 'query', 'checks', 'operation']);
-        if (!label(p.id) || sources.has(p.id) || !text(p.text) || !text(p.query) || !text(p.speaker)
+        fields(p, ['id', 'at', 'body', 'speaker', 'role', 'scope', 'text', 'query', 'checks', 'operation', ...(v2 ? ['action'] : [])]);
+        const queryOnly = v2 && p.action === 'query-only';
+        if (p.action !== undefined && !queryOnly || queryOnly && (Object.hasOwn(p, 'text') || Object.hasOwn(p, 'operation')
+          || p.role !== 'user' || p.scope !== 'accessible')) fail();
+        if (!label(p.id) || points.has(p.id) || (!queryOnly && !text(p.text)) || !text(p.query) || !text(p.speaker)
           || !['A', 'B'].includes(p.body) || !['user', 'assistant-summary'].includes(p.role)
           || !['accessible', 'denied', 'other-agent'].includes(p.scope)
           || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(p.at) || !Number.isFinite(Date.parse(p.at))
           || !Array.isArray(p.checks) || !p.checks.length) fail();
         if (new Date(p.at).toISOString().replace('.000Z', 'Z') !== p.at) fail();
-        sources.add(p.id); const checks = new Set<string>();
+        points.add(p.id); if (!queryOnly) sources.add(p.id); const checks = new Set<string>();
         if (p.operation) {
           fields(p.operation, ['type', 'target']);
           if (t.setup !== 'and-or-graph' || p.operation.type !== 'withdraw-premise' || !['A', 'C'].includes(p.operation.target)) fail();
@@ -98,5 +112,6 @@ export function releasedActions(suite: Suite, caseId: string, trackId: string, s
   const track = suite.cases.find((c) => c.id === caseId)?.tracks.find((t) => t.id === trackId);
   const index = track?.steps.findIndex((p) => p.id === stepId) ?? -1;
   if (!track || index < 0) throw new Error('评测检查点不存在');
-  return track.steps.slice(0, index + 1).map(({ checks: _checks, query: _query, ...input }) => structuredClone(input));
+  return track.steps.slice(0, index + 1).filter((step) => step.action !== 'query-only')
+    .map(({ checks: _checks, query: _query, ...input }) => structuredClone(input));
 }

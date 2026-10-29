@@ -5,39 +5,60 @@ import { execFileSync } from 'node:child_process';
 import { fakeSync } from '../../test/fixtures/fake-sync.ts';
 import { loadNodeKey } from '../../src/mesh/identity.ts';
 import { startBody, type BodyClient } from './process-client.ts';
-import { digest, type Track } from './spec.ts';
+import { digest, sourceInputPath, type Track } from './spec.ts';
 import type { ObservedCall } from './model-observer.ts';
 import { seedPublicRetrievalCache } from './retrieval-observer.ts';
 export type InputTrack = Omit<Track, 'steps'> & { steps: Omit<Track['steps'][number], 'checks'>[] };
 export interface TrackOptions { root: string; track: InputTrack; kind: 'live' | 'stub'; model: string; maxCalls?: number; stepTimeoutMs?: number; stubFailAt?: number; stubReviewDelayMs?: number;
   retrievalCache?: string; disconnectStep?: number; fullEvidence?: boolean; thinkingLevel?: 'LOW'; research?: boolean; backgroundRetries?: boolean;
-  baseline?: 'legacy' | 'raw-fts' | 'adaptive' }
+  baseline?: 'legacy' | 'raw-fts' | 'adaptive'; inputMode?: 'normal-converse-eligible' }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' }).toString().trim();
 const write = (root: string, name: string, value: unknown) => fs.writeFileSync(path.join(root, name), JSON.stringify(value, null, 2), { flag: 'wx' });
 export async function runTrack(options: TrackOptions) {
+  if (options.inputMode !== undefined && (options.inputMode !== 'normal-converse-eligible' || options.baseline !== undefined))
+    throw new Error('evaluation-input-mode-invalid');
   if (options.baseline !== undefined && (!['legacy', 'raw-fts', 'adaptive'].includes(options.baseline) || options.fullEvidence
     || options.track.setup !== 'empty' || options.track.steps.some((s) => s.role !== 'user' || s.scope !== 'accessible')
     || (options.baseline !== 'adaptive' && (options.research || options.retrievalCache)))) throw new Error('evaluation-baseline-development-only');
   const legacy = options.baseline === 'legacy', raw = options.baseline === 'raw-fts';
   if (options.thinkingLevel !== undefined && (options.thinkingLevel !== 'LOW' || options.kind !== 'live'
-    || options.model !== 'gemini-3.8-flash' || options.fullEvidence)) throw new Error('evaluation-thinking-experiment-invalid');
-  if ((options.research || options.backgroundRetries) && (options.fullEvidence || options.track.setup !== 'empty')) throw new Error('evaluation-research-development-only');
+    || options.model !== 'gemini-3.8-flash' || options.fullEvidence && !options.inputMode)) throw new Error('evaluation-thinking-experiment-invalid');
+  if (options.research && options.track.setup !== 'empty'
+    || (options.research || options.backgroundRetries) && !options.inputMode && (options.fullEvidence || options.track.setup !== 'empty'))
+    throw new Error('evaluation-research-development-only');
   const controlled = options.track.setup === 'and-or-graph';
-  if (!['empty', 'and-or-graph'].includes(options.track.setup) || !options.track.steps.length || options.track.steps.length > (controlled ? 3 : 8)
-    || options.track.steps.some((s, i) => !['accessible', 'denied', 'other-agent'].includes(s.scope) || Object.hasOwn(s, 'checks')
-      || (controlled ? s.scope !== 'accessible' || s.role !== 'user' || (i === 0 ? !!s.operation || !/K (?:表示|指)[^，。]+/u.test(s.text)
-        : !s.operation || s.operation.type !== 'withdraw-premise' || s.operation.target !== (i === 1 ? 'A' : 'C')) : !!s.operation)))
+  let controls = 0;
+  if (!['empty', 'and-or-graph'].includes(options.track.setup) || !options.track.steps.length || options.track.steps.length > 8
+    || options.track.steps.some((s, i) => {
+      const queryOnly = s.action === 'query-only';
+      if (!['accessible', 'denied', 'other-agent'].includes(s.scope) || Object.hasOwn(s, 'checks')
+        || s.action !== undefined && !queryOnly || typeof s.query !== 'string' || !s.query.trim()
+        || (queryOnly ? i === 0 || Object.hasOwn(s, 'text') || Object.hasOwn(s, 'operation') || s.role !== 'user' || s.scope !== 'accessible'
+          : typeof s.text !== 'string' || !s.text.trim())) return true;
+      if (!controlled) return !!s.operation;
+      if (s.scope !== 'accessible' || s.role !== 'user') return true;
+      if (i === 0) { controls++; return !!s.operation || !/K (?:表示|指)[^，。]+/u.test(s.text!); }
+      if (s.operation) {
+        if (s.operation.type !== 'withdraw-premise' || s.operation.target !== (controls === 1 ? 'A' : controls === 2 ? 'C' : null)) return true;
+        controls++; return false;
+      }
+      // 受控输入仍仅种图、撤回 A、撤回 C；完成后才允许普通无关输入与观察尾段。
+      return controls !== 3;
+    }))
     throw new Error('evaluation-track-not-supported');
   const stepTimeoutMs = options.stepTimeoutMs ?? 180000, maxCalls = options.maxCalls ?? 36;
   if (!Number.isSafeInteger(stepTimeoutMs) || stepTimeoutMs < 1000 || stepTimeoutMs > 300000) throw new Error('evaluation-timeout-invalid');
   if (options.disconnectStep !== undefined && (!Number.isSafeInteger(options.disconnectStep) || options.disconnectStep < 1
     || options.disconnectStep > options.track.steps.length || options.track.steps[options.disconnectStep - 1].scope !== 'accessible'
-    || options.track.steps[options.disconnectStep - 1].body !== 'B')) throw new Error('evaluation-disconnect-invalid');
+    || options.track.steps[options.disconnectStep - 1].body !== 'B'
+    || options.track.steps[options.disconnectStep - 1].action === 'query-only')) throw new Error('evaluation-disconnect-invalid');
   fs.mkdirSync(options.root); // 不复用旧目录，不覆盖失败证据。
   write(options.root, 'input.json', options.track);
   write(options.root, 'execution.json', { schema: 'quetzal-m2-track-development-v1', inputHash: digest(options.track), kind: options.kind,
     model: options.model, ...(options.thinkingLevel ? { thinkingLevel: options.thinkingLevel } : {}), maxCallsPerBody: maxCalls, stepTimeoutMs, queryHistory: 'normal-persistent',
-    baseline: options.baseline ?? null, inputPath: options.baseline ? 'normal-converse-with-synchronous-record-clock' : 'store-with-synchronous-record-clock',
+    baseline: options.baseline ?? null, inputPath: options.inputMode ?? (options.baseline ? 'normal-converse-with-synchronous-record-clock' : 'store-with-synchronous-record-clock'),
+    ...(options.inputMode ? { inputMode: options.inputMode,
+      stepInputPaths: options.track.steps.map((step) => ({ id: step.id, path: sourceInputPath(step, options.track.setup, options.inputMode) })) } : {}),
     answerPath: 'authenticated-gateway-chat.send', signalDirectory: 'local-fixture', transport: options.kind === 'live' ? 'adc-google-adapter' : 'in-process-stub',
     deniedPolicy: 'ignored-at-insert', foreignPolicy: 'separate-agent-process-no-mesh-no-model',
     fullEvidence: !!options.fullEvidence, research: !!options.research, backgroundRetries: !!options.backgroundRetries, retrieval: options.retrievalCache ? 'real-vector-public-cache-prefilled' : 'lexical-only-component-preparation-disabled', disconnectStep: options.disconnectStep ?? null,
@@ -64,7 +85,7 @@ export async function runTrack(options: TrackOptions) {
       || c.transport.some((t) => t.versions.length !== 1 || t.versions[0] !== options.model || !t.finish.length || (!optionalMemory(c) && !t.finish.includes('STOP'))))))
       throw new Error('evaluation-model-metadata-incomplete');
   };
-  async function settled(center: BodyClient, satellite: BodyClient) {
+  async function settled(center: BodyClient, satellite: BodyClient, messagesEqual = false) {
     return until(async () => {
       const state = await snapshot(center); checkFailures(state);
       if (legacy) {
@@ -90,7 +111,7 @@ export async function runTrack(options: TrackOptions) {
       if (options.baseline && [state, remote].some((s) => s.structured.length
         || (initialDocuments !== undefined && digest(s.legacyDocuments) !== initialDocuments))) throw new Error('evaluation-baseline-memory-contaminated');
       if (remote.calls.some((c: ObservedCall) => c.state === 'running') || digest(state.records) !== digest(remote.records)
-        || (options.baseline && digest(state.messages) !== digest(remote.messages))
+        || ((options.baseline || messagesEqual) && digest(state.messages) !== digest(remote.messages))
         || state.messages.some((m: any) => !remote.messages.some((r: any) => r.id === m.id))) return;
       return { center: state, satellite: remote };
     }, 'settle');
@@ -111,7 +132,7 @@ export async function runTrack(options: TrackOptions) {
     for (const body of ['center', 'satellite']) {
       clients.push(await startBody(path.join(options.root, body), {
         body, remote, sync: sync.url, keys, kind: options.kind, model: options.model, maxCalls, stubFailAt: options.stubFailAt,
-        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence, thinkingLevel: options.thinkingLevel, research: options.research, baseline: options.baseline,
+        stubReviewDelayMs: options.stubReviewDelayMs, controlled, vector: !!options.retrievalCache, fullEvidence: !!options.fullEvidence, thinkingLevel: options.thinkingLevel, research: options.research, baseline: options.baseline, inputMode: options.inputMode,
       })); bodyNames.push(body);
     }
     let foreign: BodyClient | undefined;
@@ -133,8 +154,9 @@ export async function runTrack(options: TrackOptions) {
     report.bodies = clients.map((c, i) => ({ name: bodyNames[i], pid: c.pid, port: c.port }));
     for (const [index, step] of options.track.steps.entries()) {
       const point = `${options.track.id}/${step.id}`, before = Date.now();
+      const queryOnly = step.action === 'query-only', controlledStep = controlled && (index === 0 || !!step.operation);
       await Promise.all(clients.map((c) => c.call('phase', { value: point })));
-      if (controlled) { await settled(center, satellite); await center.call('controlledHold'); }
+      if (controlledStep) { await settled(center, satellite); await center.call('controlledHold'); }
       const disconnect = options.disconnectStep === index + 1;
       if (disconnect) {
         await satellite.call('connection', { online: false });
@@ -143,8 +165,8 @@ export async function runTrack(options: TrackOptions) {
       }
       const producer = step.scope === 'other-agent' ? foreign! : step.body === 'A' ? center : satellite;
       const consumer = step.body === 'A' ? satellite : center;
-      const source = await producer.call<number>('source', { ...step, scope: step.scope === 'other-agent' ? 'accessible' : step.scope,
-        query: undefined, operation: undefined, session: `source-${index + 1}` }, options.baseline ? stepTimeoutMs : 15000);
+      const source = queryOnly ? null : await producer.call<number>('source', { ...step, scope: step.scope === 'other-agent' ? 'accessible' : step.scope,
+        query: undefined, operation: undefined, session: `source-${index + 1}` }, sourceInputPath(step, options.track.setup, options.inputMode, !!options.baseline) === 'normal-converse-with-synchronous-record-clock' ? stepTimeoutMs : 15000);
       let isolation: any = { policy: step.scope };
       if (disconnect) {
         const offline = { center: await snapshot(center), satellite: await snapshot(satellite),
@@ -162,19 +184,19 @@ export async function runTrack(options: TrackOptions) {
           throw new Error('evaluation-foreign-input-failed');
         isolation = { ...isolation, foreign: state, probe: await satellite.call('probeScope', { foreignAgent: state.agent, query: step.query }) };
         if (!isolation.probe.rejected) throw new Error('evaluation-cross-agent-accepted');
-      } else await until(async () => {
+      } else if (!queryOnly) await until(async () => {
         const a = await snapshot(center), b = await snapshot(satellite); checkFailures(a);
         return [a, b].every((s) => s.messages.some((m: any) => m.id === source && m.text === step.text && m.ts === Date.parse(step.at)
           && (step.scope !== 'denied' || m.mode === 'ignored'))) ? true : undefined;
       }, 'replication');
       let control: unknown;
-      if (controlled) {
+      if (controlledStep) {
         control = await center.call('controlledApply', { source, operation: step.operation });
         // 先落盘真实安装证据，再恢复后台；后续模型失败也不会丢失撤回现场。
         write(options.root, `controlled-${index + 1}.json`, control);
         await center.call('controlledResume');
       }
-      const preAnswer = await settled(center, satellite);
+      const preAnswer = await settled(center, satellite, queryOnly);
       const lexical = options.retrievalCache ? await center.call('lexical', { query: step.query }) : undefined;
       const readingStarted = performance.now();
       const reading = legacy ? { status: 'not-applicable', reason: 'legacy-normal-context' }
@@ -185,12 +207,12 @@ export async function runTrack(options: TrackOptions) {
       const answer = await consumer.rpc('chat.send', { conv: session, text: step.query }, stepTimeoutMs);
       const answerElapsedMs = Date.now() - answerStarted, plan = await consumer.call('plan', { session });
       // 查询和回答按正常产品历史留存；等待它们的后台处理，再发布下一步骤。
-      const postAnswer = await settled(center, satellite);
+      const postAnswer = await settled(center, satellite, queryOnly);
       if (step.scope === 'other-agent' && [preAnswer, postAnswer].some((states) => [states.center, states.satellite].some((s: any) =>
-        s.messages.some((m: any) => m.body === 'foreign') || s.calls.some((c: ObservedCall) => JSON.stringify(c.request).includes(step.text)))))
+        s.messages.some((m: any) => m.body === 'foreign') || s.calls.some((c: ObservedCall) => JSON.stringify(c.request).includes(step.text!)))))
         throw new Error('evaluation-foreign-source-leaked');
-      const checkpoint = { point, source, producer: step.scope === 'other-agent' ? 'foreign' : step.body, answerBody: step.body === 'A' ? 'B' : 'A',
-        isolation, ...(controlled ? { control } : {}), preAnswer, reading, postAnswer, answer, plan,
+      const checkpoint = { point, source, producer: queryOnly ? null : step.scope === 'other-agent' ? 'foreign' : step.body, answerBody: step.body === 'A' ? 'B' : 'A',
+        ...(queryOnly ? { action: 'query-only' } : {}), isolation, ...(controlledStep ? { control } : {}), preAnswer, reading, postAnswer, answer, plan,
         ...(options.retrievalCache ? { lexical, readingElapsedMs, retrievalReading: afterReading.retrievalCalls.slice(preAnswer.center.retrievalCalls.length) } : {}),
         elapsedMs: Date.now() - before, answerElapsedMs };
       write(options.root, `checkpoint-${index + 1}.json`, checkpoint);

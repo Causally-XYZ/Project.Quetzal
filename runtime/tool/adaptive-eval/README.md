@@ -6,13 +6,28 @@
 
 需求方已批准原型优先：M2 复用本目录公开运行器核验代表性完整过程；150序列及严格评分移至 M5。原文件名、回执 schema、失败结果与评分器保持不变，semanticGate 仍代表完整语义评分，不能拿它代替或伪造 M2 原型判定。现行门禁见[实施计划](../../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)。
 
-2026-10-29复核：当前formal / plan / CLI仍为v1口径，不代表LOW / research候选已登记；计划声明与实际memoryLearning开关也存在漂移。旧正式目录重评分仍0完成、1失败、149缺失。需求方随后已确认[新轨迹评分](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md#m5-轨迹评分2026-10-29需求方已确认)，评分核心已增加显式v2函数，尚未接入正式执行或CLI，旧结果保留。正式新批须冻结有版本的实际配置及审核口径，不能直接把旧剩余149组当当前候选验收。
+2026-10-29复核：旧v1计划采用默认思考且声明memoryLearning=false，与后来身体实际true存在漂移；旧档案保留此事实。旧正式目录重评分仍0完成、1失败、149缺失。需求方随后已确认[新轨迹评分](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md#m5-轨迹评分2026-10-29需求方已确认)，评分、计划与正式 / 审核CLI已增加显式v2分支，旧结果保留；v2尚无冻结题库和正式成绩。正式新批须冻结有版本的实际配置及审核口径，不能直接把旧剩余149组当当前候选验收。
 
-`scoreSequenceSuite`仅接受`quetzal-m5-eval-v2`：每案例最后检查点恰好一个sequence检查，`evidenceAt`预登记跨点所需材料，`required`引用必须通过的普通检查，内部多轨合一票。固定150票、整体143、各族14；原七类明细和预登记report分项分别统计。首次 / 再次复用等标记本身不证明真实顺序，正式数据和执行证据仍须核读。没有新增题库或query-only执行动作。
+`scoreSequenceSuite`仅接受`quetzal-m5-eval-v2`：每案例最后检查点恰好一个sequence检查，`evidenceAt`预登记跨点所需材料，`required`引用必须通过的普通检查，内部多轨合一票。固定150票、整体143、各族14；原七类明细和预登记report分项分别统计。首次 / 再次复用等标记本身不证明真实顺序，正式数据和执行证据仍须核读。query-only观察动作只经正常chat.send提问，跳过素材摄入；没有新增冻结题库。
 
-v2复用原只增审核链。整体无效回执不加票；若无关材料损坏，仍以同一严格校验器隔离保留能独立核实的硬失败，总绑定或硬失败自身证据坏则不采信，重复ID不挑选。`qualityGate`只表示质量票数，`gates.noKnownHardViolation`仅表示已核查证据未发现硬违规，`independentEngineering`固定为`not-evaluated`，不提供M5总放行。未登记 / 未评不等于零事件；通过仍需逐条独立审核。v1评分、数据、CLI及归档输出保留；没有新依赖、生产配置、部署或构建入口。
+v2复用原只增审核链。整体无效回执不加票；若无关材料损坏，仍以同一严格校验器隔离保留能独立核实的硬失败，总绑定或硬失败自身证据坏则不采信，重复ID不挑选。`qualityGate`只表示质量票数，`gates.noKnownHardViolation`仅表示已核查证据未发现硬违规，`independentEngineering`固定为`not-evaluated`，不提供M5总放行。未登记 / 未评不等于零事件；通过仍需逐条独立审核。v1评分、数据、缺省CLI及归档输出保留；没有新依赖、生产配置、部署或构建入口。
 
 ## 文件与命令
+
+v2正式入口准备如下（冻结`holdout-v2.json`及`manifest-v2.json`尚未提供，当前会明确拒绝初始化，不回退v1）：
+
+```bash
+npm run eval:adaptive --prefix runtime -- --check v2
+npm run run:adaptive-eval --prefix runtime -- --init "$EVAL_ROOT" live v2
+```
+
+初始化缺省仍v1。后续run、score、review从归档plan.schema选择题库，再核计划与manifest，不能在同一次运行中换版本。v2评分的退出0只表示质量票数与已核实硬违规检查通过，独立工程门仍未评，绝不代表M5总放行。
+
+v2配置采用Flash3.8 LOW（stub明确默认思考）、每身体100调用、每操作 / 等待300秒而非整步总墙、fullEvidence、实际memoryLearning=true及sentinel=false实验设置。empty开启研究、受控图关闭；已恢复的后台失败须有同任务 / 版本 / 处理器的后续成功尝试、最终done与回执，原失败保留。前台失败和截断仍停止，不能只把失败标志忽略。提案最大16384输出，普通对话按实际请求至多4096；研究规划格式单独绑定，研究最终提案沿用认识格式。
+
+`inputMode:normal-converse-eligible`独立于baseline。empty中的可访问user素材经普通converse；拒绝来源保持ignored，其他agent只入隔离库，assistant-summary保留agent角色，受控图保持工程fixture。`query-only`不提供text、不注入source；AM-07仍先种图、撤回A、撤回C，再允许无关输入和观察。问题 / 回答自然留存、参与后续后台处理；合成at只用于素材同步记录时钟，问题、答复和提示中的当前时间仍真实，不假称推进虚拟日历。
+
+完成检查点的回执区分素材回复与对端正式回答，核实际配置、逐步输入路径、完整调用start/end及当前快照；未完成终态只归档可用材料，不贡献通过票，也不声称完成同等逐项核验。观察前历史不变，新增外部user只能是登记问题；正常摘要 / 交接须有对应工具调用依据。模型观察器复制适配器返回值，避免router增加显示名前缀后倒改已存证据；后台job关联只记录合成任务身份 / 版本 / attempt，不含租约token，不进入模型请求。材料核查不证明语义正确；合成工具效果夹具不等于真实模型执行过这些工具。
 
 - `cases.ts`：确定性构造器，用于核对冻结内容，不按模型结果重写答案。
 - `holdout-v1.json`：50案例、60独立轨迹、160检查点、800条断言；每案例重复3次，计150案例序列 / 180轨迹运行。
@@ -183,7 +198,7 @@ packet 包含绑定原回执的全部断言、要求的材料类别、可用 art
 
 ### M3 开发研究选项
 
-程序入口 `runTrack` 可显式使用 `research:true` 启用正常中心后台研究；等待条件额外核对每个 user / ambient 来源的 `research-v1` 回执及 `research-idle`，避免尚未研究就释放下一步。`backgroundRetries:true` 仅用于开发完整过程，允许既有后台任务自动重试，所有失败调用及尝试数原样保存；包括 queued / running 的 processor_failed 和 interrupted，允许原队列继续处理，后者可能来自版本过期或任务中断。终局 failed / cancelled、截断、前台失败、后台重试耗尽仍停止。两个选项禁止用于 `fullEvidence` 或受控图，原正式执行、输入和评分门槛不变，不是新验收框架。缺省均关闭。
+程序入口 `runTrack` 可显式使用 `research:true` 启用正常中心后台研究；等待条件额外核对每个 user / ambient 来源的 `research-v1` 回执及 `research-idle`，避免尚未研究就释放下一步。`backgroundRetries:true` 仅用于开发完整过程，允许既有后台任务自动重试，所有失败调用及尝试数原样保存；包括 queued / running 的 processor_failed 和 interrupted，允许原队列继续处理，后者可能来自版本过期或任务中断。终局 failed / cancelled、截断、前台失败、后台重试耗尽仍停止。旧入口仍禁止两个选项与fullEvidence组合；显式v2输入策略允许fullEvidence与后台恢复，研究仅在empty轨迹开启，受控图仍关闭研究。缺省均关闭，已归档v1行为不改判。
 
 ### M3 三基线开发对照
 

@@ -147,7 +147,7 @@ export function scoreSuite(suite: Suite, planHash: string, load: (caseId: string
     limits: '仅统计已定位证据的审核结论，不自动判定语义真伪；model 自评和 stub 不计通过，也不代表 M2 全部门禁或真人反馈。' };
 }
 
-/** 仅 v2 评分；尚未接入 formal/CLI，不替代独立工程回归或生成正式留出题库。 */
+/** 仅 v2 序列评分，不替代独立工程回归或生成正式留出题库。 */
 export function scoreSequenceSuite(suite: Suite, planHash: string, load: (caseId: string, repeat: number) => unknown | undefined) {
   validateSuite(suite);
   if (suite.schema !== 'quetzal-m5-eval-v2' || !hash(planHash)) throw new Error('v2 题库或运行计划摘要缺失');

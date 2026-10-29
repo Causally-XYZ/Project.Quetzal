@@ -72,7 +72,7 @@ test('评测执行链逐步释放并经真实网关回答，记录复制/自动�
     assert.equal(result.kind, 'stub'); assert.equal(result.checkpoints.length, 2);
     assert.notEqual(result.bodies[0].pid, result.bodies[1].pid); assert.notEqual(result.bodies[0].port, result.bodies[1].port);
     const first = JSON.parse(fs.readFileSync(path.join(root, 'checkpoint-1.json'), 'utf8'));
-    assert.ok(!JSON.stringify(first).includes(input.steps[1].text), '未来内容未进入第一步资料或请求');
+    assert.ok(!JSON.stringify(first).includes(input.steps[1].text!), '未来内容未进入第一步资料或请求');
     for (let i = 1; i <= 2; i++) {
       const cp = JSON.parse(fs.readFileSync(path.join(root, `checkpoint-${i}.json`), 'utf8'));
       assert.deepEqual(cp.preAnswer.center.records, cp.preAnswer.satellite.records);
@@ -116,18 +116,21 @@ test('未知权限/缺失图声明和预期答案不启动执行；模型失败�
     assert.equal(result.status, 'failed'); assert.equal(result.checkpoints.length, 0);
     const state = JSON.parse(fs.readFileSync(path.join(root, 'final-body-1.json'), 'utf8'));
     assert.equal(state.calls[0].state, 'failed'); assert.equal(state.calls[0].failure.usage, null);
-    assert.ok(!JSON.stringify(state).includes(input.steps[1].text));
+    assert.ok(!JSON.stringify(state).includes(input.steps[1].text!));
     assert.ok(fs.existsSync(path.join(root, 'center/eval-calls/1-end.json')));
     assert.ok(result.shutdown.every((s: any) => !s.forced && s.exitCode === 0));
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('受控 AND/OR 图经真实存档撤回、自动传播和对端查询，保留独立依据与审计版本', { timeout: 120000 }, async () => {
+test('受控 AND/OR 三次操作后正常摄入U并只问R1/R2，保留独立依据与审计版本', { timeout: 180000 }, async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-eval-controlled-test-'));
   const track: InputTrack = { id: 'graph-development', setup: 'and-or-graph', steps: [
     { ...input.steps[0], text: '合成证据实验：K 表示渡口恢复通航，支持组 G1 同时需要 A 与 B，独立组 G2 只需 C；另有独立结论 L。A、B、C 都存在。循环 K→A 不提供新独立证据。', query: '当前 K 和 L 有哪些依据？' },
     { ...input.steps[1], text: '撤回依据 A。B、C 和独立结论 L 没有变化。', query: '撤回 A 后 K 和 L 有哪些依据？', operation: { type: 'withdraw-premise', target: 'A' } },
     { ...input.steps[0], id: 'S3', at: '2026-07-10T12:00:00Z', text: '再撤回依据 C。没有新的依据，也没有修改 L。', query: '现在 K 和 L 还有哪些依据？', operation: { type: 'withdraw-premise', target: 'C' } },
+    { ...input.steps[0], id: 'U', at: '2026-07-11T12:00:00Z', text: '把买面包和擦桌子列成两行待办。', query: '请给出两行待办。' },
+    { id: 'R1', at: '2026-07-12T12:00:00Z', body: 'A', role: 'user', speaker: 'owner', scope: 'accessible', action: 'query-only', query: '当前 K 和 L 有哪些依据？' },
+    { id: 'R2', at: '2026-07-13T12:00:00Z', body: 'B', role: 'user', speaker: 'owner', scope: 'accessible', action: 'query-only', query: '请再次说明 K 和 L 可确定的程度。' },
   ] };
   try {
     for (const change of [
@@ -135,12 +138,15 @@ test('受控 AND/OR 图经真实存档撤回、自动传播和对端查询，保
       (t: InputTrack) => { delete t.steps[2].operation; },
       (t: InputTrack) => { t.steps[0].role = 'assistant-summary'; },
       (t: InputTrack) => { t.steps[1].scope = 'denied'; },
+      (t: InputTrack) => { t.steps[4].text = '不该被注入的新事实'; },
+      (t: InputTrack) => { t.steps[4].operation = { type: 'withdraw-premise', target: 'C' }; },
+      (t: InputTrack) => { t.steps[3].operation = { type: 'withdraw-premise', target: 'C' }; },
     ]) { const invalid = structuredClone(track); change(invalid);
       await assert.rejects(runTrack({ root: path.join(tmp, 'unsupported'), track: invalid, kind: 'stub', model: 'gemini-3.8-flash' }), /not-supported/); }
     assert.equal(fs.existsSync(path.join(tmp, 'unsupported')), false);
     const root = path.join(tmp, 'track'), result = await runTrack({ root, track, kind: 'stub', model: 'gemini-3.8-flash', stepTimeoutMs: 30000, stubReviewDelayMs: 1500 });
     assert.equal(result.status, 'pipeline-completed-needs-review', JSON.stringify(result));
-    assert.equal(result.checkpoints.length, 3);
+    assert.equal(result.checkpoints.length, 6);
     const points = [1, 2, 3].map((i) => JSON.parse(fs.readFileSync(path.join(root, `checkpoint-${i}.json`), 'utf8')));
     const initial = points[0].preAnswer.center.controlled;
     for (const [i, cp] of points.entries()) {
@@ -186,10 +192,28 @@ test('受控 AND/OR 图经真实存档撤回、自动传播和对端查询，保
         assert.equal(cp.control.batch.records.length, 1); assert.equal(cp.control.batch.records[0].id, initial[label].id);
       }
     }
-    assert.ok(!JSON.stringify(points[0]).includes(track.steps[1].text), '未来撤回未提前释放');
+    assert.ok(!JSON.stringify(points[0]).includes(track.steps[1].text!), '未来撤回未提前释放');
     const reviews = points[2].postAnswer.center.calls.filter((c: any) => c.purpose === 'proposal' && JSON.parse(c.request.messages.at(-1).content).review);
     assert.ok(reviews.length >= 2, '依赖变化仍触发正常后台重评');
     assert.ok(reviews.every((c: any) => JSON.parse(c.result.text).records.length === 0), '替身重评不冒充真实语义修正');
+    assert.deepEqual(fs.readdirSync(root).filter((f) => /^controlled-/.test(f)).sort(), ['controlled-1.json', 'controlled-2.json', 'controlled-3.json']);
+    for (const i of [4, 5, 6]) {
+      const cp = JSON.parse(fs.readFileSync(path.join(root, `checkpoint-${i}.json`), 'utf8'));
+      assert.equal(Object.hasOwn(cp, 'control'), false);
+      assert.deepEqual(cp.postAnswer.center.controlled, points[2].postAnswer.center.controlled, '观察与无关输入不再次调用受控适配器');
+      if (i === 4) { assert.ok(cp.postAnswer.center.messages.some((m: any) => m.id === cp.source && m.text === track.steps[3].text)); continue; }
+      const previous = JSON.parse(fs.readFileSync(path.join(root, `checkpoint-${i - 1}.json`), 'utf8'));
+      assert.equal(cp.source, null); assert.equal(cp.producer, null); assert.equal(cp.action, 'query-only');
+      for (const body of ['center', 'satellite']) {
+        assert.deepEqual(cp.preAnswer[body].messages, previous.postAnswer[body].messages);
+        const messages = cp.postAnswer[body].messages;
+        assert.equal(messages.length, cp.preAnswer[body].messages.length + 2);
+        assert.equal(messages.some((m: any) => m.session === `source-${i}`), false);
+        assert.ok(messages.some((m: any) => m.session === `answer-${i}` && m.role === 'user' && m.text === track.steps[i - 1].query));
+        assert.ok(messages.some((m: any) => m.session === `answer-${i}` && m.role === 'agent' && m.text === cp.answer));
+      }
+      assert.deepEqual(cp.postAnswer.center.messages, cp.postAnswer.satellite.messages);
+    }
     assert.ok(result.shutdown.every((s: any) => !s.forced && s.exitCode === 0 && s.evidenceHash));
     for (const s of result.shutdown) assert.throws(() => process.kill(s.pid, 0));
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
@@ -253,7 +277,7 @@ test('撤回已接受后模型重评失败，保留控制存档证据且不释�
     const failed = state.calls.find((c: any) => c.state === 'failed');
     assert.ok(JSON.parse(failed.request.messages.at(-1).content).review, '故障应发生在真实调度的重评调用');
     assert.equal(failed.failure.usage, null);
-    assert.ok(!JSON.stringify(state).includes(track.steps[2].text));
+    assert.ok(!JSON.stringify(state).includes(track.steps[2].text!));
     assert.equal(fs.existsSync(path.join(root, 'controlled-3.json')), false);
     assert.ok(result.shutdown.every((s: any) => !s.forced && s.exitCode === 0 && s.evidenceHash));
     for (const s of result.shutdown) assert.throws(() => process.kill(s.pid, 0));

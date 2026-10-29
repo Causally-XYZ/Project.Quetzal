@@ -1,10 +1,11 @@
 // 仅由评测控制进程启动。独立数据库、网关、真实 mesh 与后台；不读取数据集或预期答案。
 import fs from 'node:fs';
 import path from 'node:path';
-import { observeModel, type ObservedCall } from './model-observer.ts';
+import { observeModel, type ObservedCall, type ObservedJob } from './model-observer.ts';
 import { ControlledGraph } from './controlled-graph.ts';
 import { observeRetrieval } from './retrieval-observer.ts';
 import { semanticDigest } from '../../src/memory/adaptive-query.ts';
+import { sourceInputPath } from './spec.ts';
 
 if (!process.send || !process.env.QUETZAL_EVAL_BODY) throw new Error('评测身体必须由控制进程启动');
 const settings = JSON.parse(process.env.QUETZAL_EVAL_BODY);
@@ -18,7 +19,11 @@ await (await import('../../src/body/uuid.ts')).ensureBodyUuid();
 const soul = await import('../../src/memory/soul-sync.ts'); await soul.ensureSoul();
 const observer = settings.storageOnly ? { calls: [] as ObservedCall[], setPhase: (_value: string) => {}, abort: () => {}, close: async () => {} }
   : await observeModel({ directory: path.join(cfg.paths.home, 'eval-calls'), model: settings.model,
-    kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt, stubReviewDelayMs: settings.stubReviewDelayMs, thinkingLevel: settings.thinkingLevel });
+    kind: settings.kind, maxCalls: settings.maxCalls, stubFailAt: settings.stubFailAt, stubReviewDelayMs: settings.stubReviewDelayMs, thinkingLevel: settings.thinkingLevel,
+    ...(settings.fullEvidence ? { backgroundJob: () => {
+      const jobs = store.db.prepare("SELECT id,source,revision,processor,attempts FROM adaptive_jobs WHERE state='running' LIMIT 2").all();
+      return jobs.length === 1 ? jobs[0] as unknown as ObservedJob : null;
+    } } : {}) });
 cfg.saveConfig({ sharedRev: { providers: 1 } }, { remote: true });
 const { Mesh } = await import('../../src/mesh/mesh.ts');
 const { loadNodeKey } = await import('../../src/mesh/identity.ts');
@@ -89,7 +94,8 @@ const commands: Record<string, (args: any) => unknown> = {
     const original = Date.now;
     try {
       Date.now = () => Date.parse(a.at);
-      if (settings.baseline) {
+      if (!settings.storageOnly && sourceInputPath(a, settings.controlled ? 'and-or-graph' : 'empty', settings.inputMode, !!settings.baseline)
+        === 'normal-converse-with-synchronous-record-clock') {
         // 正常对话同步写入来源；必须先恢复时钟，再等待回复和后台学习。
         const reply = brain.converse('合成用户', a.text, '合成对照', { conv: a.session });
         const source = store.db.prepare('SELECT id FROM messages WHERE session=? AND role=? ORDER BY id DESC LIMIT 1').get(a.session, 'user');
@@ -100,7 +106,15 @@ const commands: Record<string, (args: any) => unknown> = {
     finally { Date.now = original; }
   },
   snapshot: () => exclusive(() => ({ ...(settings.fullEvidence ? { history: archive.current().flatMap((r) => archive.history(r.id)),
-      evidence: Object.fromEntries(archive.assess()) } : {}), agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
+      evidence: Object.fromEntries(archive.assess()),
+      backgroundJobs: [...new Set(observer.calls.flatMap((call) => call.backgroundJob ? [call.backgroundJob.id] : []))]
+        .map((id) => store.db.prepare('SELECT id,source,revision,processor,state,attempts,error FROM adaptive_jobs WHERE id=?').get(id) ?? null),
+      actualConfig: {
+        adaptiveMemory: { enabled: cfg.config.adaptiveMemory.enabled, semantic: cfg.config.adaptiveMemory.semantic,
+          research: cfg.config.adaptiveMemory.research, hostBody: cfg.config.adaptiveMemory.hostBody },
+        memorySemantic: cfg.config.brain.memorySemantic, memoryLearning: cfg.config.brain.memoryLearning,
+        sentinel: cfg.config.guard.sentinel.enabled,
+      } } : {}), agent: identity().id, records: archive.current(), generation: archive.generation(), calls: observer.calls,
     ...(settings.baseline ? { learningPending: brain.pendingMemoryLearning(), structured: readStructuredRecords(),
       legacyDocuments: documents().map(({ source, text }) => ({ source, text })).sort((a, b) => a.source.localeCompare(b.source)),
       memoryConfig: { adaptive: cfg.config.adaptiveMemory, brain: cfg.config.brain } } : {}),
