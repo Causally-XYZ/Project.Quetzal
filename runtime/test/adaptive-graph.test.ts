@@ -281,3 +281,18 @@ test('AM-12：未知投影版本或缺失元数据拒绝打开，DDL 失败不�
   assert.equal(f.db.prepare("SELECT 1 FROM sqlite_master WHERE name='adaptive_graph_meta'").get(), undefined);
   assert.equal(f.db.prepare("SELECT 1 FROM sqlite_master WHERE name='adaptive_graph_batches'").get(), undefined);
 });
+
+test('SQLite 局部查询携带完整争议依据，存储升版澄清后移除争议候选', (t) => {
+  const f = fixture(t); f.add(1, '排练厅预约周六'); f.add(2, '我记得排练厅预约周日'); f.add(3, '查过预约单是周日，周六是旧计划');
+  const a = claim('排练厅预约周六', f.span(1)), b = claim('排练厅预约周日', f.span(2));
+  a.counters = [group('counter', ref(b))]; b.counters = [group('counter', ref(a))];
+  f.accept([a, b]);
+  const result = f.graph.query('排练厅');
+  assert.equal(result.items.length, 1); assert.equal(result.items[0].kind, 'conflict');
+  assert.deepEqual(new Set(result.basis.records.map((r) => r.id)), new Set([a.id, b.id]));
+  assert.deepEqual(result.basis.sources.map((s) => s.id), [1, 2]);
+  f.accept([{ ...a, revision: 2, state: 'withdrawn', reasons: [f.span(3)] },
+    { ...b, revision: 2, counters: [], reasons: [f.span(3)], supports: [group('clarified', f.span(3))] }]);
+  const after = f.graph.query('排练厅');
+  assert.deepEqual(after.items.map((r) => [r.kind, r.id, r.revision]), [['claim', b.id, 2]]);
+});

@@ -2,6 +2,7 @@
 import { rank } from '../../../engine/src/retrieval.ts';
 import crypto from 'node:crypto';
 import { reciprocalRankFusion } from './adaptive-ranking.ts';
+import { conflictBundle } from './adaptive-conflict.ts';
 import { directSpans, evaluateEvidence, spanCurrent, sameRealm, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
 
 interface BaseItem { id: string; revision: number; realm: Realm; roots: { id: number; hash: string }[] }
@@ -10,7 +11,8 @@ export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported' | 'c
   participants: { role: string; mention: ClaimRecord['participants'][number]['mention']; object: { id: string; revision: number; name: string } }[];
   references?: { role: string; mention: ClaimRecord['participants'][number]['mention']; realm: Realm; object: { id: string; revision: number; name: string } }[] }
   | { kind: 'mention'; status: 'ambiguous'; anchor: SourceSpan; unknown: boolean;
-    candidates: { id: string; revision: number; name: string }[] });
+    candidates: { id: string; revision: number; name: string }[] }
+  | { kind: 'conflict'; status: 'indeterminate'; records: SemanticRecord[] });
 /** matched是本次有界检索检查的有效候选数，不承诺全库穷举；basis只锁定实际输出及其依赖。 */
 export interface SemanticSelection { generation: number; items: SemanticItem[]; matched: number }
 export interface SemanticBasis { records: { id: string; revision: number; hash: string }[]; sources: { id: number; hash: string | null }[] }
@@ -119,6 +121,15 @@ export function semanticCandidates(records: SemanticRecord[], read: SourceReader
       });
       candidates.push({ item: { ...base, kind: 'claim', status: conditional.has(r.id) ? 'conditional' : 'supported', text: r.text, nature: r.nature, occurred: r.occurred, valid: r.valid,
         participants, ...(r.references ? { references } : {}), supports: groups(r) }, title: [...participants, ...references].map((p) => p.object.name).join(' '), text: `${r.text}\n${evidenceText(r)}` });
+    } else if (r.kind === 'claim') {
+      const bundle = conflictBundle(r, byId, localStates, globalStates, read, global);
+      if (bundle) {
+        evidenceBytes += Buffer.byteLength(JSON.stringify(bundle));
+        if (evidenceBytes > 4 * 1024 * 1024) throw new Error('认识检索依据超过工作上限');
+        candidates.push({ item: { ...base, kind: 'conflict', status: 'indeterminate', ...bundle },
+          title: bundle.records.flatMap((x) => x.kind === 'node' ? [x.name] : []).join(' '),
+          text: bundle.records.flatMap((x) => [x.kind === 'claim' ? x.text : '', ...directSpans(x).map((s) => s.quote)]).join('\n') });
+      }
     } else if (r.kind === 'mention' && state.status === 'ambiguous' && globalStates.get(r.id)?.status === 'ambiguous' && spanCurrent(r.anchor, read)) {
       const names = r.candidates.flatMap((ref) => {
         const node = byId.get(ref.id);
@@ -140,7 +151,15 @@ export function selectSemantic(records: SemanticRecord[], query: string, generat
   const candidates = semanticCandidates(records, read, global);
   const byKey = new Map(candidates.map((c) => [c.item.id, c.item]));
   const ranked = rank(query, candidates.map((c) => ({ kind: 'memory', source: c.item.id, title: c.title, text: c.text, mtime: 0 })), 0);
-  let items = ranked.slice(0, 6).map((hit) => byKey.get(hit.source)!), matched = ranked.length;
+  const distinct = (items: SemanticItem[]) => {
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      const key = item.kind === 'conflict' ? semanticDigest(item.records) : item.id;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    }).slice(0, 6);
+  };
+  let items = distinct(ranked.map((hit) => byKey.get(hit.source)!)), matched = ranked.length;
   if (neighbors && neighbors.queryHash === semanticDigest(query) && Array.isArray(neighbors.keys) && neighbors.keys.length <= 1000 &&
       neighbors.keys.every((key) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key))) {
     const current = new Map(candidates.map((c) => [c.key, c.item]));
@@ -149,7 +168,7 @@ export function selectSemantic(records: SemanticRecord[], query: string, generat
     const dense = [...new Set(neighbors.keys)].filter((key) => current.has(key)).slice(0, 6);
     if (dense.length) {
       const lexical = ranked.map((hit) => keys.get(hit.source)!);
-      items = reciprocalRankFusion([lexical.slice(0, 6), dense]).slice(0, 6).map((hit) => current.get(hit.key)!);
+      items = distinct(reciprocalRankFusion([lexical.slice(0, 6), dense]).map((hit) => current.get(hit.key)!));
       matched = new Set([...lexical, ...dense]).size;
     }
   }

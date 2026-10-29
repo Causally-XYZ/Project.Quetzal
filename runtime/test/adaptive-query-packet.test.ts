@@ -21,7 +21,7 @@ test('合法语义信封保留性质、状态、来源与版本，返回独立�
 });
 test('拒绝其他请求、身份、版本、过时信封和额外字段', () => {
   const { packet } = fixture();
-  for (const delta of [{ agent: 'other' }, { host: 'other' }, { version: 4 }, { queryHash: semanticDigest('另一个查询') }, { generatedAt: Date.now() - 61_000 }, { verified: true }, { generation: -1 }])
+  for (const delta of [{ agent: 'other' }, { host: 'other' }, { version: 5 }, { queryHash: semanticDigest('另一个查询') }, { generatedAt: Date.now() - 61_000 }, { verified: true }, { generation: -1 }])
     assert.throws(() => decode({ ...packet, ...delta }), /信封/);
 });
 test('拒绝缺少依赖版本或来源、重复条目与伪造 supported 正文形状', () => {
@@ -57,4 +57,23 @@ test('v3 条件性推测保留假设；旧协议和事实性质不得混入', ()
     else p.items[0].supports[0].assumptions = [];
     assert.throws(() => decode(p));
   }
+});
+
+test('v4 争议信封绑定完整双方和版本摘要，拒绝删去反方、替换正文和旧协议', () => {
+  const f = fixture(), a = f.record, b = { ...structuredClone(a), id: crypto.randomUUID(), text: '采风线索的相反解释' };
+  a.counters = [{ id: 'counter', premises: [{ kind: 'claim', id: b.id, revision: 1 }], assumptions: [] }];
+  b.counters = [{ id: 'counter', premises: [{ kind: 'claim', id: a.id, revision: 1 }], assumptions: [] }];
+  const records = [a, b], selection = selectSemantic(records, '采风', 1, f.read, f.read);
+  const packet = { ...f.packet, version: 4, ...selection, basis: semanticBasis(records, f.read) };
+  assert.equal(packet.items.length, 1); assert.equal(packet.items[0].kind, 'conflict');
+  assert.deepEqual(decode(packet), packet);
+  for (const edit of [
+    (p: any) => p.version = 3,
+    (p: any) => p.items[0].records.pop(),
+    (p: any) => p.items[0].records[0].text = '偷换的判断',
+    (p: any) => p.basis.records.pop(),
+    (p: any) => p.items[0].status = 'supported',
+    (p: any) => p.items[0].records[0].revision++,
+    (p: any) => p.items[0].records[0].counters = [],
+  ]) { const p = structuredClone(packet); edit(p); assert.throws(() => decode(p)); }
 });

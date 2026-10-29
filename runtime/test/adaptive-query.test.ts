@@ -230,3 +230,60 @@ test('有共同有效前提的条件性推测可供讨论，但不证明下游�
   const counter = f.source('线路正常运行'); h.counters = [{ id: 'against', premises: [counter], assumptions: [] }];
   assert.ok(!selectSemantic([base, h], '活动交通', 1, (id) => id === counter.source ? undefined : f.read(id), f.read).items.some((i) => i.id === h.id));
 });
+
+test('有根的未决争议成组返回，相关下游只作争议，独立充分支持仍可使用', () => {
+  const f = fixture(), a = f.source('运费清单记为80元'), b = f.source('回忆运费是50元'), c = f.source('独立说明可报销');
+  const first = f.claim('运费为80元', a), second = f.claim('运费为50元', b);
+  first.counters = [{ id: 'other', premises: [ref(second)], assumptions: [] }];
+  second.counters = [{ id: 'other', premises: [ref(first)], assumptions: [] }];
+  const downstream = f.claim('报销金额为80元', a);
+  downstream.supports = [{ id: 'derived', premises: [ref(first)], assumptions: [] }];
+  const independent = f.claim('运费可以报销', c);
+  independent.supports.push({ id: 'alternative', premises: [ref(first)], assumptions: [] });
+  const records = [first, second, downstream, independent], before = structuredClone(records);
+  const result = selectSemantic(records, '运费报销', 1, f.read, f.read);
+  const dispute = result.items.find((r) => r.kind === 'conflict' && r.records.length === 2);
+  assert.ok(dispute?.kind === 'conflict');
+  assert.deepEqual(new Set(dispute.records.map((r) => r.id)), new Set([first.id, second.id]));
+  assert.deepEqual(dispute.roots, [{ id: a.source, hash: a.hash }, { id: b.source, hash: b.hash }]);
+  assert.equal(result.items.filter((r) => r.kind === 'conflict' && r.records.length === 2).length, 1, '双方共享的争议只呈现一次');
+  assert.ok(result.items.some((r) => r.id === downstream.id && r.kind === 'conflict'));
+  const safe = result.items.find((r) => r.id === independent.id);
+  assert.ok(safe?.kind === 'claim'); assert.deepEqual(safe.supports.map((g) => g.id), ['direct']);
+  assert.ok(!result.items.some((r) => r.kind === 'claim' && [first.id, second.id, downstream.id].includes(r.id)));
+  assert.deepEqual(records, before);
+});
+
+test('争议缺少任一必要来源、当前版本或完整字节预算时不泄漏半份；澄清后解除', () => {
+  const f = fixture(), a = f.source('工作室租金3000'), b = f.source('我记得工作室租金2800'), clarification = f.source('核实租金2800，另外200是物业费');
+  const first = f.claim('工作室租金3000', a), second = f.claim('工作室租金2800', b);
+  first.counters = [{ id: 'other', premises: [ref(second)], assumptions: [] }];
+  second.counters = [{ id: 'other', premises: [ref(first)], assumptions: [] }];
+  const records = [first, second];
+  assert.equal(selectSemantic(records, '租金', 1, f.read, f.read).items[0]?.kind, 'conflict');
+  const hidden = (id: number) => id === b.source ? undefined : f.read(id);
+  assert.deepEqual(selectSemantic(records, '租金', 1, hidden, f.read).items, []);
+  const changed = (id: number) => id === b.source ? { ...f.read(id)!, hash: 'f'.repeat(64) } : f.read(id);
+  assert.ok(!selectSemantic(records, '租金', 1, changed, f.read).items.some((r) => r.kind === 'conflict'));
+  assert.ok(!selectSemantic([first, { ...second, revision: 2 }], '租金', 2, f.read, f.read).items.some((r) => r.kind === 'conflict'));
+  const large = structuredClone(records);
+  for (let i = 0; i < 12; i++) large[0].reasons.push(f.source(`记录${i}${'租'.repeat(7000)}`));
+  assert.deepEqual(selectSemantic(large, '租金', 1, f.read, f.read).items, []);
+  const resolved = { ...second, revision: 2, counters: [], supports: [{ id: 'clarified', premises: [clarification], assumptions: [] }] };
+  const result = selectSemantic([{ ...first, revision: 2, state: 'withdrawn' }, resolved], '租金', 2, f.read, f.read);
+  assert.deepEqual(result.items.map((r) => [r.kind, r.id, r.revision]), [['claim', second.id, 2]]);
+});
+
+test('没有原始支持的循环和单向已生效反证不伪装成未决争议', () => {
+  const f = fixture(), s = f.source('讨论活动是否延期');
+  const a = f.claim('活动延期', s), b = f.claim('活动未延期', s);
+  a.supports = [{ id: 'loop', premises: [ref(b)], assumptions: [] }];
+  b.supports = [{ id: 'loop', premises: [ref(a)], assumptions: [] }];
+  a.counters = [{ id: 'other', premises: [ref(b)], assumptions: [] }];
+  b.counters = [{ id: 'other', premises: [ref(a)], assumptions: [] }];
+  assert.deepEqual(selectSemantic([a, b], '活动', 1, f.read, f.read).items, []);
+  a.supports = [{ id: 'direct', premises: [s], assumptions: [] }];
+  b.supports = [{ id: 'direct', premises: [s], assumptions: [] }]; b.counters = [];
+  const result = selectSemantic([a, b], '活动', 1, f.read, f.read);
+  assert.deepEqual(result.items.map((r) => [r.id, r.kind]), [[b.id, 'claim']]);
+});

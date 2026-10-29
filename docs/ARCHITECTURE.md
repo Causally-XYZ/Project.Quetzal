@@ -1,5 +1,7 @@
 # 运行架构
 
+M5的未决冲突复用现有认识支持 / 反证关系，不新增权威存储。`adaptive-conflict.ts`组装有界、来源可见且版本完整的争议依赖，语义读取与v4身体信封保留双方；争议及受影响下游不能作为确定事实。提案规则区分旧说法被纠正、仍有效约束相互冲突以及偏好改变，澄清后修订相关范围。当前仍待真实模型重放与M5整体验证；全量完整性核查和向量规模缺口尚未因此解决。
+
 本文用图文说明 Quetzal 运行基座的整体结构、每个部分的原理与实现方式。代码位置均相对于 `runtime/src/`。
 
 核心是项目自建的 TypeScript / Node.js 运行时：`main.ts` 装配，`mind/brain.ts` 编排对话与醒来，调用独立的 `engine/src/loop.ts` 执行模型与工具循环（engine 路径相对于仓库根目录），`mind/prompt.ts` 提供政策与处境，`mind/context.ts` 每步选择记忆并调用独立上下文管理器，`memory/` 管理结构化记忆与 PRIME 学习，`providers/` 适配模型，`heart/` 调度自主活动。完整文件职责见 [runtime 模块地图](../runtime/docs/ARCHITECTURE.md)。`console/` 是交互客户端，`cli/` 是安装与运维入口；灵魂桥映射其他框架的记忆，不接管它们的执行循环。

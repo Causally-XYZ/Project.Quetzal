@@ -1,5 +1,7 @@
 # runtime 模块地图
 
+M5的未决冲突复用现有认识支持 / 反证关系，不新增权威存储。`adaptive-conflict.ts`组装有界、来源可见且版本完整的争议依赖，语义读取与v4身体信封保留双方；争议及受影响下游不能作为确定事实。提案规则区分旧说法被纠正、仍有效约束相互冲突以及偏好改变，澄清后修订相关范围。当前仍待真实模型重放与M5整体验证；全量完整性核查和向量规模缺口尚未因此解决。
+
 整体原理见仓库根目录的 [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md)。本文列出每个文件的职责与约定。
 
 `memory/adaptive-reading.ts` 的 sourceReadingsHeader 为工具核查生成共用修订表，逐来源用表内下标保留完整映射；不同偏移 / 状态不合并。旧回答的失效依赖通过来源表追溯，不逐答复重复展开。`mind/tool-reading.ts` 用于前台与 context_read 的同一投影，校验集合和 atomic 保护不变。无新依赖、配置、存储格式或部署入口，既有 TypeScript / 测试 / 打包覆盖。
