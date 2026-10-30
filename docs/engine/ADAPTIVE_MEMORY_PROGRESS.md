@@ -2430,3 +2430,41 @@ worker以SQLite保存候选清单、嵌入待办与epoch / seq，批次持久提
 - `runtime/test/adaptive-*.test.ts` 等全部 39 个自适应记忆与备份测试文件：**322 项全部通过**（0 失败 / 0 跳过）。其中真实 E5 下 10000 候选（单块）4 次查询耗时 `44.02 / 31.73 / 21.85 / 27.09ms`，10000 候选（每条 2 分块、共 20000 分块）4 次查询耗时 `50.30 / 37.43 / 29.67 / 36.80ms`（均在 100ms 预算内返回 Top-1000）；10000 候选宿主端到端查询 4 次耗时 `201.03–245.97ms`（在 500ms 截止内返回材料）；`adaptive-vector.test.ts` 10 项含嵌入提交写锁与批次清单提交写锁恢复全部通过。
 - 探针与基准实跑：`host.ts` 11 项通过（词面 hit@6 8/14，混合 14/14，P95 47.21ms）；`multibody.ts` 双身体 5 检查点通过（读取 8.93–14.81ms）；`deploy.ts` 4 项部署与自修检查通过（就绪 5419.33ms，准备期间词面查询 8.51ms）；`bench:adaptive-read` 100/500/1000 规模各 100 次查询 P95 分别为 `36.46 / 117.66 / 207.68ms`（over500ms 均为 0）；`eval:adaptive --check` v1/v2 冻结校验通过。
 - 其他模块全套自动化测试：`engine` 60/60 通过，`bridge` 25/25 通过，`cli` 61/61 通过（2 项 PowerShell 在 macOS 正常 skip），`console` Flutter 测试 132/132 全部通过，`npm run build --prefix runtime` 完整构建通过。
+
+### 7.42 v2全量150序列真实运行与独立审核：2026-10-30
+
+在清洁提交 `04bf28e0b4751482a9dc3266585d1bd0893c8ade` 上初始化新的仓库外正式评测目录，执行全量 150 个 v2 案例序列（50 案例 × 3 次独立重置，共 180 条轨迹、795 个检查点、5,580 条断言），并逐序列导出审核包（`--packet`）、完成独立 Agent 审核（`--record`）、绑定完整 150 条选择清单（`--select`）及运行官方只读评分（`eval:adaptive --score`）：
+
+- **绑定摘要**：
+  - `suiteHash`：`292fa2481e54829c311a5a23591798b1706365355b264f3efad48ab249d44ac7`
+  - `planHash`：`6869befc92cfb98e8539cc125f32ff575821ec5fe53440e10486a9ecd9b29e3d`
+  - `reviewSelection`：`review-selections/full-150-agent-review.json`（摘要 `c5257991a2bcfef9f093d6396c2cd38ff4f47af1c29bc162901fae27809d23e2`，150 项）
+  - 完整评分输出摘要：`7ace61d949ddac7bba2b7726952067b55ff3aa4fd2c848a2e6e54c5b8fbda6df`
+- **执行与真实模型用量统计**：
+  - 150 个序列中 **148 个完整跑完（`complete: 148`）**、**2 个因单次前台对话调用遭遇供应商流式网络 `idle_timeout` 提前停止（`failed: 2`：AM-02-H1 repeat-2 的 `main/S2`、AM-03-H5 repeat-3 的 `historical-correction/S2`）**、`interrupted: 0`、`missing: 0`、`invalid: 0`、`stub: 0`。每序列完成后自动核对回执并回收该序列新建的重复公开组件缓存（`node_modules`、`model`、`npm-cache`），全过程保持约 25–29GiB 磁盘可用空间，全部 `originalReceipt` 二次重算一致。
+  - 共发起 **6,475 次真实 `gemini-3.8-flash` LOW 调用**（6,470 次正常返回、5 次失败，其中 3 次后台提案失败均由同一持久化 job 自动退避重试恢复）：对话调用 1,466 次（1,464 返回 / 2 超时，已报告 26,185,886 tokens），后台提案与研究调用 5,009 次（5,006 返回 / 3 失败后恢复，已报告 20,770,280 tokens）。合计已计量 **46,956,166 total tokens**（prompt 45,931,224 / candidates 834,423 / thoughts 190,519；5 次失败调用用量未知记 `null`，不补零）。
+- **序列总票与十族分布**：
+  - 序列总票：**146 pass / 2 fail / 2 unassessed（expected 150，整体通过率 97.33%，满足 `gates.overall: true` ≥143/150 门槛）**。
+  - 硬边界检查：`agent-access` 816/825 pass、`source-integrity` 786/795 pass、`registered-version` 60/60 pass、`authority` 801/810 pass，其余 27 项为上述 2 个提前停止序列未执行步骤的 `unassessed`，**0 项硬违规（`violations: []`，`gates.noKnownHardViolation: true`）**。
+  - 各场景族序列得分：
+    - **AM-01**：**14 / 15 pass**，1 fail（AM-01-H5 repeat-3 在 R2 末项交接漏写“一套透明卡片盒”，仅写“手工课教具”）
+    - **AM-02**：**13 / 15 pass**，1 fail（AM-02-H3 repeat-1 因 S3“那次到货”未与 S2 四月展台板绑定，R2 将已更正的岸线运输队退化为待核验推测），1 unassessed（AM-02-H1 repeat-2 在 S2 遭遇网络 `idle_timeout`）
+    - **AM-03**：**14 / 15 pass**，0 fail，1 unassessed（AM-03-H5 repeat-3 在 `historical-correction/S2` 遭遇网络 `idle_timeout`；其余 14 个序列含 AM-03-H2 的 3 次重复全部通过）
+    - **AM-04**：**15 / 15 pass**
+    - **AM-05**：**15 / 15 pass**
+    - **AM-06**：**15 / 15 pass**
+    - **AM-07**：**15 / 15 pass**
+    - **AM-09**：**15 / 15 pass**
+    - **AM-10**：**15 / 15 pass**
+    - **AM-16**：**15 / 15 pass**
+  - 七类普通断言与预登记分项汇总：
+    - `invariant`：2478 pass / 0 fail / 27 unassessed（共 2505）
+    - `identitySafety`：579 pass / 3 fail / 3 unassessed（共 585）
+    - `binding`：716 pass / 9 fail / 10 unassessed（共 735）
+    - `correction`：701 pass / 6 fail / 13 unassessed（共 720）
+    - `preservation`：266 pass / 1 fail / 3 unassessed（共 270）
+    - `timeEvidenceSafety`：370 pass / 0 fail / 5 unassessed（共 375）
+    - `requiredFields`：236 pass / 1 fail / 3 unassessed（共 240）
+    - 动态观察分项：`initial-error` 101/105、`disambiguating-evidence` 101/105、`repair-delay` 102/105、`first-reuse` 102/105、`second-reuse` 102/105、`recurrence` 103/105（0 fail）、`propagation` 103/105（0 fail）、`unrelated-loss` 102/105、`usefulness` 279/285、`abstention` 277/285。
+  - 50 案例三次重复一致性（`consistency`）：46 个案例为 `['pass','pass','pass']`，仅 4 个案例存在波动：`AM-01-H5` `['pass','pass','fail']`、`AM-02-H1` `['pass','unassessed','pass']`、`AM-02-H3` `['fail','pass','pass']`、`AM-03-H5` `['pass','pass','unassessed']`。
+- **结论与边界**：整体 146/150 达标且 9 个族 ≥14/15，但因 AM-02 为 13/15（差 1 票达到 14/15），`gates.everyFamily=false`、`qualityGate=false`。不重跑或挑选覆盖已跑序列，原样保留全部 150 份回执、审核与失败记录。

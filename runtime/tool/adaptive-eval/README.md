@@ -6,7 +6,7 @@
 
 需求方已批准原型优先：M2 复用本目录公开运行器核验代表性完整过程；150序列及严格评分移至 M5。原文件名、回执 schema、失败结果与评分器保持不变，semanticGate 仍代表完整语义评分，不能拿它代替或伪造 M2 原型判定。现行门禁见[实施计划](../../../docs/engine/ADAPTIVE_MEMORY_PLAN.md)。
 
-2026-10-29复核：旧v1计划采用默认思考且声明memoryLearning=false，与后来身体实际true存在漂移；旧档案保留此事实。旧正式目录重评分仍0完成、1失败、149缺失。需求方随后已确认[新轨迹评分](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md#m5-轨迹评分2026-10-29需求方已确认)，评分、计划与正式 / 审核CLI已增加显式v2分支，旧结果保留；v2题库及曝光清单已冻结，尚无正式成绩。正式新批须冻结有版本的实际配置及审核口径，不能直接把旧剩余149组当当前候选验收。
+2026-10-29复核：旧v1计划采用默认思考且声明memoryLearning=false，与后来身体实际true存在漂移；旧档案保留此事实。旧正式目录重评分仍0完成、1失败、149缺失。需求方随后已确认[新轨迹评分](../../../docs/engine/ADAPTIVE_MEMORY_EVAL.md#m5-轨迹评分2026-10-29需求方已确认)，评分、计划与正式 / 审核CLI已增加显式v2分支，旧结果保留；v2题库及曝光清单已冻结。2026-10-30在清洁提交 `04bf28e`（计划摘要 `6869befc92cfb98e8539cc125f32ff575821ec5fe53440e10486a9ecd9b29e3d`）上完成全量150序列v2真实执行与逐条独立审核：整体 146/150 合格（`gates.overall=true`）、2失败、2因前台网络 `idle_timeout` 记 `unassessed`，零硬违规（`gates.noKnownHardViolation=true`）；9个族 ≥14/15，仅 AM-02 为 13/15（`gates.everyFamily=false`），故 `qualityGate=false`。原首批10条广度核读记录一并保留。
 
 `scoreSequenceSuite`仅接受`quetzal-m5-eval-v2`：每案例最后检查点恰好一个sequence检查，`evidenceAt`预登记跨点所需材料，`required`引用必须通过的普通检查，内部多轨合一票。固定150票、整体143、各族14；原七类明细和预登记report分项分别统计。首次 / 再次复用等标记本身不证明真实顺序，正式数据和执行证据仍须核读。query-only观察动作只经正常chat.send提问，跳过素材摄入；冻结输入另见holdout-v2.json。
 
