@@ -75,9 +75,9 @@ test("console_runs_here：只读解析 ELF；本机已有的程序通过，缺�
   copyFileSync(process.execPath, join(d, "quetzal-console"));
   const ok = sh(`console_runs_here "$D"`, { D: d });
   assert.equal(ok.code, 0, ok.err);
-  // 依赖一个不存在的库：把 lib_present 换成永远找不到
+  // 依赖一个不存在的库：把 lib_present 换成永远找不到（macOS 的 node 是 Mach-O 而非 ELF，只在 Linux 上检查本机二进制的 NEEDED）
   const miss = sh(`lib_present() { return 1; }; console_runs_here "$D"`, { D: d });
-  const tools = spawnSync("bash", ["-c", "command -v readelf || command -v objdump"]).status === 0;
+  const tools = process.platform === "linux" && spawnSync("bash", ["-c", "command -v readelf || command -v objdump"]).status === 0;
   if (tools) assert.notEqual(miss.code, 0);
 });
 
@@ -115,7 +115,7 @@ test("守护循环：托盘「退出」留下的 state/quit 让循环在运行�
   const fakeNode = join(home, "node.sh");
   writeFileSync(fakeNode, `#!/bin/sh\necho run >> "${home}/runs"\nexit 0\n`);
   execFileSync("chmod", ["+x", fakeNode]);
-  const r = sh(`HOME_DIR="${home}"; NODE="${fakeNode}"; install_supervisor; : > "${home}/state/quit"; timeout 10 "$SUPERVISOR"; echo rc=$?`);
+  const r = sh(`HOME_DIR="${home}"; NODE="${fakeNode}"; install_supervisor; : > "${home}/state/quit"; if command -v timeout >/dev/null 2>&1; then timeout 10 "$SUPERVISOR"; else "$SUPERVISOR"; fi; echo rc=$?`);
   assert.match(r.out, /rc=0$/, "循环自己退出了（没有被 timeout 杀掉）");
   assert.equal(readFileSync(join(home, "runs"), "utf8"), "run\n", "运行基座只跑了一次，没有再拉起");
   assert.equal(spawnSync("test", ["-e", join(home, "state", "quit")]).status, 1, "quit 标记已删除");

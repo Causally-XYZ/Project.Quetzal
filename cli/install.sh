@@ -91,8 +91,8 @@ bad()  { printf '  %s%s%s %s\n' "$BAD" "$I_BAD" "$R" "$*"; }
 LOG=""
 die() {
   bad "$*"
-  if [[ -n "$LOG" && -s "$LOG" ]]; then
-    printf '\n%s%s%s\n' "$MUTE" "$(t "最近的日志（完整日志：$LOG）：" "Recent log lines (full log: $LOG):")" "$R"
+  if [[ -n $LOG && -s $LOG ]]; then
+    printf '\n%s%s%s\n' "$MUTE" "$(t "最近的日志（完整日志：${LOG}）：" "Recent log lines (full log: $LOG):")" "$R"
     tail -n 25 "$LOG" | sed 's/^/    /'
   fi
   printf '\n  %s%s%s\n\n' "$MUTE" "$(t "需要帮助：$DOCS" "Need help: $DOCS")" "$R"
@@ -194,9 +194,9 @@ sha256_of() {
 }
 sha256_is() { local h; h=$(sha256_of "$1") && [[ -n $h && $h == "$2" ]] || { echo "sha256 mismatch: $1 (got ${h:-?}, want $2)" >>"${LOG:-/dev/null}"; return 1; }; }
 # 生成文件里的引用：sh 的单引号（' → '\''）、桌面项 Exec 的双引号（规范要求 \ " ` $ 先按字符串转义再按参数转义，% 写成 %%）、crontab（% 是换行，写成 \%）
-sq() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
-desk_q() { local s=$1; s=${s//\\/\\\\\\\\}; s=${s//\"/\\\\\"}; s=${s//\`/\\\\\`}; s=${s//\$/\\\\\$}; s=${s//%/%%}; printf '"%s"' "$s"; }
-cron_q() { local s; s=$(sq "$1"); printf '%s' "${s//%/\\%}"; }
+sq() { local q="'\\''"; printf "'%s'" "${1//\'/$q}"; }
+desk_q() { local s=$1 bs='\\'; s=${s//\\/$bs$bs}; s=${s//\"/$bs\"}; s=${s//\`/$bs\`}; s=${s//\$/$bs\$}; s=${s//%/%%}; printf '"%s"' "$s"; }
+cron_q() { local s p='\%'; s=$(sq "$1"); printf '%s' "${s//%/$p}"; }
 
 # ---------------------------------------------------------------- 参数
 LAN=${QUETZAL_LAN:-0}; OPEN=1; DESKTOP=1; HOME_DIR="${QUETZAL_HOME:-}"; VERSION="${QUETZAL_VERSION:-latest}"; MIRROR="${QUETZAL_MIRROR:-auto}"; MODE=install; PURGE=0
@@ -236,7 +236,7 @@ migrate_legacy_home() {
   [[ -n $pid ]] && kill -TERM "$pid" 2>/dev/null || true
   sleep 1
   mv "$old" "$HOME_DIR" || die "$(t "没能把 $old 搬到 $HOME_DIR" "Could not move $old to $HOME_DIR")"
-  ok "$(t "家目录从 $old 搬到了 $HOME_DIR（配置、记忆、对话原样保留；想放别处请设 QUETZAL_HOME）" "Home directory moved from $old to $HOME_DIR (configuration, memories and conversations kept; set QUETZAL_HOME to use another place)")"
+  ok "$(t "家目录从 $old 搬到了 ${HOME_DIR}（配置、记忆、对话原样保留；想放别处请设 QUETZAL_HOME）" "Home directory moved from $old to $HOME_DIR (configuration, memories and conversations kept; set QUETZAL_HOME to use another place)")"
 }
 
 # ---------------------------------------------------------------- 1. 这台机器
@@ -251,10 +251,11 @@ detect_mac() {
   ARCH=$(uname -m 2>/dev/null || echo unknown)
   case "$ARCH" in x86_64|arm64) ;; *) die "$(t "不支持这个处理器架构：$ARCH" "Unsupported CPU architecture: $ARCH")";; esac
   [[ $ARCH == x86_64 && "$(sysctl -n sysctl.proc_translated 2>/dev/null)" == 1 ]] && ROSETTA=1
-  local v; v=$(sw_vers -productVersion 2>/dev/null || echo "")
+  local v major
+  v=$(sw_vers -productVersion 2>/dev/null || echo "")
   OS_NAME="macOS${v:+ $v}"
-  local major=${v%%.*}
-  if [[ $major =~ ^[0-9]+$ ]] && (( major < 12 )); then die "$(t "需要 macOS 12 以上（当前 $v）。" "macOS 12 or later is required (found $v).")"; fi
+  major=${v%%.*}
+  if [[ $major =~ ^[0-9]+$ ]] && (( major < 12 )); then die "$(t "需要 macOS 12 以上（当前 ${v}）。" "macOS 12 or later is required (found $v).")"; fi
   if have brew; then PM=brew; else PM=none; fi
   LIBC=darwin; HAS_SYSTEMD=0
   if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then HAS_SESSION=1; HAS_DESKTOP=1; fi
@@ -262,7 +263,7 @@ detect_mac() {
 detect_machine() {
   if [[ "$(uname -s 2>/dev/null)" == Darwin ]]; then IS_MAC=1; detect_mac; return; fi
   [[ "$(uname -s 2>/dev/null)" == Linux ]] || die "$(t '这个安装器只支持 Linux 与 macOS。安卓手机请装 Quetzal App，Windows 用 install.ps1；其他系统见文档。' 'This installer supports Linux and macOS. Use the Quetzal app on Android and install.ps1 on Windows; see the docs for other systems.')"
-  (( BASH_VERSINFO[0] >= 4 )) || die "$(t "需要 bash 4 以上（当前 $BASH_VERSION）。" "bash 4 or later is required (found $BASH_VERSION).")"
+  (( BASH_VERSINFO[0] >= 4 )) || die "$(t "需要 bash 4 以上（当前 ${BASH_VERSION}）。" "bash 4 or later is required (found $BASH_VERSION).")"
   USER_NAME=$(id -un 2>/dev/null || echo "${USER:-user}")
   if [[ -z "${HOME:-}" || ! -d "$HOME" ]]; then
     HOME=$(getent passwd "$USER_NAME" 2>/dev/null | cut -d: -f6); export HOME
@@ -442,10 +443,10 @@ ensure_sandbox() {
     as_root install -m 755 "$(command -v bwrap)" "$QZ_BWRAP" >>"$LOG" 2>&1 || true
   fi
   if ! have bwrap && [[ $PM != none ]] && need_root_runner; then
-    local label; label="$(t "安装命令沙箱 bubblewrap（$PM）" "Installing the command sandbox bubblewrap ($PM)")"
+    local label; label="$(t "安装命令沙箱 bubblewrap（${PM}）" "Installing the command sandbox bubblewrap ($PM)")"
     if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then run_try "$label" pkg_install bubblewrap || true   # run_try：失败只提示，不终止安装
     elif [[ -r /dev/tty ]]; then
-      note "$(t "安装 bubblewrap 需要管理员权限，接下来会请你输入密码（$SUDO）" "Installing bubblewrap needs administrator rights; $SUDO will ask for your password")"
+      note "$(t "安装 bubblewrap 需要管理员权限，接下来会请你输入密码（${SUDO}）" "Installing bubblewrap needs administrator rights; $SUDO will ask for your password")"
       pkg_install bubblewrap </dev/tty >>"$LOG" 2>&1 || true
     fi
   fi
@@ -514,10 +515,10 @@ ensure_tools() {
   local pkgs=() m; for m in "${missing[@]}"; do pkgs+=("$(pkg_name "$m")"); done
   if [[ $PM == none ]]; then die "$(t "缺少 ${missing[*]}，而且认不出这台机器的包管理器。请先自行安装它们再重试。" "Missing ${missing[*]} and no known package manager found. Install them and rerun.")"; fi
   if ! need_root_runner; then die "$(t "缺少 ${missing[*]}，需要管理员权限安装，但没有 sudo / doas。请以管理员执行：$PM install ${pkgs[*]}" "Missing ${missing[*]}; installing needs root but neither sudo nor doas exists. As an administrator run: $PM install ${pkgs[*]}")"; fi
-  local label; label="$(t "安装 ${missing[*]}（$PM）" "Installing ${missing[*]} ($PM)")"
+  local label; label="$(t "安装 ${missing[*]}（${PM}）" "Installing ${missing[*]} ($PM)")"
   if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then run_step "$label" pkg_install "${pkgs[@]}"
   else
-    note "$(t "需要管理员权限安装 ${missing[*]}，接下来会请你输入密码（$SUDO）" "Installing ${missing[*]} needs administrator rights; $SUDO will ask for your password")"
+    note "$(t "需要管理员权限安装 ${missing[*]}，接下来会请你输入密码（${SUDO}）" "Installing ${missing[*]} needs administrator rights; $SUDO will ask for your password")"
     run_tty "$label" pkg_install "${pkgs[@]}"
   fi
   for tool in git tar; do have "$tool" || die "$(t "$tool 还是没有装上" "$tool is still missing")"; done
@@ -602,7 +603,7 @@ ensure_node() {
       need_root_runner || die "$(t '需要管理员权限安装 libstdc++（apk），但没有 sudo / doas。' 'Installing libstdc++ (apk) needs root, but neither sudo nor doas exists.')"
       if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then run_step "$(t '安装 libstdc++（apk）' 'Installing libstdc++ (apk)')" pkg_install libstdc++; else run_tty "$(t '安装 libstdc++（apk）' 'Installing libstdc++ (apk)')" pkg_install libstdc++; fi
     fi
-    run_step "$(t "下载 Node.js $NODE_MAJOR（linux-$direct，Node.js 官方的 unofficial-builds）" "Downloading Node.js $NODE_MAJOR (linux-$direct, Node.js unofficial-builds)")" node_direct_install "$direct"
+    run_step "$(t "下载 Node.js ${NODE_MAJOR}（linux-${direct}，Node.js 官方的 unofficial-builds）" "Downloading Node.js $NODE_MAJOR (linux-$direct, Node.js unofficial-builds)")" node_direct_install "$direct"
     NODE="$HOME_DIR/node/current/bin/node"; node_ok "$NODE" || die "$(t '下载的 Node.js 跑不起来' 'The downloaded Node.js does not run')"
     NODE_FROM="unofficial-builds"
   elif [[ $LIBC == musl || $DISTRO_ID == *nixos* ]]; then
@@ -611,14 +612,14 @@ ensure_node() {
       need_root_runner || die "$(t '需要管理员权限安装 nodejs npm（apk），但没有 sudo / doas。' 'Installing nodejs npm (apk) needs root, but neither sudo nor doas exists.')"
       if [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1; then run_step "$(t '安装 Node.js（apk nodejs npm）' 'Installing Node.js (apk nodejs npm)')" pkg_install nodejs npm
       else run_tty "$(t '安装 Node.js（apk nodejs npm）' 'Installing Node.js (apk nodejs npm)')" pkg_install nodejs npm; fi
-      find_node || die "$(t "发行版的 Node.js 低于 $NODE_MAJOR.$NODE_MIN_MINOR，请升级系统或自行安装更新的版本。" "The distro's Node.js is older than $NODE_MAJOR.$NODE_MIN_MINOR; upgrade the system or install a newer one.")"
+      find_node || die "$(t "发行版的 Node.js 低于 ${NODE_MAJOR}.${NODE_MIN_MINOR}，请升级系统或自行安装更新的版本。" "The distro's Node.js is older than $NODE_MAJOR.$NODE_MIN_MINOR; upgrade the system or install a newer one.")"
     else
-      die "$(t "这台机器（$( [[ $LIBC == musl ]] && echo musl || echo NixOS )）不能用 nvm 的官方二进制。请先用系统的包管理器装好 Node.js ≥ $NODE_MAJOR.$NODE_MIN_MINOR（含 npm）再重试。" "nvm's official binaries do not run here ($( [[ $LIBC == musl ]] && echo musl || echo NixOS )). Install Node.js ≥ $NODE_MAJOR.$NODE_MIN_MINOR with npm from your package manager, then rerun.")"
+      die "$(t "这台机器（$( [[ $LIBC == musl ]] && echo musl || echo NixOS )）不能用 nvm 的官方二进制。请先用系统的包管理器装好 Node.js ≥ ${NODE_MAJOR}.${NODE_MIN_MINOR}（含 npm）再重试。" "nvm's official binaries do not run here ($( [[ $LIBC == musl ]] && echo musl || echo NixOS )). Install Node.js ≥ $NODE_MAJOR.$NODE_MIN_MINOR with npm from your package manager, then rerun.")"
     fi
   else
     pick_mirror
     if ! ( set +u; nvm_env ) 2>/dev/null; then
-      run_step "$(t "安装 nvm $NVM_VERSION（装进 ~/.nvm，不碰系统的 Node）" "Installing nvm $NVM_VERSION (into ~/.nvm; the system Node is untouched)")" install_nvm
+      run_step "$(t "安装 nvm ${NVM_VERSION}（装进 ~/.nvm，不碰系统的 Node）" "Installing nvm $NVM_VERSION (into ~/.nvm; the system Node is untouched)")" install_nvm
     fi
     run_step "$(t "经 nvm 安装 Node.js $NODE_MAJOR" "Installing Node.js $NODE_MAJOR via nvm")" nvm_install_node
     find_node || die "$(t 'Node.js 装完却找不到。' 'Node.js was installed but cannot be found.')"
@@ -653,7 +654,7 @@ gateway_port_or_default() { local p; p=$(gateway_port); printf '%s' "${p:-7788}"
 wait_healthy() { local i; for (( i = 0; i < ${1:-40}; i++ )); do health_ok && return 0; sleep 1; done; return 1; }
 install_runtime() {
   NPM_PREFIX="$HOME_DIR/npm"; mkdir -p "$NPM_PREFIX"
-  run_step "$(t "下载 $PKG@$VERSION（含运行基座与网页控制台）" "Downloading $PKG@$VERSION (runtime and web console)")" npm_install_pkg
+  run_step "$(t "下载 ${PKG}@${VERSION}（含运行基座与网页控制台）" "Downloading $PKG@$VERSION (runtime and web console)")" npm_install_pkg
   QCLI="$NPM_PREFIX/lib/node_modules/$PKG/dist/quetzal.mjs"
   [[ -f $QCLI ]] || die "$(t "npm 包装完却找不到 $QCLI" "Installed, but $QCLI is missing")"
   local before; before=$(installed_version)
@@ -705,7 +706,7 @@ launchd_domain() { if launchctl print "gui/$(id -u)" >/dev/null 2>&1; then print
 ensure_service_mac() {
   launchctl print "$(launchd_domain)/$LAUNCHD_LABEL" >/dev/null 2>&1 || die "$(t 'launchd 用户代理没有注册成功' 'The launchd agent was not registered')"
   wait_healthy 40 || die "$(t "运行基座没有响应（日志：$HOME_DIR/logs/runtime.log）" "The runtime did not respond (log: $HOME_DIR/logs/runtime.log)")"
-  ok "$(t "launchd 用户代理 $LAUNCHD_LABEL：登录时拉起，退出 3 秒后自动重启" "launchd agent $LAUNCHD_LABEL: starts at login, restarts 3 s after any exit")"
+  ok "$(t "launchd 用户代理 ${LAUNCHD_LABEL}：登录时拉起，退出 3 秒后自动重启" "launchd agent $LAUNCHD_LABEL: starts at login, restarts 3 s after any exit")"
   SERVICE_DESC="$(t 'launchd 用户代理 · 登录后自启 · 崩溃自动重启' 'launchd agent · starts at login · auto-restart')"
   (( HAS_SESSION )) || warn "$(t '现在没有人登录这台 Mac 的图形界面：注销 ssh 后它会停，登录桌面后才一直运行（launchd 的用户代理跟着登录会话走）' 'Nobody is logged in to this Mac'"'"'s desktop: it stops when the ssh session ends and runs continuously once you log in (launchd agents follow the login session)')"
   note "$(t "日志：$HOME_DIR/logs/runtime.log" "Log: $HOME_DIR/logs/runtime.log")"
@@ -870,7 +871,7 @@ download_console() { # 版本 架构 目标目录：下载同版本的原生控�
 }
 install_tray_lib() { # 托盘图标的系统库：只在 root / 免密 sudo（或这次安装里已经输过密码）时装，不在转圈中途问密码
   local p; case "$PM" in apt) p=libayatana-appindicator3-1;; dnf|yum) p=libayatana-appindicator-gtk3;; pacman|xbps) p=libayatana-appindicator;; zypper) p=libayatana-appindicator3-1;; *) return 1;; esac
-  [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1 || { echo "缺 $p：需要 root 权限才能装，这次不装（装上后再跑一次安装命令即可用原生控制台）" >>"$LOG"; return 1; }
+  [[ -z $SUDO ]] || $SUDO -n true >/dev/null 2>&1 || { echo "缺 ${p}：需要 root 权限才能装，这次不装（装上后再跑一次安装命令即可用原生控制台）" >>"$LOG"; return 1; }
   pkg_install "$p" >>"$LOG" 2>&1
 }
 install_native_console() {
@@ -880,7 +881,7 @@ install_native_console() {
   local base="$HOME_DIR/console" dir="$HOME_DIR/console/$v"
   mkdir -p "$base"
   if [[ ! -x "$dir/quetzal-console" ]]; then
-    if ! run_try "$(t "下载原生控制台 $v（Linux 桌面版）" "Downloading the native console $v (Linux desktop)")" download_console "$v" "$arch" "$dir"; then
+    if ! run_try "$(t "下载原生控制台 ${v}（Linux 桌面版）" "Downloading the native console $v (Linux desktop)")" download_console "$v" "$arch" "$dir"; then
       rm -rf "$dir.part" "$dir.tar.gz" "$dir.SHA256SUMS" "$dir.SHA256SUMS.sig"
       note "$(t "这个版本没有可用的原生控制台（下载失败、签名或哈希校验没通过，或缺依赖）：桌面项改用浏览器打开；下次升级会再试" "No usable native console for this version (download failed, signature or checksum verification failed, or missing libraries): the app-list entry opens the browser instead; the next upgrade will retry")"
       return 0
@@ -893,8 +894,10 @@ install_native_console() {
 }
 # macOS：没有原生桌面控制台，控制台是网关托管的网页版（quetzal open 在默认浏览器里打开）。计算机使用要的两项权限只能由人在系统设置里给，这里说清给谁
 install_desktop_mac() {
-  ok "$(t "控制台是网页版：quetzal open，或在浏览器里打开 http://127.0.0.1:$(gateway_port_or_default)/" "The console is the web version: quetzal open, or open http://127.0.0.1:$(gateway_port_or_default)/ in a browser")"
-  note "$(t "要让 ta 看屏幕、点击和输入：系统设置 › 隐私与安全性 › 辅助功能 与 屏幕与系统录音，点「+」加入 $NODE（选择窗口里按 ⌘⇧G 粘贴这个路径），再 quetzal restart" "To let it see the screen, click and type: System Settings › Privacy & Security › Accessibility and Screen & System Audio Recording, click + and add $NODE (press ⌘⇧G in the file dialog to paste the path), then run quetzal restart")"
+  local port
+  port=$(gateway_port_or_default)
+  ok "$(t "控制台是网页版：quetzal open，或在浏览器里打开 http://127.0.0.1:${port}/" "The console is the web version: quetzal open, or open http://127.0.0.1:${port}/ in a browser")"
+  note "$(t "要让 ta 看屏幕、点击和输入：系统设置 › 隐私与安全性 › 辅助功能 与 屏幕与系统录音，点「+」加入 ${NODE}（选择窗口里按 ⌘⇧G 粘贴这个路径），再 quetzal restart" "To let it see the screen, click and type: System Settings › Privacy & Security › Accessibility and Screen & System Audio Recording, click + and add $NODE (press ⌘⇧G in the file dialog to paste the path), then run quetzal restart")"
 }
 install_desktop() {
   (( HAS_DESKTOP && DESKTOP )) || return 0
@@ -1003,7 +1006,7 @@ summary() {
   printf '  %s\t%s %s(%s %s)%s\n' "$(t '运行基座' 'Runtime')" "${v:-?}" "$MUTE" "$(t '家目录' 'home')" "$HOME_DIR" "$R"
   printf '  %s\t%s\n' "$(t '守护者' 'Supervision')" "$SERVICE_DESC"
   local lanport; lanport=$(sed -n 's/.*"lanPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$HOME_DIR/config/quetzal.json" 2>/dev/null | head -n1); lanport=${lanport:-7789}
-  (( LAN )) && printf '  %s\t%s\n' "$(t '局域网' 'Network')" "$(t "网关对局域网开放（加密）：https://<这台机器的地址>:$lanport。手机上的 App 填这台机器的地址并申请配对码，核对 App 显示的证书指纹与通知里的一致（quetzal status 也能看到）" "Gateway open to the LAN (encrypted): https://<this machine>:$lanport. In the phone app enter this machine's address, request a pairing code and check that the certificate fingerprint shown matches the notification (also shown by quetzal status)")"
+  (( LAN )) && printf '  %s\t%s\n' "$(t '局域网' 'Network')" "$(t "网关对局域网开放（加密）：https://<这台机器的地址>:${lanport}。手机上的 App 填这台机器的地址并申请配对码，核对 App 显示的证书指纹与通知里的一致（quetzal status 也能看到）" "Gateway open to the LAN (encrypted): https://<this machine>:$lanport. In the phone app enter this machine's address, request a pairing code and check that the certificate fingerprint shown matches the notification (also shown by quetzal status)")"
   printf '\n  %squetzal status%s   %s%s%s\n' "$B" "$R" "$MUTE" "$(t '状态' 'status')" "$R"
   printf '  %squetzal logs -f%s  %s%s%s\n' "$B" "$R" "$MUTE" "$(t '日志' 'logs')" "$R"
   printf '  %squetzal open%s     %s%s%s\n' "$B" "$R" "$MUTE" "$(t '再次打开控制台' 'open the console again')" "$R"
@@ -1042,8 +1045,8 @@ uninstall() {
   fi
   rm -rf "${HOME_DIR:?}/console"
   have update-desktop-database && update-desktop-database "${XDG_DATA_HOME:-$HOME/.local/share}/applications" >/dev/null 2>&1 || true
-  if (( PURGE )); then [[ -e "$HOME_DIR/node/current" ]] && did=1; rm -rf "$HOME_DIR"; ok "$(t "已删除 $HOME_DIR（配置、记忆、对话都没有了；灵魂仓库里的内容仍在远端）" "Deleted $HOME_DIR (configuration, memories and conversations are gone; the soul repository remains remote)")"
-  else rm -rf "${HOME_DIR:?}/npm" "${HOME_DIR:?}/bin" "$HOME_DIR/state/supervise.pid" "$HOME_DIR/state/supervise.lock" 2>/dev/null; ok "$(t "保留了 $HOME_DIR（配置、记忆、对话）；要一起删除加 --purge" "Kept $HOME_DIR (configuration, memories, conversations); add --purge to delete it too")"; fi
+  if (( PURGE )); then [[ -e "$HOME_DIR/node/current" ]] && did=1; rm -rf "$HOME_DIR"; ok "$(t "已删除 ${HOME_DIR}（配置、记忆、对话都没有了；灵魂仓库里的内容仍在远端）" "Deleted $HOME_DIR (configuration, memories and conversations are gone; the soul repository remains remote)")"
+  else rm -rf "${HOME_DIR:?}/npm" "${HOME_DIR:?}/bin" "$HOME_DIR/state/supervise.pid" "$HOME_DIR/state/supervise.lock" 2>/dev/null; ok "$(t "保留了 ${HOME_DIR}（配置、记忆、对话）；要一起删除加 --purge" "Kept $HOME_DIR (configuration, memories, conversations); add --purge to delete it too")"; fi
   note "$(t 'nvm、Node.js、git 不动。' 'nvm, Node.js and git are left in place.')"
   (( did || PURGE )) || note "$(t '没有发现已安装的内容。' 'Nothing installed was found.')"
   say ""
