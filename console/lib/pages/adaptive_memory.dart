@@ -215,12 +215,19 @@ String adaptiveStatusLabel(Map s) {
   if (sem['state'] == 'unconfigured') return '请先在控制台配置模型。';
   final queues = [s['queue'], sem['queue'], (sem['research'] as Map?)?['queue']].whereType<Map>();
   var pending = 0, failed = 0;
+  Map? pubs;
   for (final queue in queues) {
     final counts = (queue['counts'] as Map?) ?? {};
     pending += ((counts['queued'] as num?)?.toInt() ?? 0) + ((counts['running'] as num?)?.toInt() ?? 0);
     failed += (counts['failed'] as num?)?.toInt() ?? 0;
+    pubs ??= queue['publications'] as Map?;
   }
+  final pubPending = ((pubs?['pending'] as num?)?.toInt() ?? 0) + ((pubs?['written'] as num?)?.toInt() ?? 0);
+  final pubFailed = (pubs?['failed'] as num?)?.toInt() ?? 0;
+  if (failed > 0 && pubFailed > 0) return '有 $failed 项处理失败、$pubFailed 项认识发布失败；原始对话仍保留（重试仅针对处理任务）。';
   if (failed > 0) return '有 $failed 项处理失败；原始对话仍保留。';
+  if (pubFailed > 0) return '有 $pubFailed 项认识发布失败；原始对话仍保留，当前重试按钮不修复发布失败。';
   if (pending > 0) return '有 $pending 项正在处理或等待处理。';
+  if (pubPending > 0) return '处理已完成，有 $pubPending 项认识正在写入或提交灵魂仓库。';
   return sem['enabled'] == true ? '当前未见待处理任务；不代表所有设备已同步。' : '仅保存与检索原话，尚未开启整理。';
 }

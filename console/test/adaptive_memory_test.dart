@@ -12,10 +12,35 @@ Map reading(String text) => {'status': 'ready', 'items': [{'kind': 'claim', 'sta
 void main() {
   setUp(() { api.conn = Conn.online; api.status = {'body': 'center', 'agent': {'id': 'synthetic'}}; });
   tearDown(() { api.fake = null; api.conn = Conn.unpaired; api.status = {}; });
-  test('卫星不把空队列当中心已完成，任务与原文状态不混淆', () {
+  test('卫星不把空队列当中心已完成，任务与原文状态不混淆，区分处理与发布失败且不重复统计', () {
     expect(adaptiveStatusLabel(status(local: false)), contains('没有中心任务状态'));
     expect(adaptiveStatusLabel(status()), contains('2 项'));
     expect(adaptiveStatusLabel({'enabled': false}), '尚未启用');
+    final sharedPubs = {'pending': 1, 'written': 2, 'published': 5, 'failed': 1};
+    final pubFailOnly = {
+      'enabled': true, 'hostBody': 'center', 'local': true, 'running': true, 'stopped': false,
+      'queue': {'counts': {'queued': 0, 'failed': 0}, 'publications': sharedPubs},
+      'semantic': {'enabled': true, 'state': 'idle', 'queue': {'counts': {'queued': 0, 'failed': 0}, 'publications': sharedPubs},
+        'research': {'enabled': true, 'queue': {'counts': {'queued': 0, 'failed': 0}, 'publications': sharedPubs}}},
+    };
+    expect(adaptiveStatusLabel(pubFailOnly), '有 1 项认识发布失败；原始对话仍保留，当前重试按钮不修复发布失败。');
+    final bothFail = {
+      ...pubFailOnly,
+      'semantic': {'enabled': true, 'state': 'idle', 'queue': {'counts': {'queued': 0, 'failed': 2}, 'publications': sharedPubs}},
+    };
+    expect(adaptiveStatusLabel(bothFail), '有 2 项处理失败、1 项认识发布失败；原始对话仍保留（重试仅针对处理任务）。');
+    final pubPendingOnly = {
+      ...pubFailOnly,
+      'queue': {'counts': {'queued': 0, 'failed': 0}, 'publications': {'pending': 1, 'written': 2, 'published': 5, 'failed': 0}},
+      'semantic': {'enabled': true, 'state': 'idle', 'queue': {'counts': {'queued': 0, 'failed': 0}, 'publications': {'pending': 1, 'written': 2, 'published': 5, 'failed': 0}}},
+    };
+    expect(adaptiveStatusLabel(pubPendingOnly), '处理已完成，有 3 项认识正在写入或提交灵魂仓库。');
+    final idle = {
+      ...pubFailOnly,
+      'queue': {'counts': {'queued': 0, 'failed': 0}, 'publications': {'pending': 0, 'written': 0, 'published': 5, 'failed': 0}},
+      'semantic': {'enabled': true, 'state': 'idle', 'queue': {'counts': {'queued': 0, 'failed': 0}, 'publications': {'pending': 0, 'written': 0, 'published': 5, 'failed': 0}}},
+    };
+    expect(adaptiveStatusLabel(idle), '当前未见待处理任务；不代表所有设备已同步。');
   });
   for (final width in [390.0, 1100.0]) {
     testWidgets('来源、假设和自然纠正走生产接口，宽度 $width', (t) async {
