@@ -231,3 +231,56 @@ test('升级过程读取规则后不继承旧规则生成的持久摘要，即�
     assert.ok(!joined(seen.at(-1)).includes('OLD_PROCESS_IN_SUMMARY'));
   } finally { ctx.close(); }
 });
+
+test('长会话1000条消息加跨会话来源与回答依赖在裁剪前不爆上限，超限旧答降级为失效占位', async () => {
+  configure([{ id: 'large', context: 1048576 }]); seen.length = 0;
+  script = async (request) => ({ content: summaryRequest(request) ? 'LONG_SESSION_SUMMARY' : '长会话正常回复' });
+  const otherConv = 'other-session-source'; store.ensureSession(otherConv, '其他会话');
+  const otherMsg = store.addMessage('user', '合成', 'CROSS_SESSION_NOTE', { session: otherConv });
+  const conv = 'long-session-1000'; store.ensureSession(conv, '长会话');
+  const earliest = store.addMessage('user', '合成', 'EARLIEST_DROPPED_MSG', { session: conv });
+  const ids: number[] = [earliest];
+  for (let i = 1; i < 998; i++) ids.push(store.addMessage('user', '合成', `MSG_${i}`, { session: conv }));
+  // 插入一条携带 10 条外部来源依赖的旧助手回答：与 999 条会话内历史及跨会话来源叠加后超过 1000 条工作上限
+  const extraIds = Array.from({ length: 10 }, (_, i) => 500000 + i);
+  const { answerDigest, ANSWER_CHANGED } = await import('../src/memory/answer-basis.ts');
+  const heavyAnswerText = 'HEAVY_OLD_ANSWER_BODY_MUST_NOT_LEAK';
+  const heavyAnswer = store.addMessage('agent', '合成', heavyAnswerText, {
+    session: conv,
+    answerBasis: {
+      version: 1,
+      agent: identity().id,
+      answerHash: answerDigest(heavyAnswerText),
+      consistent: true,
+      sources: extraIds.map((id) => ({ id, hash: 'a'.repeat(64), reading: 'b'.repeat(64) })),
+    },
+  });
+  ids.push(heavyAnswer);
+  const latest = store.addMessage('user', '合成', 'LATEST_KEPT_MSG', { session: conv });
+  ids.push(latest);
+  assert.equal(ids.length, 1000);
+  const { systemMessage } = await import('../src/mind/prompt.ts');
+  const messages: Msg[] = [
+    systemMessage('当前问题', { conv, dynamic: true }),
+    ...brain.history(conv, Number.MAX_SAFE_INTEGER),
+    contextHost.registerHistorySource({ role: 'user', content: '当前问题' }, latest, conv),
+  ];
+  const ctx = contextHost.createTurnContext('long-session-turn', conv, messages);
+  try {
+    const res = await router.chat(await ctx.prepare({ messages, maxTokens: 256 }));
+    assert.equal(res.text, '长会话正常回复');
+    const text = joined(seen.findLast((r) => !summaryRequest(r)));
+    assert.match(text, /LATEST_KEPT_MSG/);
+    assert.match(text, /CROSS_SESSION_NOTE/);
+    assert.ok(!text.includes('EARLIEST_DROPPED_MSG'), '超出单次核查上限的最早消息不未核查进入上下文');
+    assert.ok(!text.includes(heavyAnswerText), '回答依赖展开超限的旧回答不沿用旧正文');
+    assert.ok(text.includes(ANSWER_CHANGED), '回答依赖展开超限时降级为 changed 占位');
+    assert.ok(otherMsg > 0);
+    configure([{ id: 'medium', context: 65536 }]);
+    const resMedium = await router.chat(await ctx.prepare({ messages, maxTokens: 256 }));
+    assert.equal(resMedium.text, '长会话正常回复');
+    const textMedium = joined(seen.findLast((r) => !summaryRequest(r)));
+    assert.match(textMedium, /LATEST_KEPT_MSG/);
+    assert.match(textMedium, /LONG_SESSION_SUMMARY/);
+  } finally { ctx.close(); }
+});

@@ -390,15 +390,21 @@ export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceR
   signal?.throwIfAborted();
   if (!adaptiveReadingRequired()) return read(null);
   const result = await withAdaptiveSnapshot((store, archive, visible, check) => {
-    const expanded = new Set(ids), answers = new Map<number, { text: string; basis?: AnswerBasis }>();
+    const requested = [...new Set(ids)];
+    if (requested.length > 1000) throw new Error('回答来源展开超过工作上限');
+    const expanded = new Set(requested), answers = new Map<number, { text: string; basis?: AnswerBasis; overflow?: boolean }>();
     for (const id of expanded) {
-      if (expanded.size > 1000) throw new Error('回答来源展开超过工作上限');
       const row = db.prepare('SELECT role,text,answerBasis FROM messages WHERE id=?').get(id);
       if (!row || row.role !== 'agent' || !visible(id)) continue;
       const basis = row.answerBasis ? parseAnswerBasis(JSON.parse(String(row.answerBasis))) : undefined;
-      answers.set(id, { text: String(row.text), basis });
       // 不展开其他 agent 的凭据；该回答只能作为不可核查的历史记录。
-      if (basis?.agent === store.agent) for (const s of basis.sources) expanded.add(s.id);
+      let overflow = false;
+      if (basis?.agent === store.agent) {
+        const missing = basis.sources.map((s) => s.id).filter((sourceId) => !expanded.has(sourceId));
+        if (expanded.size + missing.length > 1000) overflow = true;
+        else for (const sourceId of missing) expanded.add(sourceId);
+      }
+      answers.set(id, { text: String(row.text), basis, overflow });
       check();
     }
     const view = archive.readSources([...expanded], visible);
@@ -406,7 +412,7 @@ export async function withAdaptiveSources<T>(ids: number[], read: (view: SourceR
       // 与原文权限 / hash 同一 SQLite 快照；不能读取已排除来源的时间，或借会话更新时间补造。
       source.recordedAt = source.hash ? sourceRecordedAt(db.prepare('SELECT ts FROM messages WHERE id=?').get(source.id)?.ts) : null;
       const answer = answers.get(source.id); if (!answer) continue;
-      source.answer = { status: answer.basis ? answerBasisStatus(answer.basis, answer.text, store.agent, view) : 'unbound',
+      source.answer = { status: answer.overflow ? 'changed' : answer.basis ? answerBasisStatus(answer.basis, answer.text, store.agent, view) : 'unbound',
         sources: answer.basis?.agent === store.agent ? answer.basis.sources.map((s) => s.id) : [] };
     }
     if (Buffer.byteLength(JSON.stringify(view)) > 256 * 1024) throw new Error('回答来源读取超过工作上限');
@@ -470,7 +476,7 @@ async function withAdaptiveSnapshot<T>(read: (store: AdaptiveStore, archive: Ada
       const visible = (id: number) => {
         const row = store.db.prepare('SELECT id,session,role,channel,text,ts,body,via,mode,attachments FROM messages WHERE id=?').get(id) as SourceSnapshot | undefined;
         return row && row.mode !== 'ignored' && ['user', 'agent', 'ambient'].includes(row.role) && row.text
-          ? { text: row.text, role: row.role, hash: sourceHash(store.agent, row) } : undefined;
+          ? { text: row.text, role: row.role, channel: row.channel, hash: sourceHash(store.agent, row) } : undefined;
       };
       check();
       value = read(store, new AdaptiveArchive(store, paths.soul), visible, check);

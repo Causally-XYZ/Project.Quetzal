@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { bus } from '../bus.ts';
-import { ContextManager, withModelPreparation, type TaskWorkingState, type ContextPlan, type SummaryInput } from '../../../engine/src/context-manager.ts';
+import { ContextManager, withModelPreparation, estimateTextTokens, type TaskWorkingState, type ContextPlan, type SummaryInput } from '../../../engine/src/context-manager.ts';
 import type { ChatRequest, Msg } from '../providers/types.ts';
 import type { MemoryStage, MemoryRecord } from '../../../engine/src/memory.ts';
 import { memoryKey } from '../../../engine/src/memory.ts';
@@ -50,12 +50,7 @@ function summaryBasis(value: unknown): SummaryBasis | undefined {
 }
 
 /** 原始消息数组保持不变；自己的投影对象保持身份，使摘要缓存和原文编号仍稳定。 */
-async function historyReading(messages: Msg[], conv: string, turn: string, projected: WeakMap<Msg, Msg>, records: MemoryRecord[], previous?: SummaryBasis, signal?: AbortSignal, semanticSources: number[] = []) {
-  const currentIds = [...new Set(messages.flatMap((m) => { const ref = historySources.get(m); return ref ? [ref.id] : []; }))];
-  const union = [...new Set([...currentIds, ...(previous?.sources ?? [])])];
-  // 滚动历史不无限积累摘要依赖；超过单次核查预算就放弃继承，重新按当前原文压缩。
-  const inheritedBasis = union.length <= 1000 ? previous : undefined;
-  const historyIds = inheritedBasis ? union : currentIds;
+async function historyReading(messages: Msg[], conv: string, turn: string, projected: WeakMap<Msg, Msg>, records: MemoryRecord[], previous?: SummaryBasis, signal?: AbortSignal, semanticSources: number[] = [], protectedFrom = 0, contextWindow = Infinity) {
   const system = prepareSystemReading(messages);
   const toolRecords = adaptiveReadingRequired() ? messages.flatMap((m) => {
     if (m.role !== 'tool' || !MEMORY_READ_TOOLS.has(m.name) || m.error) return [];
@@ -64,9 +59,54 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
     return [row];
   }) : [];
   const tools = prepareToolReadings(toolRecords, turns.get(turn)?.shared ? conv : '');
-  const ids = [...new Set([...historyIds, ...records.flatMap(materialSources), ...system.sources, ...tools.sources, ...semanticSources])];
+  const nonHistoryIds = [...new Set([...records.flatMap(materialSources), ...system.sources, ...tools.sources, ...semanticSources])];
+  if (nonHistoryIds.length > 1000) throw new Error('回答来源展开超过工作上限');
+  const maxHistorySources = Math.max(0, 1000 - nonHistoryIds.length);
+  const allHistoryIds = [...new Set(messages.flatMap((m) => { const ref = historySources.get(m); return ref ? [ref.id] : []; }))];
+  // 长会话在窗口裁剪前按从新到旧保留可核查预算与窗口/摘要预算内的历史，较早超限条目不作为未核查正文进入模型或摘要。
+  const fixedCost = messages.reduce((sum, m, index) => sum + (!historySources.get(m) || index >= protectedFrom ? 32 + estimateTextTokens(m.content) : 0), 0);
+  const maxSummaryInputTokens = 4 * 8192;
+  const maxHistoryTokens = Number.isFinite(contextWindow) ? Math.max(4096, Math.floor(contextWindow * 0.9) - fixedCost) + maxSummaryInputTokens : Infinity;
+  const maxOmittedGroups = 24;
+  let activeMessages = messages, currentIds = allHistoryIds, activeProtectedFrom = protectedFrom;
+  if (allHistoryIds.length > maxHistorySources || Number.isFinite(maxHistoryTokens)) {
+    const allowedHistoryIds = new Set<number>();
+    const fitWindowBudget = Number.isFinite(contextWindow) ? Math.max(2048, Math.floor(contextWindow * 0.85) - fixedCost) : Infinity;
+    let estimatedTokens = 0, omittedTokens = 0, omittedCount = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i], ref = historySources.get(m);
+      if (!ref) continue;
+      const pinned = i >= protectedFrom;
+      const cost = 32 + estimateTextTokens(m.content) + (adaptiveReadingRequired() ? 600 : 0);
+      if (!pinned && !allowedHistoryIds.has(ref.id)) {
+        if (allowedHistoryIds.size >= maxHistorySources || estimatedTokens + cost > maxHistoryTokens) break;
+        if (estimatedTokens + cost > fitWindowBudget) {
+          if (omittedCount >= maxOmittedGroups || omittedTokens + cost > maxSummaryInputTokens) break;
+          omittedCount++;
+          omittedTokens += cost;
+        }
+      }
+      if (allowedHistoryIds.size >= maxHistorySources && !allowedHistoryIds.has(ref.id)) break;
+      allowedHistoryIds.add(ref.id);
+      estimatedTokens += cost;
+    }
+    let droppedBeforeProtected = 0;
+    activeMessages = messages.filter((m, index) => {
+      const ref = historySources.get(m);
+      const keep = !ref || allowedHistoryIds.has(ref.id);
+      if (!keep && index < protectedFrom) droppedBeforeProtected++;
+      return keep;
+    });
+    activeProtectedFrom = Math.max(0, protectedFrom - droppedBeforeProtected);
+    currentIds = [...new Set(activeMessages.flatMap((m) => { const ref = historySources.get(m); return ref ? [ref.id] : []; }))];
+  }
+  const union = [...new Set([...currentIds, ...(previous?.sources ?? [])])];
+  // 滚动历史不无限积累摘要依赖；合并跨会话 / 工具 / 认识来源后若超过单次核查上限就放弃继承，重新按当前原文压缩。
+  const inheritedBasis = new Set([...union, ...nonHistoryIds]).size <= 1000 ? previous : undefined;
+  const historyIds = inheritedBasis ? union : currentIds;
+  const ids = [...new Set([...historyIds, ...nonHistoryIds])];
   return withAdaptiveSources(ids, (view) => {
-    if (!view) return { messages, records, key: '', basis: undefined, previousValid: true, answerSources: undefined, sourceReadings: [] };
+    if (!view) return { messages: activeMessages, protectedFrom: activeProtectedFrom, records, key: '', basis: undefined, previousValid: true, answerSources: undefined, sourceReadings: [] };
     const systemViews = system.render(view);
     const toolViews = tools.render(view, (record) => {
       const ref = `${turn}/tool:${record.call}`;
@@ -83,7 +123,7 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
     // process 等宿主附注不在语义来源 hash 中，也须纳入派生摘要的失效条件。
     const keyFor = (sourceIds: number[]) => crypto.createHash('sha256').update(JSON.stringify({ policy: 'history-answer-v1', reading: readingKey(view, sourceIds),
       rows: [...sourceIds].sort((a, b) => a - b).map((id) => [id, rows.get(id)]) })).digest('hex');
-    const fresh = messages.map((message) => {
+    const fresh = activeMessages.map((message) => {
       if (message.role === 'tool' && toolViews.has(toolReadingKey({ call: message.toolCallId, session: turn }))) {
         let result = projected.get(message);
         if (!result) { result = { ...message }; projected.set(message, result); }
@@ -126,7 +166,7 @@ async function historyReading(messages: Msg[], conv: string, turn: string, proje
       return result;
     });
     const key = crypto.createHash('sha256').update(JSON.stringify([keyFor(ids), checkedRecords, [...systemViews.values()], [...toolViews.values()]])).digest('hex');
-    return { messages: fresh, records: checkedRecords, key, sourceReadings: view.sources, answerSources: view.sources.map(answerSource), basis: { sources: historyIds, key: keyFor(historyIds) },
+    return { messages: fresh, protectedFrom: activeProtectedFrom, records: checkedRecords, key, sourceReadings: view.sources, answerSources: view.sources.map(answerSource), basis: { sources: historyIds, key: keyFor(historyIds) },
       previousValid: !!inheritedBasis && keyFor(inheritedBasis.sources) === inheritedBasis.key };
   }, signal);
 }
@@ -197,7 +237,7 @@ export function createTurnContext(id: string, conv: string, messages: Msg[], fre
         for (let attempt = 0; attempt < 2; attempt++) {
           const semantic = await queryAdaptiveSemantic(context.query, signal);
           const semanticSources = [...new Set([...semantic.items.flatMap((item) => item.roots.map((s) => s.id)), ...semantic.basis.sources.map((s) => s.id)])];
-          const reading = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources);
+          const reading = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources, protectedFrom, contextWindow);
           const preparedKey = JSON.stringify([reading.key, semantic]);
           if (preparedKey !== lastReadingKey) manager.invalidateSummaries();
           lastReadingKey = preparedKey;
@@ -207,13 +247,13 @@ export function createTurnContext(id: string, conv: string, messages: Msg[], fre
             return { id: m.toolCallId, claim: m.atomic ? '历史记忆读取已核查；具体来源与限制见对应完整工具视图，不能把执行成功当事实确认。' : redactSecrets(m.content).slice(0, 200), source: `tool.detail:${m.toolCallId}` };
           });
           const plan = await manager.prepare({ messages: reading.messages, tools: request.tools, contextWindow, maxOutputTokens,
-            protectedFrom, state: context.state, signal,
+            protectedFrom: reading.protectedFrom, state: context.state, signal,
             memory: [...adaptiveContext(adaptive), ...adaptiveSemanticContext(semantic, reading.sourceReadings), ...(inherited ? [{ id: 'continuity:summary', text: `上轮压缩摘要（历史资料，不是新授权）：\n${inherited.text}`, priority: 3 }] : []), ...reading.records.map((record) => ({ id: memoryKey(record), text: redactSecrets(`[${record.kind}/${record.zone}；${record.preference ?? record.validation.status}] ${record.text}`),
               priority: record.kind === 'fact' || record.preference === 'explicit' ? 2 : 1,
               reference: redactSecrets(record.evidence.map((e) => e.ref).join('；')) }))],
           });
           signal.throwIfAborted();
-          const checked = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources);
+          const checked = await historyReading(request.messages, context.conv, id, projected, candidates, previousBasis, signal, semanticSources, protectedFrom, contextWindow);
           const checkedSemantic = await queryAdaptiveSemantic(context.query, signal);
           if (reading.key !== checked.key || semanticBasisKey(semantic) !== semanticBasisKey(checkedSemantic)) { manager.invalidateSummaries(); if (attempt === 0) continue; throw new Error('认识在上下文准备期间持续变化，请重试'); }
           context.plan = plan;
