@@ -44,12 +44,14 @@ const report: any = { kind: 'actual-vector-host-development', space: VECTOR_SPAC
   sourceHashes: Object.fromEntries(['adaptive-vector.ts', 'adaptive-vector-worker.ts', 'adaptive.ts', 'adaptive-query.ts'].map((name) => [name, crypto.createHash('sha256').update(fs.readFileSync(new URL(`../../src/memory/${name}`, import.meta.url))).digest('hex')])), checks: [], rows: [] };
 let backend: AdaptiveVectorRetriever | undefined, detach: (() => void) | undefined;
 const check = (name: string) => report.checks.push(name);
-async function settled(expected: number) {
+async function settled(expected: number, manual = true) {
   const until = Date.now() + 60_000;
   while (Date.now() < until) {
+    if (manual && !host.adaptiveStatus().retrieval.hostCurrent) await host.refreshAdaptiveRetrieval();
     const status = backend!.status();
     assert.notEqual(status.state, 'failed'); assert.equal(status.errors, 0);
-    if (status.state === 'ready' && status.current && status.indexed === expected && status.pending === 0) return status;
+    if (status.state === 'ready' && status.current && (!manual || host.adaptiveStatus().retrieval.hostCurrent) &&
+        status.indexed === expected && status.pending === 0) return status;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error('index_timeout');
@@ -122,7 +124,14 @@ try {
   check('已准备组件随中心启动自动加载、索引、查询，并随停止释放 worker');
   const interruptedOptions = { ...options, cache: path.join(cfg.paths.data, 'interrupted.sqlite') };
   backend = new AdaptiveVectorRetriever(interruptedOptions);
-  const longCandidate = archive.candidatePage().entries.filter((e) => e.id === long.id).flatMap((e) => e.candidate ? [{ ...e.candidate, item: { id: e.id } }] : []); assert.equal(longCandidate.length, 1);
+  let after = '', longCandidate: any[] = [];
+  for (;;) {
+    const page = archive.candidatePage(after);
+    longCandidate.push(...page.entries.filter((e) => e.id === long.id).flatMap((e) => e.candidate ? [{ ...e.candidate, item: { id: e.id } }] : []));
+    if (page.done) break;
+    after = page.next;
+  }
+  assert.equal(longCandidate.length, 1);
   backend.replace(longCandidate);
   const stopDeadline = Date.now() + 10_000;
   while (Date.now() < stopDeadline && !(backend.status().current && backend.status().pending === 1)) {
@@ -131,7 +140,7 @@ try {
   assert.equal(backend.status().pending, 1);
   const stopStart = performance.now(); await backend.close(); report.stopDuringIndexMs = performance.now() - stopStart;
   backend = new AdaptiveVectorRetriever(interruptedOptions); backend.replace(longCandidate);
-  report.interruptedRecovery = await settled(1); assert.equal(report.interruptedRecovery.computed, 1);
+  report.interruptedRecovery = await settled(1, false); assert.equal(report.interruptedRecovery.computed, 1);
   check('索引进行中关闭等待原生调用释放；重启补做未提交候选');
   report.status = 'passed';
 } catch (error) {

@@ -224,6 +224,7 @@ export class AdaptiveLookup {
   // 近邻摘要键只作为检索建议；正文与依据仍重新点读核验，不纳入权威投影见证。
   neighbors(keys: string[]): string[] {
     if (keys.length > 1000) throw new Error('近邻建议超过工作上限');
-    return keys.flatMap((key) => { const r = this.db.prepare('SELECT id FROM adaptive_lookup_rank_keys WHERE key=?').get(key); return r ? [String(r.id)] : []; });
+    const select = this.db.prepare('SELECT id FROM adaptive_lookup_rank_keys WHERE key=?');
+    return keys.flatMap((key) => { const r = select.get(key); return r ? [String(r.id)] : []; });
   }
 }

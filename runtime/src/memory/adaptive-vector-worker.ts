@@ -145,13 +145,36 @@ export async function adaptiveVectorWorker() {
       return vector;
     }
     // 每次只解析一个文档，最多128块；拒绝异常缓存正文，避免单行无限分配。
-    const cached = (connection: InstanceType<typeof DatabaseSync>, key: string): number[][] | undefined => {
-      const row = connection.prepare('SELECT value,digest FROM vectors WHERE agent=? AND space=? AND key=? AND length(CAST(value AS BLOB))<=2097152').get(agent, space, key);
-      if (!row || digest(String(row.value)) !== row.digest) return;
+    const parsedCache = new Map<string, { digest: string; raw: string; vectors: Float32Array[] }>();
+    const rememberParsed = (key: string, expectedDigest: string, raw: string, vectors: Float32Array[]) => {
+      parsedCache.delete(key); parsedCache.set(key, { digest: expectedDigest, raw, vectors });
+      if (parsedCache.size > 16384) parsedCache.delete(parsedCache.keys().next().value!);
+    };
+    let lastDataVersion = -1;
+    const syncParsedCache = (connection: InstanceType<typeof DatabaseSync>) => {
+      const version = Number(connection.prepare('PRAGMA data_version').get()?.data_version ?? -1);
+      if (version !== lastDataVersion) { parsedCache.clear(); lastDataVersion = version; }
+    };
+    const parseVectors = (key: string, raw: unknown, expectedDigest: unknown): Float32Array[] | undefined => {
+      if (typeof expectedDigest !== 'string') return;
+      const hit = parsedCache.get(key);
+      if (hit && hit.digest === expectedDigest && raw === undefined) return hit.vectors;
+      if (typeof raw !== 'string' || Buffer.byteLength(raw) > 2097152) return;
+      if (hit && hit.digest === expectedDigest && hit.raw === raw) return hit.vectors;
+      if (digest(raw) !== expectedDigest) return;
       try {
-        const value: unknown = JSON.parse(String(row.value));
-        if (Array.isArray(value) && value.length > 0 && value.length <= 128 && value.every(valid)) return value;
+        const value: unknown = JSON.parse(raw);
+        if (Array.isArray(value) && value.length > 0 && value.length <= 128 && value.every(valid)) {
+          const vectors = value.map((v) => new Float32Array(v));
+          rememberParsed(key, expectedDigest, raw, vectors);
+          return vectors;
+        }
       } catch { /* 损坏派生条目由后台重建。 */ }
+    };
+    const cached = (connection: InstanceType<typeof DatabaseSync>, key: string): Float32Array[] | undefined => {
+      syncParsedCache(connection);
+      const row = connection.prepare('SELECT value,digest FROM vectors WHERE agent=? AND space=? AND key=? AND length(CAST(value AS BLOB))<=2097152').get(agent, space, key);
+      return row ? parseVectors(key, row.value, row.digest) : undefined;
     };
     const status = () => {
       const m = catalogMeta();
@@ -184,6 +207,7 @@ export async function adaptiveVectorWorker() {
           for (const part of chunks(q.query, 'query: ')) { check(); queryVectors.push(await embed(part)); await tick(); }
           check();
           // 独立连接的短读事务固定本次已索引集合；不能跨异步页混合清单版本。
+          syncParsedCache(db);
           reader = new DatabaseSync(cache, { readOnly: true }); reader.exec('BEGIN');
           reader.prepare('SELECT seq FROM vector_catalog_meta WHERE agent=? AND space=?').get(agent, space);
           type Hit = { key: string; score: number; order: number };
@@ -200,14 +224,25 @@ export async function adaptiveVectorWorker() {
                 if (!worse(heap[j], heap[i])) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; }
             }
           };
-          let after = '', order = 0;
+          let after = '', order = 0, lastYield = performance.now();
+          const selectFastPage = reader.prepare(`SELECT c.id,c.key,v.digest FROM vector_catalog c
+            LEFT JOIN vectors v ON v.agent=c.agent AND v.space=c.space AND v.key=c.key
+            WHERE c.agent=? AND c.space=? AND c.state='indexed' AND c.id>? ORDER BY c.id LIMIT 128`);
+          const selectSingle = reader.prepare('SELECT value,digest FROM vectors WHERE agent=? AND space=? AND key=? AND length(CAST(value AS BLOB))<=2097152');
           for (;;) {
             check();
-            const page = reader.prepare("SELECT id,key FROM vector_catalog WHERE agent=? AND space=? AND state='indexed' AND id>? ORDER BY id LIMIT 32").all(agent, space, after);
+            const page = selectFastPage.all(agent, space, after);
             if (!page.length) break;
             for (const candidate of page) {
-              check(); const list = cached(reader, String(candidate.key));
+              check(); const key = String(candidate.key), expectedDigest = candidate.digest;
+              const hit = typeof expectedDigest === 'string' ? parsedCache.get(key) : undefined;
+              let list = hit && hit.digest === expectedDigest ? hit.vectors : undefined;
               if (!list) {
+                const row = selectSingle.get(agent, space, key);
+                list = row ? parseVectors(key, row.value, row.digest) : undefined;
+              }
+              if (!list) {
+                parsedCache.delete(key);
                 // 清单持久化后，缓存仍可能独立损坏；仅失效仍匹配的版本，后台重建。
                 db.prepare("UPDATE vector_catalog SET state='pending',attempts=0,available=0 WHERE agent=? AND space=? AND id=? AND key=?")
                   .run(agent, space, candidate.id, candidate.key);
@@ -216,12 +251,17 @@ export async function adaptiveVectorWorker() {
               let score = -Infinity;
               for (const d of list) {
                 check();
-                for (const v of queryVectors) score = Math.max(score, v.reduce((sum, n, i) => sum + n * d[i], 0));
-                await tick(); // 单文档也可能有128块，不等整页完成才响应取消。
+                for (const v of queryVectors) {
+                  let dot = 0;
+                  for (let i = 0; i < 384; i++) dot += v[i] * d[i];
+                  if (dot > score) score = dot;
+                }
+                if (performance.now() - lastYield >= 4) { await tick(); lastYield = performance.now(); }
               }
-              push({ key: String(candidate.key), score, order: order++ });
+              push({ key, score, order: order++ });
             }
-            after = String(page.at(-1)!.id); await tick();
+            after = String(page.at(-1)!.id);
+            if (performance.now() - lastYield >= 4) { await tick(); lastYield = performance.now(); }
           }
           check();
           const keys = heap.sort((a, b) => b.score - a.score || a.order - b.order).map((h) => h.key);
@@ -246,12 +286,14 @@ export async function adaptiveVectorWorker() {
               if (!current(candidate) || closing) break;
             }
             if (closing || !current(candidate)) continue;
-            const value = JSON.stringify(list);
+            const value = JSON.stringify(list), valueDigest = digest(value);
             db.exec('BEGIN');
             try {
-              db.prepare('INSERT OR REPLACE INTO vectors VALUES (?,?,?,?,?)').run(agent, space, candidate.key, value, digest(value));
+              db.prepare('INSERT OR REPLACE INTO vectors VALUES (?,?,?,?,?)').run(agent, space, candidate.key, value, valueDigest);
               db.prepare("UPDATE vector_catalog SET state='indexed',attempts=0,available=0 WHERE agent=? AND space=? AND id=? AND key=?").run(agent, space, candidate.id, candidate.key);
               db.exec('COMMIT');
+              lastDataVersion = Number(db.prepare('PRAGMA data_version').get()?.data_version ?? -1);
+              rememberParsed(candidate.key, valueDigest, value, list.map((v) => new Float32Array(v)));
             } catch (error) { db.exec('ROLLBACK'); throw error; }
             computed++; status();
           } catch (error) {
@@ -306,6 +348,7 @@ export async function adaptiveVectorWorker() {
             db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, removal.id);
             db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key);
             db.exec('COMMIT');
+            parsedCache.delete(String(old.key));
           } catch (error) { db.exec('ROLLBACK'); throw error; }
         }
         await tick();
@@ -317,8 +360,8 @@ export async function adaptiveVectorWorker() {
         const list = cached(db, c.key);
         db.exec('BEGIN');
         try {
-          if (old && old.key !== c.key) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key);
-          if (!list) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, c.key);
+          if (old && old.key !== c.key) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key); parsedCache.delete(String(old.key)); }
+          if (!list) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, c.key); parsedCache.delete(c.key); }
           db.prepare(`INSERT INTO vector_catalog(agent,space,id,key,title,text,seen,state) VALUES(?,?,?,?,?,?,?,?)
             ON CONFLICT(agent,space,id) DO UPDATE SET key=excluded.key,title=excluded.title,text=excluded.text,seen=excluded.seen,
             state=excluded.state,attempts=CASE WHEN vector_catalog.key=excluded.key THEN vector_catalog.attempts ELSE 0 END,
@@ -339,6 +382,7 @@ export async function adaptiveVectorWorker() {
             for (const row of page) {
               db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, row.id);
               db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
+              parsedCache.delete(String(row.key));
             }
             db.exec('COMMIT');
           } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -350,7 +394,7 @@ export async function adaptiveVectorWorker() {
           const page = db.prepare(`SELECT key FROM vectors v WHERE agent=? AND space=? AND NOT EXISTS
             (SELECT 1 FROM vector_catalog c WHERE c.agent=v.agent AND c.space=v.space AND c.key=v.key) LIMIT 32`).all(agent, space);
           if (!page.length) break;
-          for (const row of page) db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
+          for (const row of page) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key); parsedCache.delete(String(row.key)); }
           await tick();
         }
       }

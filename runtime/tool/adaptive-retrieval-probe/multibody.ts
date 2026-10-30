@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { runTrack, type InputTrack } from '../adaptive-eval/run-track.ts';
+import { retrievalSnapshotReady } from '../adaptive-eval/retrieval-observer.ts';
 import { semanticDigest } from '../../src/memory/adaptive-query.ts';
 
 const retrievalCache = fs.realpathSync(process.argv[2]);
@@ -31,8 +32,7 @@ try {
     report.results.push(result); assert.equal(result.status, 'pipeline-completed-needs-review');
     const checkpoints = track.steps.map((_, i) => JSON.parse(fs.readFileSync(path.join(directory, `checkpoint-${i + 1}.json`), 'utf8')));
     for (const [i, cp] of checkpoints.entries()) {
-      assert.equal(cp.preAnswer.center.status.retrieval.snapshot, cp.preAnswer.center.retrievalExpected);
-      assert.equal(cp.preAnswer.center.status.retrieval.pending, 0);
+      assert(retrievalSnapshotReady(cp.preAnswer.center));
       assert(cp.preAnswer.center.status.retrieval.indexed > 0);
       assert.equal(cp.preAnswer.satellite.status.retrieval.state, 'inactive');
       assert.equal(cp.preAnswer.satellite.retrievalCalls.length, 0);

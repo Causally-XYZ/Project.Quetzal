@@ -295,8 +295,9 @@ export class AdaptiveGraph {
 
   query(query: string, read: SourceReader = (id) => this.queue.source(id), neighbors?: SemanticNeighbors) {
     return this.snapshot(() => {
-      const dense = neighbors?.queryHash === semanticDigest(query) && neighbors.keys.length <= 1000 &&
-        neighbors.keys.every((key) => /^[a-f0-9]{64}$/.test(key)) ? this.lookup.neighbors(neighbors.keys) : [];
+      const denseKeys = neighbors?.queryHash === semanticDigest(query) && neighbors.keys.length <= 1000 &&
+        neighbors.keys.every((key) => /^[a-f0-9]{64}$/.test(key)) ? new Set(neighbors.keys) : undefined;
+      const dense = denseKeys ? this.lookup.neighbors(neighbors!.keys) : [];
       const queryTerms = new Set(tokens(query));
       const pending = [...dense, ...this.lookup.matches(query)];
       const seen = new Set<string>(), selected = new Map<string, SemanticRecord>(); let matched = 0, expanded = 0;
@@ -308,7 +309,7 @@ export class AdaptiveGraph {
           if (!records) continue;
           const own = semanticCandidates(records, read, (source) => this.queue.source(source)).find((c) => c.item.id === id);
           const matches = own && (tokens(`${own.title}\n${own.text}`).some((term) => queryTerms.has(term)) ||
-            neighbors?.queryHash === semanticDigest(query) && neighbors.keys.includes(own.key));
+            !!denseKeys?.has(own.key));
           if (own && matches) {
             matched++;
             // 有界候选进入最终重排；计数遍历不保留所有候选正文。
