@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import { AdaptiveStore, type MemoryJob } from './adaptive-store.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
-import { directSpans, recordRefs, spanCurrent, type SemanticRecord } from './adaptive-evidence.ts';
+import { directSpans, recordRefs, spanCurrent, isEvidenceSource, type SemanticRecord } from './adaptive-evidence.ts';
 import { normalizeProposal, proposalPrompt, type ProposalContext } from './adaptive-proposal.ts';
 import { LocalClosure, WorksetOverflow } from './adaptive-workset.ts';
 
@@ -35,7 +35,7 @@ export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { p
       const mention = current.get(p.mention.id); return mention?.kind === 'mention' ? [mention.realm] : [];
     }) : [];
     const candidates = lookup.objects([target.realm, ...referenceRealms]).filter((r) =>
-      directSpans(r).every((p) => { const s = queue.source(p.source); return s && s.role !== 'agent'; }));
+      directSpans(r).every((p) => isEvidenceSource(queue.source(p.source))));
     const closure = new Map<string, SemanticRecord>(), pending = [target, ...candidates];
     let missing = false, references = 0;
     for (let i = 0; i < pending.length; i++) {
@@ -57,7 +57,7 @@ export function reviewPlans(archive: AdaptiveArchive, queue: AdaptiveStore): { p
     const sources = sourceIds.flatMap((id) => { const s = queue.source(id); return s ? [s] : []; });
     // 当前原文可用时允许重新解释；旧引文在提示中显式失效，不能自动换 hash。
     // 删除、忽略或改成助手发言不作为新的独立证据，也不发送其派生文字。
-    if (missing || sources.length !== sourceIds.length || sources.length > 100 || sources.some((s) => s.role === 'agent')) { deferred++; continue; }
+    if (missing || sources.length !== sourceIds.length || sources.length > 100 || sources.some((s) => !isEvidenceSource(s))) { deferred++; continue; }
     const causeIds = new Set([...changedSources.map((s) => s.source),
       ...stale.flatMap((ref) => current.get(ref.id)?.reasons.map((s) => s.source) ?? [])]);
     const cause = sources.filter((s) => causeIds.has(s.id)).sort((a, b) => b.ts - a.ts || b.id - a.id)[0];

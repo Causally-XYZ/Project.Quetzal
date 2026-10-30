@@ -1,6 +1,7 @@
 // 增量整合的内部后台处理器；现有消息任务、灵魂锁、来源 / 代次门禁和发件箱保持同一权威。
 import { AdaptiveStore, type MemoryJob, type MemorySource } from './adaptive-store.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
+import { isEvidenceSource } from './adaptive-evidence.ts';
 import { integrationWorkset } from './adaptive-workset.ts';
 import { normalizeProposal, proposalPrompt } from './adaptive-proposal.ts';
 import { boundedProposal } from './adaptive-model.ts';
@@ -23,8 +24,8 @@ export async function processSemanticNext(options: {
     try {
       const current = queue.source(job.source, job.revision);
       if (!current) { queue.fail(job, 'interrupted'); return { status: 'stale' as const }; }
-      // 助手复述不作为新用户证据；来源观察仍由 M1 单独处理。
-      if (current.role === 'agent') { queue.complete(job); return { status: 'unchanged' as const, source: job.source }; }
+      // 助手复述与内部生成内容（摘要 / 交接 / 子agent等）不作为独立证据；来源观察仍由 M1 单独处理。
+      if (!isEvidenceSource(current)) { queue.complete(job); return { status: 'unchanged' as const, source: job.source }; }
       const cache = new Map<number, MemorySource | undefined>();
       const read = (id: number) => { if (!cache.has(id)) cache.set(id, queue.source(id)); return cache.get(id); };
       // 只查已处理历史的有限游标，不把尚未处理的新修订作为既有事实。

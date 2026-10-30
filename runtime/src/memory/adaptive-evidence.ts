@@ -24,8 +24,15 @@ export interface ClaimRecord extends BaseRecord {
 }
 export type SemanticRecord = ObjectRecord | MentionRecord | ClaimRecord;
 export interface SemanticBatch { baseGeneration: number; records: SemanticRecord[] }
-export interface EvidenceSource { text: string; hash: string; role: string }
+export interface EvidenceSource { text: string; hash: string; role: string; channel?: string }
 export type SourceReader = (id: number) => EvidenceSource | undefined;
+export const INTERNAL_AMBIENT_CHANNELS = new Set(['摘要', '交接', '续做', '子agent', '灵魂同步', '换身体']);
+export function isEvidenceSource(source: { role: string; channel?: string } | undefined): boolean {
+  if (!source) return false;
+  if (source.role === 'user') return true;
+  if (source.role === 'ambient') return !source.channel || !INTERNAL_AMBIENT_CHANNELS.has(source.channel);
+  return false;
+}
 export interface EvidenceState {
   status: 'supported' | 'ambiguous' | 'conditional' | 'unsupported' | 'indeterminate' | 'contested' | 'withdrawn';
   groups: string[]; roots: string[];
@@ -172,7 +179,7 @@ export function evaluateEvidence(records: SemanticRecord[], read: SourceReader, 
   const current = new Map(records.map((r) => [r.id, r]));
   if (current.size !== records.length) throw new Error('认识快照包含重复 ID');
   const sourceRoot = (p: SourceSpan) => `${p.source}:${p.hash}`;
-  const grounded = (p: SourceSpan) => { step(); return spanCurrent(p, source) && ['user', 'ambient'].includes(source(p.source)!.role); };
+  const grounded = (p: SourceSpan) => { step(); return spanCurrent(p, source) && isEvidenceSource(source(p.source)); };
   // Claim reasons 是版本审计来源；证明所需条件只能放进 supports / counters，避免把 OR 偷换成全局 AND。
   const eligible = (r: SemanticRecord) => r.state === 'present' && (r.kind === 'claim' || r.reasons.every((p) => spanCurrent(p, source)));
   const target = (r: SemanticRecord, ref: RecordRef, crossRealm = false) => {

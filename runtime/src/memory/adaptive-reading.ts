@@ -1,5 +1,5 @@
 // 原文不会因认识修订被改写；读取时附上针对具体认识 / 片段的当前状态。
-import { directSpans, recordRefs, refKey, evaluateEvidence, spanCurrent, sameRealm,
+import { directSpans, recordRefs, refKey, evaluateEvidence, spanCurrent, sameRealm, isEvidenceSource,
   type SemanticRecord, type SourceReader, type EvidenceState, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
 
 export interface SourceNotice {
@@ -44,7 +44,7 @@ export function sourceReading(history: SemanticRecord[], ids: number[], generati
     if (r.kind !== 'claim' || r.nature !== 'reported' || r.state !== 'present' || r.counters.length ||
         states.get(r.id)?.status !== 'unsupported' || allStates.get(r.id)?.status !== 'unsupported') return;
     const grounded = (span: SourceSpan) => {
-      step(); return [visible, global].every((read) => spanCurrent(span, read) && ['user', 'ambient'].includes(read(span.source)!.role));
+      step(); return [visible, global].every((read) => spanCurrent(span, read) && isEvidenceSource(read(span.source)));
     };
     if (!r.reasons.every(grounded)) return;
     const group = r.supports.find((g) => !g.assumptions.length && g.premises.length &&

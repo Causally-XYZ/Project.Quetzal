@@ -2,7 +2,7 @@
 import { rank } from '../../../engine/src/retrieval.ts';
 import crypto from 'node:crypto';
 import { reciprocalRankFusion } from './adaptive-ranking.ts';
-import { directSpans, evaluateEvidence, spanCurrent, sameRealm, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
+import { directSpans, evaluateEvidence, spanCurrent, sameRealm, isEvidenceSource, type SemanticRecord, type SourceReader, type Realm, type ClaimRecord, type SourceSpan } from './adaptive-evidence.ts';
 
 interface BaseItem { id: string; revision: number; realm: Realm; roots: { id: number; hash: string }[] }
 export type SemanticItem = BaseItem & ({ kind: 'claim'; status: 'supported' | 'conditional'; text: string;
@@ -49,7 +49,7 @@ export function semanticCandidates(records: SemanticRecord[], read: SourceReader
         localStates.get(r.id)?.status !== 'conditional' || globalStates.get(r.id)?.status !== 'conditional') continue;
     const premiseRoots = (p: ClaimRecord['supports'][number]['premises'][number], crossRealm = false): string[] | undefined => {
       if (p.kind === 'source') return spanCurrent(p, read) && spanCurrent(p, global) &&
-        [read(p.source), global(p.source)].every((s) => s && ['user', 'ambient'].includes(s.role)) ? [`${p.source}:${p.hash}`] : undefined;
+        [read(p.source), global(p.source)].every(isEvidenceSource) ? [`${p.source}:${p.hash}`] : undefined;
       const target = byId.get(p.id);
       return target?.kind === p.kind && target.revision === p.revision && (crossRealm || sameRealm(r.realm, target.realm)) && supported(p.id)
         ? commonStates.get(p.id)!.roots : undefined;

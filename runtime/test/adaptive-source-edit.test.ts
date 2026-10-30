@@ -171,3 +171,37 @@ test('重评候选超限显式延后，不截掉已有对象后要求模型猜�
   const plans = reviewPlans(f.archive, f.queue);
   assert.equal(plans.plans.length, 0); assert.equal(plans.deferred, 1);
 });
+
+test('内部生成消息（摘要 / 交接 / 续做 / 子agent / 灵魂同步 / 换身体）不作为独立证据根；真实用户与环境语音照常整合', async (t) => {
+  const f = fixture(t);
+  for (const [index, channel] of ['摘要', '交接', '续做', '子agent', '灵魂同步', '换身体'].entries()) {
+    const id = 10 + index;
+    f.db.prepare('INSERT INTO messages VALUES(?,?,\'ambient\',?,?, \'session\',\'center\',NULL,NULL,NULL)').run(id, id * 1000, channel, `内部${channel}不应成为独立事实`);
+    assert.equal((await processSemanticNext({ ...f.options, generate: async () => { throw new Error('不应调用模型'); } })).status, 'unchanged');
+    assert.equal(f.queue.processed(id, SEMANTIC_PROCESSOR)?.id, id);
+  }
+  // 真实环境语音（麦克风识别）仍可正常整合为有来源认识
+  f.db.prepare("INSERT INTO messages VALUES(20,20000,'ambient','语音','听到走廊有人说周三停水','session','center',NULL,NULL,NULL)").run();
+  assert.equal((await processSemanticNext({ ...f.options, generate: async (p) => {
+    const d = JSON.parse(p.user), s = d.sources.find((x: any) => x.key === d.current);
+    assert.equal(s.role, 'ambient'); assert.equal(s.channel, '语音');
+    assert.ok(!p.user.includes('内部摘要')); assert.ok(!p.user.includes('内部子agent'));
+    const quote = { kind: 'source', source: s.key, text: s.text, occurrence: null };
+    return { contexts: [], records: [{ key: 'p1', replace: null, kind: 'claim', state: 'present', realm: 'real',
+      reasons: [quote], text: '有人说周三停水', nature: 'reported', participants: [],
+      occurred: { text: '', earliest: null, latest: null }, valid: { text: '', earliest: null, latest: null },
+      supports: [{ id: 'voice', premises: [quote], assumptions: [] }], counters: [] }] };
+  } })).status, 'revised');
+  const voiceClaim = f.archive.current().find((r) => r.kind === 'claim' && r.text === '有人说周三停水')!;
+  assert.equal(f.archive.assess().get(voiceClaim.id)?.status, 'supported');
+  // 若已有认识所引用的来源是内部生成通道，其依据状态为 unsupported 且不阻碍原文纠正
+  f.db.prepare("UPDATE messages SET role='ambient', channel='摘要' WHERE id=1").run();
+  assert.equal(f.archive.assess().get(f.a.id)?.status, 'unsupported');
+  assert.equal(f.archive.assess().get(f.b.id)?.status, 'unsupported');
+  assert.equal(f.archive.assess().get(f.c.id)?.status, 'supported');
+  assert.equal((await processSemanticNext({ ...f.options, generate: async () => { throw new Error('不应调用'); } })).status, 'unchanged');
+  f.insert(21, '新的正常用户纠正');
+  let seen = '';
+  assert.equal((await processSemanticNext({ ...f.options, generate: async (p) => { seen = p.user; return empty(); } })).status, 'unchanged');
+  assert.ok(!seen.includes('饭友是编辑'), '依赖内部摘要的派生认识不进入后续整合工作集');
+});

@@ -1,7 +1,7 @@
 // 增量研究复用持久来源任务与认识存档；检索结果只是候选，不是新的证据权威。
 import { AdaptiveStore, type MemoryJob, type MemorySource } from './adaptive-store.ts';
 import { AdaptiveArchive } from './adaptive-archive.ts';
-import { directSpans, recordRefs, spanCurrent } from './adaptive-evidence.ts';
+import { directSpans, recordRefs, spanCurrent, isEvidenceSource } from './adaptive-evidence.ts';
 import { proposalPrompt, normalizeProposal, type ProposalContext } from './adaptive-proposal.ts';
 import { boundedProposal } from './adaptive-model.ts';
 import type { ArtifactInput } from './adaptive-artifact.ts';
@@ -27,14 +27,20 @@ export async function researchNext(options: {
   if (!enabled() || signal.aborted) return { status: 'deferred' };
   const prepared = await exclusive(() => {
     if (!enabled() || signal.aborted) return;
-    // 只研究已完成语义整合的真实输入；助手回答不能触发自我印证。
-    const ready = queue.db.prepare(`SELECT r.source FROM adaptive_receipts r JOIN adaptive_sources s ON s.source=r.source AND s.revision=r.revision
+    // 只研究已完成语义整合的真实外部输入；助手回答与内部生成内容不能触发自我印证。
+    const ready = queue.db.prepare(`SELECT r.source,m.role,m.channel FROM adaptive_receipts r JOIN adaptive_sources s ON s.source=r.source AND s.revision=r.revision
       JOIN messages m ON m.id=r.source WHERE r.processor=? AND s.deleted=0 AND m.role IN ('user','ambient') AND COALESCE(m.mode,'')<>'ignored'
       AND NOT EXISTS(SELECT 1 FROM adaptive_jobs j WHERE j.source=r.source AND j.revision=r.revision AND j.processor=?)
-      ORDER BY r.completed,r.source LIMIT 20`).all(SEMANTIC_PROCESSOR, RESEARCH_PROCESSOR);
+      ORDER BY r.completed,r.source LIMIT 50`).all(SEMANTIC_PROCESSOR, RESEARCH_PROCESSOR)
+      .filter((r) => isEvidenceSource({ role: String(r.role), channel: String(r.channel) })).slice(0, 20);
     for (const r of ready) queue.scheduleSource(RESEARCH_PROCESSOR, Number(r.source));
-    const job = queue.claim(RESEARCH_PROCESSOR, Date.now(), 300_000);
-    if (!job) return;
+    let job: MemoryJob | undefined;
+    for (;;) {
+      job = queue.claim(RESEARCH_PROCESSOR, Date.now(), 300_000);
+      if (!job) return;
+      if (isEvidenceSource(queue.source(job.source, job.revision))) break;
+      queue.complete(job);
+    }
     return { job, generation: archive.generation() };
   });
   if (!prepared) return { status: enabled() && !signal.aborted ? 'idle' : 'deferred' };
@@ -55,7 +61,7 @@ export async function researchNext(options: {
     for (const id of [job.source, ...ids]) {
       const source = queue.source(id);
       const receipt = queue.db.prepare('SELECT 1 FROM adaptive_receipts WHERE source=? AND revision=? AND processor=?').get(id, source?.revision ?? 0, SEMANTIC_PROCESSOR);
-      if (source && source.role !== 'agent' && receipt) sources.set(id, source);
+      if (isEvidenceSource(source) && receipt) sources.set(id, source!);
     }
     if (!sources.has(job.source) || sources.get(job.source)!.revision !== job.revision) throw new Error('研究触发来源已失效');
     if (sources.size > 100) throw new Error('研究来源超过工作上限');

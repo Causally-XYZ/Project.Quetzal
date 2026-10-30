@@ -64,12 +64,16 @@ test('后台走探索、桥接与反证后安装有版本依赖的推测；原�
   assert.ok(!f.archive.query('活动', (id) => f.queue.source(id)).items.some((i) => i.id === insight.id));
 });
 
-test('原文回查不能引入助手、ignored或未完成整合的输入；重复查询不重搜但仍审查已有线索', async (t) => {
-  const f = fixture(t); f.add(3, '助手假设不能自证', 'agent'); f.add(4, '排除的私人资料', 'user', 'ignored'); f.process(); f.add(5, '尚未处理的新输入');
+test('原文回查不能引入助手、内部生成消息、ignored或未完成整合的输入；重复查询不重搜但仍审查已有线索', async (t) => {
+  const f = fixture(t); f.add(3, '助手假设不能自证', 'agent'); f.add(4, '排除的私人资料', 'user', 'ignored');
+  f.db.prepare("INSERT INTO messages VALUES(6,6000,'ambient','摘要','内部压缩摘要不应被研究', 'session-6',NULL,NULL,NULL,NULL)").run();
+  f.db.prepare("INSERT INTO messages VALUES(7,7000,'ambient','子agent','子agent报告不应被研究', 'session-7',NULL,NULL,NULL,NULL)").run();
+  f.process(); f.add(5, '尚未处理的新输入');
   let calls = 0;
-  const result = await researchNext({ ...f.options, search: async () => [2, 3, 4, 5, 999], generate: async (p) => {
+  const result = await researchNext({ ...f.options, search: async () => [2, 3, 4, 5, 6, 7, 999], generate: async (p) => {
     calls++; const d = JSON.parse(p.user); assert.equal(d.sources.length, 2);
     assert.ok(!p.user.includes('助手假设')); assert.ok(!p.user.includes('私人资料')); assert.ok(!p.user.includes('尚未处理'));
+    assert.ok(!p.user.includes('内部压缩摘要')); assert.ok(!p.user.includes('子agent报告'));
     return d.research.purpose ? { question: '同一个问题', query: '同一次检索' } : { contexts: [], records: [] };
   } });
   assert.equal(result.status, 'unchanged'); assert.equal(calls, 4); assert.equal(f.traces.at(-1)?.steps.length, 1);

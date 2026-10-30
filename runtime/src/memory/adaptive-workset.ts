@@ -1,6 +1,6 @@
 // 按外存索引定位、点读并组装局部工作集；不先物化全图。
 import type { AdaptiveLookup } from './adaptive-lookup.ts';
-import { directSpans, recordRefs, type SemanticRecord, type SourceReader } from './adaptive-evidence.ts';
+import { directSpans, recordRefs, isEvidenceSource, type SemanticRecord, type SourceReader } from './adaptive-evidence.ts';
 import type { MemorySource } from './adaptive-store.ts';
 import { proposalPrompt, type ProposalContext } from './adaptive-proposal.ts';
 
@@ -33,7 +33,7 @@ export class LocalClosure {
     for (let i = 0; i < pending.length; i++) {
       if (selected.has(pending[i])) continue;
       const record = this.get(pending[i]);
-      if (!record || filterSources && directSpans(record).some((p) => { const source = this.read(p.source); return !source || source.role === 'agent'; })) return;
+      if (!record || filterSources && directSpans(record).some((p) => !isEvidenceSource(this.read(p.source)))) return;
       selected.set(record.id, record); bytes += Buffer.byteLength(JSON.stringify(record));
       if (bytes > SEMANTIC_PROMPT_LIMIT) throw new WorksetOverflow('认识引用闭包超过字节上限');
       // 历史依赖只查其身份和当前版本，不把旧证明恢复成当前事实。
@@ -52,7 +52,7 @@ export function integrationWorkset(options: {
 }): { context: ProposalContext; prompt: ReturnType<typeof proposalPrompt> } {
   const { lookup, current, generation, read, previous } = options;
   const graph = new LocalClosure(lookup, read), processed = new Set(previous);
-  const recent = previous.flatMap((id) => { const s = read(id); return s && s.role !== 'agent' ? [s] : []; });
+  const recent = previous.flatMap((id) => { const s = read(id); return isEvidenceSource(s) ? [s!] : []; });
   const anchors = [...new Set([recent.find((s) => s.session === current.session)?.id, recent[0]?.id].filter((id): id is number => id !== undefined))];
   const required = lookup.sourceOwners(current.id, 1001);
   if (required.length > 1000) throw new WorksetOverflow('来源修正目标超过工作上限');
@@ -70,7 +70,7 @@ export function integrationWorkset(options: {
     const sources = ids.flatMap((id) => {
       const s = read(id);
       // 未处理的新修订不能借检索或旧引用提前送入模型。
-      return s && s.role !== 'agent' && (id === current.id || processed.has(id) || known.has(`${id}:${s.hash}`)) ? [s] : [];
+      return isEvidenceSource(s) && (id === current.id || processed.has(id) || known.has(`${id}:${s!.hash}`)) ? [s!] : [];
     });
     const context = { generation, current: current.id, sources, records: values };
     const prompt = proposalPrompt(context);
