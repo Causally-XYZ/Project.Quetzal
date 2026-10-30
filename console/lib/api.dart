@@ -275,7 +275,7 @@ class Api extends ChangeNotifier {
     void fail(String why) {
       authWait?.cancel();
       if (_ws != ws) return;
-      if (!legacy && !heard) { connect(legacy: true); return; } // 旧版运行基座：握手时就要 ?token=
+      if (!legacy && !heard && (isWeb || current == null || !isLegacyLan(current!.base))) { connect(legacy: true); return; } // 旧版运行基座：握手时就要 ?token=
       _lost(why);
     }
     ws.ready.then((_) {
