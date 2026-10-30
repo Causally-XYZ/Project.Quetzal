@@ -296,7 +296,7 @@ Quetzal 对外有两类接口：**网关 API**（控制台、主机工具使用�
 
 matched 为本次有界检索检查到的有效候选数，不是全库穷举数量。接收身体先核对本机权威存档：本机整体代次较新、结果依赖版本落后或同版摘要冲突时拒绝整包；只点读返回basis中的记录，不比较无关正文。主机可读来源必须已在本机复制且 hash 一致；本机编辑、忽略或删除不会因远端 ready 恢复。主机较新版本可以读取，但只代表主机已知快照。协议依赖原有同 agent 正式身体互信，结构 / 摘要检查不是语义真值证明，也不是不信任主机情况下的完整性证明。旧身体没有新方法时正常降级。
 
-`queue.publications` 为 `{pending, written, published, failed}` 计数：依次表示待写文件、文件已落盘但未确认 Git、已确认本地 HEAD、交付失败。published 不代表远端同步或语义确认，任务 done 也不等于交付完成。具体[发布协议](engine/ADAPTIVE_MEMORY_STORAGE.md)与普通来源回执分别解释；当前没有发布重试管理 RPC。
+`queue.publications` 为 `{pending, written, published, failed}` 计数：依次表示待写文件、文件已落盘但未确认 Git、已确认本地 HEAD、交付失败。published 不代表远端同步或语义确认，任务 done 也不等于交付完成。控制台“对话记忆”状态文本单独区分处理失败、认识发布失败与待发布数量，不跨队列重复累加；具体[发布协议](engine/ADAPTIVE_MEMORY_STORAGE.md)与普通来源回执分别解释，当前没有发布重试管理 RPC。
 
 `MemoryPacket` v1 为 `{version: 1, agent, host, generatedAt, status: ready/disabled/unavailable/stopped, freshness: local-snapshot/unknown, observations}`。ready 只代表中心局部可用，不表示所有身体同步完毕。候选截断前只取当前来源版本已有处理回执的材料，避免增量积压挤掉旧材料。最多 6 条 observation：`{id, revision, hash, session, role, channel, text, ts, body, via}`；正文经秘密脱敏后最多 1200 字符，hash 对应完整来源快照，revision 是中心本机来源修订。记录只证明历史发言，不确认正文为事实。错误 agent、主机、版本或形状均降级，不透传额外字段；返回前剔除本机已知 ignored 或 hash 不同的来源，中心尚未同步时也不能绕过。消息 mode 的持久版本与来源 revision 分开，清空标记同样保留；参与身体需升级才能完整补齐旧来源状态。此 v1 原文信封不承载 Mention、Claim、Support 或推理结果；语义认识使用独立查询信封。同步 SQLite 查询不能被 JavaScript 计时器抢占，500ms 不作为磁盘阻塞时的进程实时性保证。
 
