@@ -2,6 +2,11 @@
 
 每个版本一节，标题为 `## <版本>`。发版工作流（`.github/workflows/release.yml`）会把对应小节作为 GitHub Release 的说明，官网下载页从 Release 读取。新增版本使用中文，历史英文段落保留。
 
+## 1.11.1
+
+- **账号**：官方的登录账号换成 Causally 账号（id.causally.xyz），官网「管理账号」跳到它的设置页；原账户按已验证邮箱迁移，agent 与身体绑定原样保留。
+- **同步服务**：新增账号删除事件接收端 `POST /auth/events`（配置 `OIDC_EVENTS_JWKS` 后启用）：身份服务里彻底删除账号时，同步服务随之删除该账户的全部数据。新增运维脚本 `migrate-sub`，换身份服务时按两边已验证的邮箱把老账户改挂到新的账号编号，默认干跑、写入前备份。
+
 ## 1.11.0
 
 - **生成文件**：她能把报告、表格和演示文稿做成 Word、Excel、PowerPoint、PDF，或 Markdown / HTML / CSV / JSON，作为回复的附件交给你；控制台里显示为文件卡片，可以预览、下载，桌面版用系统应用打开。读文档也更准：Word 表格、Excel 的日期与公式、没有 pdftotext 时的中文 PDF。

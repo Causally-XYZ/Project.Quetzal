@@ -177,7 +177,7 @@
 
 | 部分 | 实现 |
 |---|---|
-| 账户 | OpenID Connect 登录（openid-client；账号由外部身份服务提供，不保存它发的令牌）；一个账户下多个 agent，**agent 登记按账户隔离**（agent id 不是秘密，全局唯一会被抢占） |
+| 账户 | OpenID Connect 登录（openid-client；账号由外部身份服务提供，不保存它发的令牌；身份服务推送「账号已彻底删除」事件时删除该账户的全部数据）；一个账户下多个 agent，**agent 登记按账户隔离**（agent id 不是秘密，全局唯一会被抢占） |
 | 绑定身体 | OAuth 2.0 设备授权（RFC 8628 的语义）：身体显示短码与公钥指纹，人在网页上登录、输入、核对、批准；令牌只存哈希 |
 | 目录与信令 | WebSocket：在场（谁在线）、同一 agent 的身体之间转发信令、签发 TURN 凭据 |
 | STUN / TURN | coturn，`use-auth-secret` 的有时效凭据；禁止中转到私有地址；配额与限流 |

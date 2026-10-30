@@ -14,6 +14,7 @@ const schema = z.object({
   OIDC_ISSUER: z.union([z.literal(""), z.url({ protocol: /^https?$/ })]).default(""), // 账号由这个 OpenID Connect 身份服务提供（发现文档在 <issuer>/.well-known/openid-configuration）
   OIDC_CLIENT_ID: z.string().default(""),
   OIDC_CLIENT_SECRET: z.string().default(""), // 机密客户端；回调地址是 <SYNC_PUBLIC_URL>/auth/oidc/callback
+  OIDC_EVENTS_JWKS: z.union([z.literal(""), z.url({ protocol: /^https$/ })]).default(""), // 可选：身份服务推送「账号已彻底删除」事件时校验签名的公钥地址（JWKS）；填了才启用 POST /auth/events
   GITHUB_OAUTH_RELAY: z.union([z.literal(""), z.url({ protocol: /^https$/ })]).default(""), // 链接灵魂仓库时直连 github.com 不通，换令牌经这里中转（例如官网 Worker 的 /api/oauth/github/token）
   TURN_SECRET: z.string().default(""), // 与 coturn 的 static-auth-secret 相同；空则不签发 TURN 凭据
   TURN_HOST: z.string().regex(/^[A-Za-z0-9.:-]*$/).default(""), // STUN / TURN 用的主机名或地址，缺省与公开地址相同（公开地址经 CDN / 隧道代理时必须单独指定一个直连的）
@@ -44,7 +45,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     port: c.SYNC_PORT,
     dataDir: c.SYNC_DATA_DIR,
     trustProxy: c.SYNC_TRUST_PROXY,
-    oidc: c.OIDC_ISSUER && c.OIDC_CLIENT_ID ? { issuer: c.OIDC_ISSUER, clientId: c.OIDC_CLIENT_ID, clientSecret: c.OIDC_CLIENT_SECRET } : undefined,
+    oidc: c.OIDC_ISSUER && c.OIDC_CLIENT_ID ? { issuer: c.OIDC_ISSUER, clientId: c.OIDC_CLIENT_ID, clientSecret: c.OIDC_CLIENT_SECRET, eventsJwks: c.OIDC_EVENTS_JWKS || undefined } : undefined,
     githubRelay: c.GITHUB_OAUTH_RELAY || undefined,
     turn: c.TURN_SECRET ? {
       secret: c.TURN_SECRET,

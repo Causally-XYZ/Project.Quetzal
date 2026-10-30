@@ -50,6 +50,8 @@ sync/
     ├── app.ts          路由：/v1/*（身体）、登录、自带网页（人；配置了 SYNC_WEB_URL 时跳到网页前端）
     ├── web.ts          账户接口 /v1/web/*：网页前端（Cookie + CORS）与控制台登录（Bearer qsc_）共用
     ├── auth.ts         OIDC 登录（openid-client）与会话；链接灵魂仓库时换 GitHub 令牌（可经中转）
+    ├── events.ts       账号删除事件（POST /auth/events）的签名校验：ES256、公钥取自 OIDC_EVENTS_JWKS，Node 内置 crypto
+    ├── migrate-sub.ts  运维脚本：换身份服务时按已验证邮箱把老账户的 sub 改成新的（干跑 / --apply）
     ├── device.ts       设备码绑定（RFC 8628 的语义）与控制台登录；部署公钥、核对词、批准时选 agent
     ├── github-app.ts   GitHub App：配置清单、凭据保存、用户令牌的仓库操作（找 / 建灵魂仓库、加部署密钥、吊销）
     ├── soul-link.ts    /setup/github-app（管理员一键创建 App）与 /soul/link、/soul/callback（批准后链接灵魂仓库）
