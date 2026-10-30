@@ -155,14 +155,15 @@ test('实际宿主：分页跨1000、来源独立变更、ACK重放与重启完�
     queryBudgetMs: 100, seededVectors: 1000, realE5: true }));
 });
 
-test('实际worker：10000候选与真实E5查询在100ms前台预算内稳定返回近邻', { skip: !component, timeout: 60_000 }, async (t) => {
+test('实际worker：10000候选（含多块长文档共20000分块）与真实E5查询在100ms前台预算内稳定返回近邻', { skip: !component, timeout: 60_000 }, async (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'quetzal-vector-10k-'));
   const cache = path.join(home, 'vectors-10k.sqlite');
   const agent = 'synthetic-10k-agent';
   const db = new DatabaseSync(cache);
   db.exec('CREATE TABLE vectors(agent TEXT,space TEXT,key TEXT,value TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(agent,space,key))');
-  const value = JSON.stringify([Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0)]);
-  const digest = crypto.createHash('sha256').update(value).digest('hex');
+  const unit = Array.from({ length: 384 }, (_, i) => i === 0 ? 1 : 0);
+  const multiValue = JSON.stringify([unit, unit]);
+  const multiDigest = crypto.createHash('sha256').update(multiValue).digest('hex');
   const entries = Array.from({ length: 10_000 }, (_, i) => {
     const id = String(i + 1).padStart(6, '0');
     const key = semanticDigest({ id, i });
@@ -170,7 +171,7 @@ test('实际worker：10000候选与真实E5查询在100ms前台预算内稳定�
   });
   db.exec('BEGIN');
   const insert = db.prepare('INSERT INTO vectors VALUES(?,?,?,?,?)');
-  for (const e of entries) insert.run(agent, VECTOR_SPACE, e.key, value, digest);
+  for (const e of entries) insert.run(agent, VECTOR_SPACE, e.key, multiValue, multiDigest);
   db.exec('COMMIT'); db.close();
   const backend = new AdaptiveVectorRetriever({ root: component!, cache, agent });
   t.after(async () => { await backend.close(); fs.rmSync(home, { recursive: true, force: true }); });
@@ -199,8 +200,8 @@ test('实际worker：10000候选与真实E5查询在100ms前台预算内稳定�
     const res = await backend.query('海湾访问计划');
     const elapsed = performance.now() - qStart;
     queryDurations.push(elapsed);
-    assert.ok(res && res.keys.length === 1000, `第 ${i + 1} 次 10000 候选查询须在 100ms 预算内返回 Top-1000（耗时 ${elapsed.toFixed(2)}ms）`);
+    assert.ok(res && res.keys.length === 1000, `第 ${i + 1} 次 10000 候选（20000分块）查询须在 100ms 预算内返回 Top-1000（耗时 ${elapsed.toFixed(2)}ms）`);
     assert.equal(res.keys[0], entries[0].key);
   }
-  t.diagnostic(JSON.stringify({ candidates: 10_000, queryMs: queryDurations }));
+  t.diagnostic(JSON.stringify({ candidates: 10_000, totalChunks: 20_000, queryMs: queryDurations }));
 });

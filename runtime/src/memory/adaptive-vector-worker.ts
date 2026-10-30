@@ -145,9 +145,14 @@ export async function adaptiveVectorWorker() {
       return vector;
     }
     // 每次只解析一个文档，最多128块；拒绝异常缓存正文，避免单行无限分配。
-    const parsedCache = new Map<string, { digest: string; raw: string; vectors: Float32Array[] }>();
-    const rememberParsed = (key: string, expectedDigest: string, raw: string, vectors: Float32Array[]) => {
-      parsedCache.delete(key); parsedCache.set(key, { digest: expectedDigest, raw, vectors });
+    const parsedCache = new Map<string, { digest: string; raw: string; flat: Float32Array }>();
+    const toFlat = (list: number[][]): Float32Array => {
+      const flat = new Float32Array(list.length * 384);
+      for (let c = 0; c < list.length; c++) flat.set(list[c], c * 384);
+      return flat;
+    };
+    const rememberParsed = (key: string, expectedDigest: string, raw: string, flat: Float32Array) => {
+      parsedCache.delete(key); parsedCache.set(key, { digest: expectedDigest, raw, flat });
       if (parsedCache.size > 16384) parsedCache.delete(parsedCache.keys().next().value!);
     };
     let lastDataVersion = -1;
@@ -155,23 +160,23 @@ export async function adaptiveVectorWorker() {
       const version = Number(connection.prepare('PRAGMA data_version').get()?.data_version ?? -1);
       if (version !== lastDataVersion) { parsedCache.clear(); lastDataVersion = version; }
     };
-    const parseVectors = (key: string, raw: unknown, expectedDigest: unknown): Float32Array[] | undefined => {
+    const parseVectors = (key: string, raw: unknown, expectedDigest: unknown): Float32Array | undefined => {
       if (typeof expectedDigest !== 'string') return;
       const hit = parsedCache.get(key);
-      if (hit && hit.digest === expectedDigest && raw === undefined) return hit.vectors;
+      if (hit && hit.digest === expectedDigest && raw === undefined) return hit.flat;
       if (typeof raw !== 'string' || Buffer.byteLength(raw) > 2097152) return;
-      if (hit && hit.digest === expectedDigest && hit.raw === raw) return hit.vectors;
+      if (hit && hit.digest === expectedDigest && hit.raw === raw) return hit.flat;
       if (digest(raw) !== expectedDigest) return;
       try {
         const value: unknown = JSON.parse(raw);
         if (Array.isArray(value) && value.length > 0 && value.length <= 128 && value.every(valid)) {
-          const vectors = value.map((v) => new Float32Array(v));
-          rememberParsed(key, expectedDigest, raw, vectors);
-          return vectors;
+          const flat = toFlat(value);
+          rememberParsed(key, expectedDigest, raw, flat);
+          return flat;
         }
       } catch { /* 损坏派生条目由后台重建。 */ }
     };
-    const cached = (connection: InstanceType<typeof DatabaseSync>, key: string): Float32Array[] | undefined => {
+    const cached = (connection: InstanceType<typeof DatabaseSync>, key: string): Float32Array | undefined => {
       syncParsedCache(connection);
       const row = connection.prepare('SELECT value,digest FROM vectors WHERE agent=? AND space=? AND key=? AND length(CAST(value AS BLOB))<=2097152').get(agent, space, key);
       return row ? parseVectors(key, row.value, row.digest) : undefined;
@@ -224,7 +229,7 @@ export async function adaptiveVectorWorker() {
                 if (!worse(heap[j], heap[i])) break; [heap[i], heap[j]] = [heap[j], heap[i]]; i = j; }
             }
           };
-          let after = '', order = 0, lastYield = performance.now();
+          let after = '', order = 0, lastYield = performance.now(), blocksSinceCheck = 0;
           const selectFastPage = reader.prepare(`SELECT c.id,c.key,v.digest FROM vector_catalog c
             LEFT JOIN vectors v ON v.agent=c.agent AND v.space=c.space AND v.key=c.key
             WHERE c.agent=? AND c.space=? AND c.state='indexed' AND c.id>? ORDER BY c.id LIMIT 128`);
@@ -234,14 +239,15 @@ export async function adaptiveVectorWorker() {
             const page = selectFastPage.all(agent, space, after);
             if (!page.length) break;
             for (const candidate of page) {
-              check(); const key = String(candidate.key), expectedDigest = candidate.digest;
+              if ((++blocksSinceCheck & 15) === 0) check();
+              const key = String(candidate.key), expectedDigest = candidate.digest;
               const hit = typeof expectedDigest === 'string' ? parsedCache.get(key) : undefined;
-              let list = hit && hit.digest === expectedDigest ? hit.vectors : undefined;
-              if (!list) {
+              let flat = hit && hit.digest === expectedDigest ? hit.flat : undefined;
+              if (!flat) {
                 const row = selectSingle.get(agent, space, key);
-                list = row ? parseVectors(key, row.value, row.digest) : undefined;
+                flat = row ? parseVectors(key, row.value, row.digest) : undefined;
               }
-              if (!list) {
+              if (!flat) {
                 parsedCache.delete(key);
                 // 清单持久化后，缓存仍可能独立损坏；仅失效仍匹配的版本，后台重建。
                 db.prepare("UPDATE vector_catalog SET state='pending',attempts=0,available=0 WHERE agent=? AND space=? AND id=? AND key=?")
@@ -249,14 +255,16 @@ export async function adaptiveVectorWorker() {
                 port.postMessage({ type: 'index-error' }); status(); throw new Error('cache');
               }
               let score = -Infinity;
-              for (const d of list) {
-                check();
+              for (let offset = 0; offset < flat.length; offset += 384) {
                 for (const v of queryVectors) {
                   let dot = 0;
-                  for (let i = 0; i < 384; i++) dot += v[i] * d[i];
+                  for (let i = 0; i < 384; i++) dot += v[i] * flat[offset + i];
                   if (dot > score) score = dot;
                 }
-                if (performance.now() - lastYield >= 4) { await tick(); lastYield = performance.now(); }
+                if ((++blocksSinceCheck & 31) === 0) {
+                  check();
+                  if (performance.now() - lastYield >= 4) { await tick(); lastYield = performance.now(); }
+                }
               }
               push({ key, score, order: order++ });
             }
@@ -293,7 +301,7 @@ export async function adaptiveVectorWorker() {
               db.prepare("UPDATE vector_catalog SET state='indexed',attempts=0,available=0 WHERE agent=? AND space=? AND id=? AND key=?").run(agent, space, candidate.id, candidate.key);
               db.exec('COMMIT');
               lastDataVersion = Number(db.prepare('PRAGMA data_version').get()?.data_version ?? -1);
-              rememberParsed(candidate.key, valueDigest, value, list.map((v) => new Float32Array(v)));
+              rememberParsed(candidate.key, valueDigest, value, toFlat(list));
             } catch (error) { db.exec('ROLLBACK'); throw error; }
             computed++; status();
           } catch (error) {
@@ -319,6 +327,17 @@ export async function adaptiveVectorWorker() {
     }
     const keyValid = (key: unknown) => typeof key === 'string' && /^[a-f0-9]{64}$/.test(key);
     const idValid = (id: unknown) => typeof id === 'string' && id.length > 0 && id.length <= 512;
+    async function withWriteRetry<T>(run: () => T): Promise<T> {
+      for (let attempt = 0; ; attempt++) {
+        if (closing) throw new Error('closing');
+        try { return run(); }
+        catch (error) {
+          if (!busy(error) || attempt >= 15) throw error;
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.min(250, 25 * 2 ** Math.min(attempt, 4))));
+          await answer();
+        }
+      }
+    }
     async function apply(batch: Batch) {
       const { upsert, remove } = batch;
       if (!idValid(batch.epoch) || !Number.isSafeInteger(batch.seq) || batch.seq < 1 ||
@@ -335,41 +354,48 @@ export async function adaptiveVectorWorker() {
         port.postMessage({ type: 'ack', epoch: m.epoch, seq: m.seq, scanComplete: !!m.complete }); return;
       }
       if (batch.begin && batch.seq === 1 && batch.epoch !== m.epoch) {
-        db.prepare('UPDATE vector_catalog_meta SET epoch=?,seq=0,hash=?,complete=0 WHERE agent=? AND space=?').run(batch.epoch, '', agent, space); m = catalogMeta();
+        await withWriteRetry(() => db.prepare('UPDATE vector_catalog_meta SET epoch=?,seq=0,hash=?,complete=0 WHERE agent=? AND space=?').run(batch.epoch, '', agent, space));
+        m = catalogMeta();
       }
       if (m.epoch !== batch.epoch || batch.seq !== Number(m.seq) + 1 || batch.begin && batch.seq !== 1) throw new Error('batch');
       // 每条事务可重放；只在整批（及完整扫描清扫）完成后记录序号并ACK。中断不丢最后未确认的变更。
       for (const removal of remove) {
         if (closing) return;
-        const old = own(removal.id);
-        if (old && (removal.key === undefined || removal.key === old.key)) {
-          db.exec('BEGIN');
-          try {
-            db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, removal.id);
-            db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key);
-            db.exec('COMMIT');
-            parsedCache.delete(String(old.key));
-          } catch (error) { db.exec('ROLLBACK'); throw error; }
-        }
+        await withWriteRetry(() => {
+          const old = own(removal.id);
+          if (old && (removal.key === undefined || removal.key === old.key)) {
+            db.exec('BEGIN');
+            try {
+              db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, removal.id);
+              db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key);
+              db.exec('COMMIT');
+              parsedCache.delete(String(old.key));
+            } catch (error) { db.exec('ROLLBACK'); throw error; }
+          }
+        });
         await tick();
       }
       for (const c of upsert) {
         if (closing) return;
-        const old = own(c.id), sameKey = db.prepare('SELECT id,title,text FROM vector_catalog WHERE agent=? AND space=? AND key=?').get(agent, space, c.key);
-        if (sameKey && (sameKey.id !== c.id || sameKey.title !== c.title || sameKey.text !== c.text)) throw new Error('key');
-        const list = cached(db, c.key);
-        db.exec('BEGIN');
-        try {
-          if (old && old.key !== c.key) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key); parsedCache.delete(String(old.key)); }
-          if (!list) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, c.key); parsedCache.delete(c.key); }
-          db.prepare(`INSERT INTO vector_catalog(agent,space,id,key,title,text,seen,state) VALUES(?,?,?,?,?,?,?,?)
-            ON CONFLICT(agent,space,id) DO UPDATE SET key=excluded.key,title=excluded.title,text=excluded.text,seen=excluded.seen,
-            state=excluded.state,attempts=CASE WHEN vector_catalog.key=excluded.key THEN vector_catalog.attempts ELSE 0 END,
-            available=CASE WHEN vector_catalog.key=excluded.key THEN vector_catalog.available ELSE 0 END`)
-            .run(agent, space, c.id, c.key, c.title, c.text, batch.epoch, list ? 'indexed' : old?.key === c.key && old.state === 'blocked' ? 'blocked' : 'pending');
-          db.exec('COMMIT');
-        } catch (error) { db.exec('ROLLBACK'); throw error; }
-        if (list) reused++;
+        let wasReused = false;
+        await withWriteRetry(() => {
+          const old = own(c.id), sameKey = db.prepare('SELECT id,title,text FROM vector_catalog WHERE agent=? AND space=? AND key=?').get(agent, space, c.key);
+          if (sameKey && (sameKey.id !== c.id || sameKey.title !== c.title || sameKey.text !== c.text)) throw new Error('key');
+          const list = cached(db, c.key);
+          db.exec('BEGIN');
+          try {
+            if (old && old.key !== c.key) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, old.key); parsedCache.delete(String(old.key)); }
+            if (!list) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, c.key); parsedCache.delete(c.key); }
+            db.prepare(`INSERT INTO vector_catalog(agent,space,id,key,title,text,seen,state) VALUES(?,?,?,?,?,?,?,?)
+              ON CONFLICT(agent,space,id) DO UPDATE SET key=excluded.key,title=excluded.title,text=excluded.text,seen=excluded.seen,
+              state=excluded.state,attempts=CASE WHEN vector_catalog.key=excluded.key THEN vector_catalog.attempts ELSE 0 END,
+              available=CASE WHEN vector_catalog.key=excluded.key THEN vector_catalog.available ELSE 0 END`)
+              .run(agent, space, c.id, c.key, c.title, c.text, batch.epoch, list ? 'indexed' : old?.key === c.key && old.state === 'blocked' ? 'blocked' : 'pending');
+            db.exec('COMMIT');
+            wasReused = !!list;
+          } catch (error) { db.exec('ROLLBACK'); throw error; }
+        });
+        if (wasReused) reused++;
         await tick();
       }
       if (batch.complete) {
@@ -377,15 +403,17 @@ export async function adaptiveVectorWorker() {
           if (closing) return;
           const page = db.prepare('SELECT id,key FROM vector_catalog WHERE agent=? AND space=? AND seen<>? LIMIT 32').all(agent, space, batch.epoch);
           if (!page.length) break;
-          db.exec('BEGIN');
-          try {
-            for (const row of page) {
-              db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, row.id);
-              db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
-              parsedCache.delete(String(row.key));
-            }
-            db.exec('COMMIT');
-          } catch (error) { db.exec('ROLLBACK'); throw error; }
+          await withWriteRetry(() => {
+            db.exec('BEGIN');
+            try {
+              for (const row of page) {
+                db.prepare('DELETE FROM vector_catalog WHERE agent=? AND space=? AND id=?').run(agent, space, row.id);
+                db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key);
+                parsedCache.delete(String(row.key));
+              }
+              db.exec('COMMIT');
+            } catch (error) { db.exec('ROLLBACK'); throw error; }
+          });
           await tick();
         }
         // 首次迁移时无清单的旧缓存也只在全扫结束后清理，每次仅保留有界key页。
@@ -394,12 +422,14 @@ export async function adaptiveVectorWorker() {
           const page = db.prepare(`SELECT key FROM vectors v WHERE agent=? AND space=? AND NOT EXISTS
             (SELECT 1 FROM vector_catalog c WHERE c.agent=v.agent AND c.space=v.space AND c.key=v.key) LIMIT 32`).all(agent, space);
           if (!page.length) break;
-          for (const row of page) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key); parsedCache.delete(String(row.key)); }
+          await withWriteRetry(() => {
+            for (const row of page) { db.prepare('DELETE FROM vectors WHERE agent=? AND space=? AND key=?').run(agent, space, row.key); parsedCache.delete(String(row.key)); }
+          });
           await tick();
         }
       }
       if (closing) return;
-      db.prepare('UPDATE vector_catalog_meta SET seq=?,hash=?,complete=? WHERE agent=? AND space=?').run(batch.seq, hash, batch.complete || m.complete ? 1 : 0, agent, space);
+      await withWriteRetry(() => db.prepare('UPDATE vector_catalog_meta SET seq=?,hash=?,complete=? WHERE agent=? AND space=?').run(batch.seq, hash, batch.complete || m.complete ? 1 : 0, agent, space));
       status(); port.postMessage({ type: 'ack', epoch: batch.epoch, seq: batch.seq, scanComplete: !!(batch.complete || m.complete) });
     }
     port.on('message', (message) => {
@@ -411,6 +441,11 @@ export async function adaptiveVectorWorker() {
         if (applying) { closing = true; port.postMessage({ type: 'failed', stage: 'worker' }); void shutdown(); return; }
         applying = true;
         void apply(message.batch).catch((error) => {
+          if (busy(error)) {
+            retryAfter = Date.now() + 2000;
+            port.postMessage({ type: 'batch-busy', epoch: message.batch?.epoch, seq: message.batch?.seq });
+            return;
+          }
           closing = true; port.postMessage({ type: 'failed', stage: Number.isInteger((error as { errcode?: number }).errcode) ? 'cache' : 'worker' });
         }).finally(() => { applying = false; if (closing) void shutdown(); else void pump(); });
       } else if (message.type === 'query') {

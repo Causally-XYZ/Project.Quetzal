@@ -182,6 +182,37 @@ test('真实worker：嵌入提交遇实际SQLite写锁，保留pending退避后�
   } finally { worker.off('message', hold); if (locked) lock.exec('ROLLBACK'); lock.close(); }
 });
 
+test('真实worker：批次清单提交遇实际SQLite写锁，原地退避恢复或拒绝当前批次而不销毁worker', options, async (t) => {
+  const a = candidate(1), b = candidate(2), f = await fixture(t, [a, b]);
+  await f.until(() => f.backend.status().state === 'ready');
+  const lock = new DatabaseSync(f.cache);
+  let locked = false;
+  try {
+    lock.exec('BEGIN IMMEDIATE'); locked = true;
+    const batch1 = { epoch: 'batch-lock', seq: 1, begin: true, complete: false,
+      upsert: [{ id: 'a', key: a.key, title: a.title, text: a.text }], remove: [] };
+    const pendingAck = f.backend.applyBatch(batch1);
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(f.backend.status().state, 'ready', '写锁等待期间worker保持ready');
+    assert.equal(f.backend.status().cacheRecovered, false);
+    lock.exec('ROLLBACK'); locked = false;
+    assert.deepEqual(await pendingAck, { epoch: 'batch-lock', seq: 1, scanComplete: false });
+    assert.equal(f.backend.status().indexed, 1);
+    // 持久写锁超出单批重试窗口时仅拒绝当前applyBatch，worker仍ready且后续重发同一批次可完成
+    lock.exec('BEGIN IMMEDIATE'); locked = true;
+    const batch2 = { epoch: 'batch-lock', seq: 2, complete: true,
+      upsert: [{ id: 'b', key: b.key, title: b.title, text: b.text }], remove: [] };
+    await assert.rejects(f.backend.applyBatch(batch2), /vector_busy/);
+    assert.equal(f.backend.status().state, 'ready', '批次写锁超时不销毁worker');
+    assert.equal(f.backend.status().failure, null);
+    assert.equal(f.backend.status().cacheRecovered, false);
+    lock.exec('ROLLBACK'); locked = false;
+    assert.deepEqual(await f.backend.applyBatch(batch2), { epoch: 'batch-lock', seq: 2, scanComplete: true });
+    assert.equal(f.backend.status().current, true);
+    assert.equal(f.backend.status().indexed, 2);
+  } finally { if (locked) lock.exec('ROLLBACK'); lock.close(); }
+});
+
 test('真实worker：损坏catalog或meta schema沿既有隔离路径自修并保留损坏文件', options, async (t) => {
   for (const table of ['vector_catalog', 'vector_catalog_meta', 'vector_catalog_counts']) {
     const c = candidate(1), f = await fixture(t, [c], (db) => db.exec(`CREATE TABLE ${table}(wrong TEXT)`));

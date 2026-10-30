@@ -48,6 +48,11 @@ export class AdaptiveVectorRetriever implements AdaptiveRetriever {
         if (!pending || pending.value.epoch !== message.epoch || pending.value.seq !== message.seq) { this.fail(); return; }
         this.batch = undefined; this.worker.unref();
         pending.resolve({ epoch: message.epoch, seq: message.seq, scanComplete: message.scanComplete });
+      } else if (message.type === 'batch-busy') {
+        const pending = this.batch;
+        if (!pending || pending.value.epoch !== message.epoch || pending.value.seq !== message.seq) { this.fail(); return; }
+        this.stats.errors++; this.batch = undefined; this.worker.unref();
+        pending.reject(new Error('vector_busy'));
       } else if (message.type === 'index-error') this.stats.errors++;
       else if (message.type === 'answer') this.requests.get(message.id)?.(message.keys);
     });
