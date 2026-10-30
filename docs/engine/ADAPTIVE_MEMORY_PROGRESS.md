@@ -2415,3 +2415,18 @@ worker以SQLite保存候选清单、嵌入待办与epoch / seq，批次持久提
 本次修订范围的本地验收通过；将按已有阶段授权推送origin/feature/adaptive-memory并核对远端，再完成本次收尾。旧M5全量质量结论继续未通过；后续backlog需单独安排，不自动恢复为本次阻塞项。
 
 推送回执：验收提交 `da8be16` 已从 `4f8232d` 正常快进推送到 `origin/feature/adaptive-memory`，远端引用经独立读取核对一致。交付代码仍为 `85650a0`，之后仅范围 / 证据文档收尾；没有main推送或强推。按需求方最新范围完成此次GOAL收尾，原质量及规模待办保留在backlog。
+
+### 7.41 审查项修复、万条多块向量查询与全模块自动化回归：2026-10-30
+
+针对 `7b4aa15` 登记的五项审查问题及 backlog 中本机可自动验证的规模 / 写锁恢复项逐一修复并验证：
+
+1. **内部生成消息与外部证据隔离**：`adaptive-evidence.ts` 定义 `INTERNAL_AMBIENT_CHANNELS`（`摘要 / 交接 / 续做 / 子agent / 灵魂同步 / 换身体`）与 `isEvidenceSource`，贯穿整合、工作集、重评、研究、查询和修订读取。内部 `ambient` 通道直接完成回执而不调用生成模型、不作为独立证据根；已有引用内部摘要的认识降为 `unsupported`。真实用户与 `ambient/语音` 保持原整合路径。
+2. **长会话上下文裁剪前有界核查**：`mind/context.ts` 在 `ContextManager.prepare` 裁剪前按从新到旧保留单次可核查上限及窗口 / 摘要输入预算内的历史，合并跨会话等来源超限时放弃继承旧摘要；`withAdaptiveSources` 对展开后超出1000条上限的单条旧回答保守降级为 `changed`（输出 `ANSWER_CHANGED` 占位），不截断冒充有效，也不抛错中断对话。
+3. **控制台发布失败展示与旧明文局域网回退**：`console/lib/pages/adaptive_memory.dart` 读取单一 `publications` 计数（不跨队列重复累加），区分任务处理失败、认识发布失败与待发布数量；`console/lib/api.dart` 对旧明文局域网档案首次握手失败即回退配对页提示加密配对，消除无意义的二次 legacy 超时等待。
+4. **万条多块向量扫描、探针分页与批次清单写锁恢复**：`adaptive-vector-worker.ts` 消除查询热路径逐分块 `setImmediate` 与 `N+1` 点查，结合 `PRAGMA data_version` 校验将候选分块展平为连续 `Float32Array` 并按时间片让出事件循环；`apply(batch)` 遇 SQLite `BUSY/LOCKED` 支持有界退避重试，超出单批重试窗口时返回 `batch-busy` 仅拒绝当前批次（由宿主重发同一批次）而不销毁已加载的 ONNX worker。`host.ts` 改为持续推进分页直至 `hostCurrent` 就绪，`multibody.ts` 改用 `retrievalSnapshotReady` 核对完整清单。
+5. **CLI 安装脚本 Bash 3.2 兼容**：`cli/install.sh` 为双引号内紧邻全角中文标点的变量补齐 `${VAR}` 花括号，并修复 `sq / desk_q / cron_q` 在 macOS 系统自带 Bash 3.2 下的反斜杠替换差异。
+
+自动化验证汇总（均未伪造真人或全量150序列成绩）：
+- `runtime/test/adaptive-*.test.ts` 等全部 39 个自适应记忆与备份测试文件：**322 项全部通过**（0 失败 / 0 跳过）。其中真实 E5 下 10000 候选（单块）4 次查询耗时 `44.02 / 31.73 / 21.85 / 27.09ms`，10000 候选（每条 2 分块、共 20000 分块）4 次查询耗时 `50.30 / 37.43 / 29.67 / 36.80ms`（均在 100ms 预算内返回 Top-1000）；10000 候选宿主端到端查询 4 次耗时 `201.03–245.97ms`（在 500ms 截止内返回材料）；`adaptive-vector.test.ts` 10 项含嵌入提交写锁与批次清单提交写锁恢复全部通过。
+- 探针与基准实跑：`host.ts` 11 项通过（词面 hit@6 8/14，混合 14/14，P95 47.21ms）；`multibody.ts` 双身体 5 检查点通过（读取 8.93–14.81ms）；`deploy.ts` 4 项部署与自修检查通过（就绪 5419.33ms，准备期间词面查询 8.51ms）；`bench:adaptive-read` 100/500/1000 规模各 100 次查询 P95 分别为 `36.46 / 117.66 / 207.68ms`（over500ms 均为 0）；`eval:adaptive --check` v1/v2 冻结校验通过。
+- 其他模块全套自动化测试：`engine` 60/60 通过，`bridge` 25/25 通过，`cli` 61/61 通过（2 项 PowerShell 在 macOS 正常 skip），`console` Flutter 测试 132/132 全部通过，`npm run build --prefix runtime` 完整构建通过。
