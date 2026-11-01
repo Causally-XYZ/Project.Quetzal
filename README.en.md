@@ -154,6 +154,8 @@ Missing dependencies are installed for you, and it starts at boot. Once you sign
 | [`website/`](website/docs/README.md) | Website and docs site |
 | [`docs/`](docs/) | [Quick start](docs/QUICK_START.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Soul sync](docs/SOUL_SYNC.md) · [Repository spec](docs/SOUL_REPO_SPEC.md) · [Distributed design](docs/DISTRIBUTED.md) · [One-step onboarding](docs/ONBOARDING.md) · [Changelog](CHANGELOG.md) (Chinese) |
 
+Development uses two remotes: `origin` is the [Causally-XYZ/Project.Quetzal](https://github.com/Causally-XYZ/Project.Quetzal) exploration repository, while `upstream` is the canonical [PlutoKeating/Project.Quetzal](https://github.com/PlutoKeating/Project.Quetzal) repository. Converged work is summarized upstream; the detailed workflow is documented in [Development repositories and upstream sync](docs/DEVELOPMENT.md) (Chinese).
+
 Start with the [documentation map](docs/README.md), [purpose and principles](docs/PRINCIPLES.md), and [current memory design](docs/engine/ADAPTIVE_MEMORY.md). Technical documentation is maintained in Chinese; the website carries the English guide. Historical experiments remain available and are not current release guarantees.
 
 <br/>

@@ -9,6 +9,8 @@
 3. [快速开始](QUICK_START.md) → 下面的模块文档：按实际平台构建、配置和运行。
 4. 记忆专项读[实现总览](engine/ADAPTIVE_MEMORY.md) → [行为契约](engine/ADAPTIVE_MEMORY_CONTRACT.md) → [语义协议](engine/ADAPTIVE_MEMORY_SEMANTICS.md) / [持久化协议](engine/ADAPTIVE_MEMORY_STORAGE.md)。
 
+开发仓库与上游仓库的双远程关系、探索分支和收敛流程见[开发仓库与上游同步](DEVELOPMENT.md)。
+
 ## 模块边界与入口
 
 | 模块 | 职责与文档 |
@@ -32,6 +34,7 @@
 | 为什么这样设计、讨论过哪些替代方向 | [原则](PRINCIPLES.md)、[第一性原理复审](engine/ADAPTIVE_MEMORY_FIRST_PRINCIPLES_REVIEW.md)、[组件实验](engine/ADAPTIVE_MEMORY_COMPONENTS.md) |
 | 原 M0–M5 计划、评分与真实证据 | [计划](engine/ADAPTIVE_MEMORY_PLAN.md)、[验收案例](engine/ADAPTIVE_MEMORY_ACCEPTANCE.md)、[评测登记](engine/ADAPTIVE_MEMORY_EVAL.md)、[阶段记录](engine/ADAPTIVE_MEMORY_PROGRESS.md) |
 | 平台决策、接入和研究 | [Windows 决策](WINDOWS_DECISIONS.md)、[上手流程](ONBOARDING.md)、[研究工作区](research/README.md) |
+| 开发仓库如何与上游同步 | [开发仓库与上游同步](DEVELOPMENT.md) |
 
 ## 文档权威与维护方式
 

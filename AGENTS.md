@@ -125,21 +125,24 @@ Agent 在本地完成 commit后，是否 push、何时 push、push 到哪个远�
 
 ## 4. 分支工作流
 
-本项目采用简化的分支流（单人维护，没有 staging 环境）：
+本项目当前采用“探索开发仓库 + 最终上游仓库”的分支流：
 
 ```text
-feature/<name>（可选） -> main（生产分支）
+origin/feature/<name>（探索） -> 收敛审查 -> upstream/main（上游）
 ```
 
 Agent 必须默认理解以下含义：
 
-- `feature/<name>` 或个人特性分支：开发和修复的工作区。
-- `main`：生产分支，只接受已经验证的变更。
+- `origin` 是 `https://github.com/Causally-XYZ/Project.Quetzal.git`，用于探索开发、实验验证和阶段性成果保存。
+- `upstream` 是 `https://github.com/PlutoKeating/Project.Quetzal.git`，是 Quetzal 的最终上游仓库。
+- `origin/feature/<name>` 或本地对应分支：探索和修复的工作区；当前 `feature/adaptive-memory` 属于这一类。
+- 探索分支应定期吸收 `upstream/main`；方案收敛后，才将结果汇总到 `upstream/main`。
+- `upstream/main` 只接受已经验证并完成审查的变更。具体远程角色和检查命令见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)。
 
 Agent 的工作边界：
 
 - 可以在当前本地分支上修改、暂存、提交。
-- 向 `main` 推送遵循第 3.3 节。
+- 探索提交通常推送到 `origin` 的对应特性分支；向 `upstream/main` 汇总或推送仍遵循第 3.3 节的人工授权规则。
 
 
 ---

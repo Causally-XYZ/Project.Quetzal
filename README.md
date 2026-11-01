@@ -155,6 +155,8 @@ irm https://quetzal.plutokeating.beer/install.ps1 | iex
 | [`website/`](website/docs/README.md) | 官网与文档站 |
 | [`docs/`](docs/) | [快速开始](docs/QUICK_START.md) · [架构](docs/ARCHITECTURE.md) · [接口](docs/API.md) · [灵魂同步](docs/SOUL_SYNC.md) · [仓库规范](docs/SOUL_REPO_SPEC.md) · [分布式](docs/DISTRIBUTED.md) · [一键上手](docs/ONBOARDING.md) · [论文研究工作区](docs/research/README.md) · [Personal Agent 综述笔记](docs/RESEARCH_PERSONAL_AGENT.md) · [更新日志](CHANGELOG.md) |
 
+当前开发采用双远程工作流：`origin` 是 [Causally-XYZ/Project.Quetzal](https://github.com/Causally-XYZ/Project.Quetzal) 探索仓库，`upstream` 是 [PlutoKeating/Project.Quetzal](https://github.com/PlutoKeating/Project.Quetzal) 最终上游仓库。探索分支收敛后再汇总到上游，具体流程见[开发仓库与上游同步](docs/DEVELOPMENT.md)。
+
 开发者建议从[文档导航](docs/README.md)和[目的、原则与取舍](docs/PRINCIPLES.md)开始，再阅读各模块架构。自适应记忆的现行机制见[实现总览](docs/engine/ADAPTIVE_MEMORY.md)，状态与未完成项统一见[试用版交付与 backlog](docs/engine/ADAPTIVE_MEMORY_RELEASE.md)。M0–M4 的原型证据、原 M5 计划、正式评测失败和讨论过程均保留在[专题索引](docs/engine/README.md)，不把历史阶段描述作为当前状态。
 
 当前交付为工作分支上的可运行试用版，完整语义质量、规模与真人体验尚未验收；不是已证明 95% 准确率的正式发布。官网安装与下载指向已发布版本，不一定包含本分支功能。
